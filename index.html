@@ -72,6 +72,11 @@ function diagnostics(text,append=true){
   console.log(text);
   diagnosticsEl.textContent=append ? diagnosticsEl.textContent+"\n"+text : text;
 }
+function rawError(error){
+  const name=error?.name||"Error";
+  const message=error?.message||String(error)||"No error message supplied";
+  return name+": "+message;
+}
 function characteristicCapabilities(characteristic){
   const p=characteristic.properties;
   return "write="+p.write+", writeWithoutResponse="+p.writeWithoutResponse+", notify="+p.notify;
@@ -92,18 +97,20 @@ async function inspectPermittedGatt(){
           diagnostics("  Characteristic: "+characteristic.uuid+" — "+characteristicCapabilities(characteristic));
         }
       }catch(error){
-        diagnostics("  Could not enumerate characteristics: "+errorText(error));
+        diagnostics("  Could not enumerate characteristics: "+rawError(error));
       }
     }
   }catch(error){
-    diagnostics("Could not enumerate permitted services: "+errorText(error));
+    diagnostics("Could not enumerate permitted services: "+rawError(error));
+    diagnostics("Interpretation: the GATT connection succeeded, but Chrome found no primary service it was permitted to expose.");
+    diagnostics("Likely cause: none of the 34 requested Lovense service UUIDs matched an exposed primary service. No additional UUIDs were tried.");
   }
 }
-function errorText(error){
-  if(error?.name==="NotFoundError") return "No device selected (Bluetooth picker cancelled).";
-  if(error?.name==="SecurityError") return "Bluetooth is blocked. Use Chrome over HTTPS and press Connect directly.";
-  if(error?.name==="NetworkError") return "Bluetooth connection failed. Make sure the Lush Mini is on, nearby, and not connected to another app.";
-  return error?.message||String(error)||"Unknown Bluetooth error.";
+function errorText(error,stage="operation"){
+  if(stage==="picker"&&error?.name==="NotFoundError") return "No device selected (Bluetooth picker cancelled). "+rawError(error);
+  if(stage==="picker"&&error?.name==="SecurityError") return "Bluetooth is blocked. Use Chrome over HTTPS and press Connect directly. "+rawError(error);
+  if(stage==="connection"&&error?.name==="NetworkError") return "Bluetooth connection failed. Make sure the Lush Mini is on, nearby, and not connected to another app. "+rawError(error);
+  return rawError(error);
 }
 async function write(command){
   if(!tx) throw new Error("No Lovense write characteristic is connected.");
@@ -129,6 +136,7 @@ connectBtn.addEventListener("click",async()=>{
   }
   connectBtn.disabled=true;
   status("Opening Bluetooth device picker…");
+  let stage="picker";
   try{
     diagnostics("Opening Bluetooth device picker…",false);
     device=await navigator.bluetooth.requestDevice({
@@ -140,7 +148,9 @@ connectBtn.addEventListener("click",async()=>{
       diagnostics("Disconnected.");
     });
     status("Connecting to "+(device.name||"Lovense device")+"…");
+    stage="connection";
     server=await device.gatt.connect();
+    stage="GATT inspection";
     await inspectPermittedGatt();
     tx=await findCharacteristic();
     await write("DeviceType;");
@@ -150,7 +160,8 @@ connectBtn.addEventListener("click",async()=>{
     console.error(error);
     ready(false);
     connectBtn.disabled=false;
-    status(errorText(error));
+    diagnostics("Failure during "+stage+": "+rawError(error));
+    status(errorText(error,stage));
   }
 });
 
