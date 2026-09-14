@@ -12,7 +12,7 @@ h1{font-size:1.35rem;margin:0 0 22px}
 button{width:100%;padding:15px;margin:7px 0;border:0;border-radius:12px;font-size:1rem;font-weight:700;color:#fff;background:#7157d9}
 button:disabled{opacity:.45}
 #stop{background:#b33d55}
-.status{margin:0 0 18px;padding:12px;border-radius:10px;background:#191720;color:#ffca65}
+.status{margin:0 0 18px;padding:12px;border-radius:10px;background:#191720;color:#ffca65;line-height:1.35;overflow-wrap:anywhere}
 small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
 </style>
 </head>
@@ -23,50 +23,109 @@ small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
 <button id="connect">Connect Device</button>
 <button id="vibrate" disabled>20% vibration (max 5 seconds)</button>
 <button id="stop" disabled>Stop</button>
-<small>Use Chrome on Android over HTTPS. The device must be nearby and switched on. This page does not provide remote control or a backend.</small>
+<small>Use Chrome on Android over HTTPS. Turn the Lush Mini on and keep it nearby. No Intiface Central or backend is required for this local test.</small>
 </main>
-<script type="module">
-import { ButtplugClient, ButtplugBrowserClientConnector } from "https://cdn.jsdelivr.net/npm/buttplug@3.0.1/dist/web.mjs";
-
+<script>
 const statusEl=document.querySelector("#status");
 const connectBtn=document.querySelector("#connect");
 const vibrateBtn=document.querySelector("#vibrate");
 const stopBtn=document.querySelector("#stop");
-let client, device, stopTimer;
 
-function status(text, colour="#ffca65"){statusEl.textContent=text;statusEl.style.color=colour}
-function ready(yes){vibrateBtn.disabled=!yes;stopBtn.disabled=!yes}
+const SERVICES=[
+  "0000fff0-0000-1000-8000-00805f9b34fb",
+  "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+];
+for(let x=4;x<=5;x++)for(let y=0;y<=15;y++)for(let z=3;z<=4;z++)
+  SERVICES.push("xy"+x.toString(16)+y.toString(16)+"0001-002"+z.toString(16)+"-4bd4-bbd5-a6920e4c5653");
+
+const TX=[
+  "0000fff2-0000-1000-8000-00805f9b34fb",
+  "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+];
+for(let x=4;x<=5;x++)for(let y=0;y<=15;y++)for(let z=3;z<=4;z++)
+  TX.push("xy"+x.toString(16)+y.toString(16)+"0002-002"+z.toString(16)+"-4bd4-bbd5-a6920e4c5653");
+
+let server, tx, device, stopTimer;
+const encoder=new TextEncoder();
+
+function status(text,colour="#ffca65"){
+  statusEl.textContent=text;
+  statusEl.style.color=colour;
+}
+function ready(yes){
+  vibrateBtn.disabled=!yes;
+  stopBtn.disabled=!yes;
+}
+function errorText(error){
+  if(error?.name==="NotFoundError") return "No device selected (Bluetooth picker cancelled).";
+  if(error?.name==="SecurityError") return "Bluetooth is blocked. Use Chrome over HTTPS and press Connect directly.";
+  if(error?.name==="NetworkError") return "Bluetooth connection failed. Make sure the Lush Mini is on, nearby, and not connected to another app.";
+  return error?.message||String(error)||"Unknown Bluetooth error.";
+}
+async function write(command){
+  if(!tx) throw new Error("No Lovense write characteristic is connected.");
+  const data=encoder.encode(command);
+  if(tx.properties.writeWithoutResponse) await tx.writeValueWithoutResponse(data);
+  else await tx.writeValue(data);
+}
+async function findCharacteristic(){
+  for(const uuid of TX){
+    try{
+      const characteristic=await server.getCharacteristic(uuid);
+      if(characteristic.properties.write||characteristic.properties.writeWithoutResponse) return characteristic;
+    }catch(_){}
+  }
+  const services=await server.getPrimaryServices();
+  for(const service of services){
+    for(const characteristic of await service.getCharacteristics()){
+      if(characteristic.properties.write||characteristic.properties.writeWithoutResponse) return characteristic;
+    }
+  }
+  throw new Error("The device connected, but no Lovense write characteristic was found.");
+}
 
 connectBtn.addEventListener("click",async()=>{
+  if(!("bluetooth" in navigator)){
+    status("Web Bluetooth is unavailable in this browser. Use Chrome on Android.");
+    return;
+  }
   connectBtn.disabled=true;
+  status("Opening Bluetooth device picker…");
   try{
-    client=new ButtplugClient("Lush Mini Bluetooth Test");
-    client.addEventListener("deviceadded",e=>{device=e.device;ready(true);status("Connected: "+device.name,"#7ee787")});
-    client.addEventListener("deviceremoved",()=>{device=null;ready(false);status("Disconnected")});
-    client.addEventListener("scanningfinished",()=>{if(!device) status("No compatible device found")});
-    await client.connect(new ButtplugBrowserClientConnector());
-    await client.startScanning();
-    status("Scanning for Lovense Lush Mini…");
+    device=await navigator.bluetooth.requestDevice({
+      filters:[{namePrefix:"LVS-"},{namePrefix:"LOVE-"}],
+      optionalServices:SERVICES
+    });
+    device.addEventListener("gattserverdisconnected",()=>{
+      tx=null; server=null; ready(false); connectBtn.disabled=false; status("Disconnected");
+    });
+    status("Connecting to "+(device.name||"Lovense device")+"…");
+    server=await device.gatt.connect();
+    tx=await findCharacteristic();
+    await write("DeviceType;");
+    ready(true);
+    status("Connected: "+(device.name||"Lovense device"),"#7ee787");
   }catch(error){
     console.error(error);
-    ready(false); connectBtn.disabled=false;
-    status(error?.message||"Unable to connect");
+    ready(false);
+    connectBtn.disabled=false;
+    status(errorText(error));
   }
 });
 
 vibrateBtn.addEventListener("click",async()=>{
-  if(!device)return;
   try{
-    await device.vibrate(0.2);
+    await write("Vibrate:4;");
     clearTimeout(stopTimer);
-    stopTimer=setTimeout(()=>device?.stop(),5000);
+    stopTimer=setTimeout(()=>write("Vibrate:0;").catch(()=>{}),5000);
     status("Vibrating at 20%","#7ee787");
-  }catch(error){status(error?.message||"Vibration failed")}
+  }catch(error){status("Vibration failed: "+errorText(error))}
 });
 
 stopBtn.addEventListener("click",async()=>{
   clearTimeout(stopTimer);
-  try{await device?.stop();status("Connected — stopped","#7ee787")}catch(error){status(error?.message||"Stop failed")}
+  try{await write("Vibrate:0;");status("Connected — stopped","#7ee787")}
+  catch(error){status("Stop failed: "+errorText(error))}
 });
 </script>
 </body>
