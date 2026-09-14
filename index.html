@@ -31,7 +31,7 @@ const connectBtn=document.querySelector("#connect");
 const vibrateBtn=document.querySelector("#vibrate");
 const stopBtn=document.querySelector("#stop");
 
-const LOVENSE_GATT=[
+const STATIC_LOVENSE_GATT=[
   {
     service:"0000fff0-0000-1000-8000-00805f9b34fb",
     tx:"0000fff2-0000-1000-8000-00805f9b34fb"
@@ -41,6 +41,17 @@ const LOVENSE_GATT=[
     tx:"6e400002-b5a3-f393-e0a9-e50e24dcca9e"
   }
 ];
+
+// Buttplug's documented Web Bluetooth enumeration: 16 valid Y values
+// for each documented X/Z form, producing 32 third-generation pairs.
+const THIRD_GENERATION_LOVENSE_GATT=[..."0123456789abcdef"].flatMap(y=>
+  [["4",y,"3"],["5",y,"4"]].map(([x,hexY,z])=>({
+    service:`${x}${hexY}300001-002${z}-4bd4-bbd5-a6920e4c5653`,
+    tx:`${x}${hexY}300002-002${z}-4bd4-bbd5-a6920e4c5653`
+  }))
+);
+
+const LOVENSE_GATT=[...STATIC_LOVENSE_GATT,...THIRD_GENERATION_LOVENSE_GATT];
 const SERVICES=LOVENSE_GATT.map(profile=>profile.service);
 
 let server, tx, device, stopTimer;
