@@ -14,6 +14,7 @@ button:disabled{opacity:.45}
 #stop{background:#b33d55}
 .status{margin:0 0 18px;padding:12px;border-radius:10px;background:#191720;color:#ffca65;line-height:1.35;overflow-wrap:anywhere}
 small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
+.diagnostics{margin:16px 0 0;padding:12px;max-height:250px;overflow:auto;border-radius:10px;background:#191720;color:#d8d1e8;font:12px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
 </style>
 </head>
 <body>
@@ -23,6 +24,7 @@ small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
 <button id="connect">Connect Device</button>
 <button id="vibrate" disabled>20% vibration (max 5 seconds)</button>
 <button id="stop" disabled>Stop</button>
+<pre id="diagnostics" class="diagnostics" aria-live="polite">Diagnostics will appear here after a device connects.</pre>
 <small>Use Chrome on Android over HTTPS. Turn the Lush Mini on and keep it nearby. No Intiface Central or backend is required for this local test.</small>
 </main>
 <script>
@@ -30,6 +32,7 @@ const statusEl=document.querySelector("#status");
 const connectBtn=document.querySelector("#connect");
 const vibrateBtn=document.querySelector("#vibrate");
 const stopBtn=document.querySelector("#stop");
+const diagnosticsEl=document.querySelector("#diagnostics");
 
 const STATIC_LOVENSE_GATT=[
   {
@@ -65,6 +68,37 @@ function ready(yes){
   vibrateBtn.disabled=!yes;
   stopBtn.disabled=!yes;
 }
+function diagnostics(text,append=true){
+  console.log(text);
+  diagnosticsEl.textContent=append ? diagnosticsEl.textContent+"\n"+text : text;
+}
+function characteristicCapabilities(characteristic){
+  const p=characteristic.properties;
+  return "write="+p.write+", writeWithoutResponse="+p.writeWithoutResponse+", notify="+p.notify;
+}
+async function inspectPermittedGatt(){
+  diagnostics("GATT diagnostic — services Chrome has permitted this page to inspect:",false);
+  diagnostics("Requested optional services: "+SERVICES.length+" documented Lovense UUIDs.");
+  diagnostics("Web Bluetooth cannot reveal unrequested/unpermitted services.");
+  try{
+    const services=await server.getPrimaryServices();
+    if(!services.length) diagnostics("No permitted primary services were returned.");
+    for(const service of services){
+      diagnostics("Service: "+service.uuid);
+      try{
+        const characteristics=await service.getCharacteristics();
+        if(!characteristics.length) diagnostics("  No permitted characteristics returned.");
+        for(const characteristic of characteristics){
+          diagnostics("  Characteristic: "+characteristic.uuid+" — "+characteristicCapabilities(characteristic));
+        }
+      }catch(error){
+        diagnostics("  Could not enumerate characteristics: "+errorText(error));
+      }
+    }
+  }catch(error){
+    diagnostics("Could not enumerate permitted services: "+errorText(error));
+  }
+}
 function errorText(error){
   if(error?.name==="NotFoundError") return "No device selected (Bluetooth picker cancelled).";
   if(error?.name==="SecurityError") return "Bluetooth is blocked. Use Chrome over HTTPS and press Connect directly.";
@@ -85,7 +119,7 @@ async function findCharacteristic(){
       if(characteristic.properties.write||characteristic.properties.writeWithoutResponse) return characteristic;
     }catch(_){}
   }
-  throw new Error("The device connected, but its Lovense BLE service is not one of the supported fixed protocol profiles.");
+  throw new Error("The device connected, but no supported Lovense write characteristic was found among the services Chrome permitted this page to inspect. See the diagnostic output.");
 }
 
 connectBtn.addEventListener("click",async()=>{
@@ -96,15 +130,18 @@ connectBtn.addEventListener("click",async()=>{
   connectBtn.disabled=true;
   status("Opening Bluetooth device picker…");
   try{
+    diagnostics("Opening Bluetooth device picker…",false);
     device=await navigator.bluetooth.requestDevice({
       filters:[{namePrefix:"LVS-"},{namePrefix:"LOVE-"}],
       optionalServices:SERVICES
     });
     device.addEventListener("gattserverdisconnected",()=>{
       tx=null; server=null; ready(false); connectBtn.disabled=false; status("Disconnected");
+      diagnostics("Disconnected.");
     });
     status("Connecting to "+(device.name||"Lovense device")+"…");
     server=await device.gatt.connect();
+    await inspectPermittedGatt();
     tx=await findCharacteristic();
     await write("DeviceType;");
     ready(true);
