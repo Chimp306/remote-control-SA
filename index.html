@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Lush Mini Bluetooth Test</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#17151d;color:#fff}
+main{width:min(92vw,420px);box-sizing:border-box;padding:28px;border-radius:20px;background:#27232f;box-shadow:0 12px 40px #0006}
+h1{font-size:1.35rem;margin:0 0 22px}
+button{width:100%;padding:15px;margin:7px 0;border:0;border-radius:12px;font-size:1rem;font-weight:700;color:#fff;background:#7157d9}
+button:disabled{opacity:.45}
+#stop{background:#b33d55}
+.status{margin:0 0 18px;padding:12px;border-radius:10px;background:#191720;color:#ffca65}
+small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
+</style>
+</head>
+<body>
+<main>
+<h1>Lovense Lush Mini — local Bluetooth test</h1>
+<p id="status" class="status">Disconnected</p>
+<button id="connect">Connect Device</button>
+<button id="vibrate" disabled>20% vibration (max 5 seconds)</button>
+<button id="stop" disabled>Stop</button>
+<small>Use Chrome on Android over HTTPS. The device must be nearby and switched on. This page does not provide remote control or a backend.</small>
+</main>
+<script type="module">
+import { ButtplugClient, ButtplugBrowserClientConnector } from "https://cdn.jsdelivr.net/npm/buttplug@3.0.1/dist/web.mjs";
+
+const statusEl=document.querySelector("#status");
+const connectBtn=document.querySelector("#connect");
+const vibrateBtn=document.querySelector("#vibrate");
+const stopBtn=document.querySelector("#stop");
+let client, device, stopTimer;
+
+function status(text, colour="#ffca65"){statusEl.textContent=text;statusEl.style.color=colour}
+function ready(yes){vibrateBtn.disabled=!yes;stopBtn.disabled=!yes}
+
+connectBtn.addEventListener("click",async()=>{
+  connectBtn.disabled=true;
+  try{
+    client=new ButtplugClient("Lush Mini Bluetooth Test");
+    client.addEventListener("deviceadded",e=>{device=e.device;ready(true);status("Connected: "+device.name,"#7ee787")});
+    client.addEventListener("deviceremoved",()=>{device=null;ready(false);status("Disconnected")});
+    client.addEventListener("scanningfinished",()=>{if(!device) status("No compatible device found")});
+    await client.connect(new ButtplugBrowserClientConnector());
+    await client.startScanning();
+    status("Scanning for Lovense Lush Mini…");
+  }catch(error){
+    console.error(error);
+    ready(false); connectBtn.disabled=false;
+    status(error?.message||"Unable to connect");
+  }
+});
+
+vibrateBtn.addEventListener("click",async()=>{
+  if(!device)return;
+  try{
+    await device.vibrate(0.2);
+    clearTimeout(stopTimer);
+    stopTimer=setTimeout(()=>device?.stop(),5000);
+    status("Vibrating at 20%","#7ee787");
+  }catch(error){status(error?.message||"Vibration failed")}
+});
+
+stopBtn.addEventListener("click",async()=>{
+  clearTimeout(stopTimer);
+  try{await device?.stop();status("Connected — stopped","#7ee787")}catch(error){status(error?.message||"Stop failed")}
+});
+</script>
+</body>
+</html>
