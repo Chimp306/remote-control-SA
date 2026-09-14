@@ -69,17 +69,19 @@ async function write(command){
   else await tx.writeValue(data);
 }
 async function findCharacteristic(){
-  for(const uuid of TX){
+  for(const serviceUuid of SERVICES){
     try{
-      const characteristic=await server.getCharacteristic(uuid);
-      if(characteristic.properties.write||characteristic.properties.writeWithoutResponse) return characteristic;
+      const service=await server.getPrimaryService(serviceUuid);
+      for(const characteristicUuid of TX){
+        try{
+          const characteristic=await service.getCharacteristic(characteristicUuid);
+          if(characteristic.properties.write||characteristic.properties.writeWithoutResponse) return characteristic;
+        }catch(_){}
+      }
+      for(const characteristic of await service.getCharacteristics()){
+        if(characteristic.properties.write||character.properties.writeWithoutResponse) return characteristic;
+      }
     }catch(_){}
-  }
-  const services=await server.getPrimaryServices();
-  for(const service of services){
-    for(const characteristic of await service.getCharacteristics()){
-      if(characteristic.properties.write||characteristic.properties.writeWithoutResponse) return characteristic;
-    }
   }
   throw new Error("The device connected, but no Lovense write characteristic was found.");
 }
