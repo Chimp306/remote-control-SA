@@ -82,7 +82,7 @@ const SERVICES=LOVENSE_GATT.map(profile=>profile.service);
 const SUPABASE_URL="https://hqciviafxtfescteyvnn.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
 
-let server, tx, device, stopTimer, remoteClient, remoteChannel, remoteSessionId, remoteReady=false, lastRemotePulseAt=0;
+let server, tx, device, stopTimer, patternTimer, patternGeneration=0, remoteClient, remoteChannel, remoteSessionId, remoteReady=false;
 const encoder=new TextEncoder();
 
 function status(text,colour="#ffca65"){
@@ -116,15 +116,70 @@ async function endRemoteSession(message="No remote session is active."){
   }
   remoteStatus(message);
 }
-async function triggerRemoteTestPulse(){
-  const now=Date.now();
-  if(now-lastRemotePulseAt<1500) return;
-  lastRemotePulseAt=now;
-  if(!tx) return;
-  await write("Vibrate:4;");
+function cancelTimedPattern(){
+  patternGeneration+=1;
   clearTimeout(stopTimer);
-  stopTimer=setTimeout(()=>write("Vibrate:0;").catch(()=>{}),2000);
-  status("Remote test pulse: 20% vibration","#7ee787");
+  clearTimeout(patternTimer);
+  stopTimer=undefined;
+  patternTimer=undefined;
+  return patternGeneration;
+}
+async function finishPattern(token){
+  if(token!==patternGeneration) return;
+  try{
+    await write("Vibrate:0;");
+    if(token===patternGeneration) status("Connected — stopped","#7ee787");
+  }catch(error){
+    if(token===patternGeneration) status("Automatic stop failed: "+rawError(error));
+  }
+}
+async function startFixedPattern(level,label){
+  const token=cancelTimedPattern();
+  await write("Vibrate:0;");
+  if(token!==patternGeneration) return;
+  await write("Vibrate:"+level+";");
+  if(token!==patternGeneration) return;
+  status(label,"#7ee787");
+  stopTimer=setTimeout(()=>finishPattern(token),5000);
+}
+async function startWavePattern(){
+  const token=cancelTimedPattern();
+  await write("Vibrate:0;");
+  if(token!==patternGeneration) return;
+  const levels=[4,5,6,7,8,9,10,11,12,13,14,13,12,11,10,9,8,7,6,5,4];
+  let step=0;
+  status("Remote wave: 20% → 70% → 20%","#7ee787");
+  const advance=async()=>{
+    if(token!==patternGeneration) return;
+    try{
+      await write("Vibrate:"+levels[step]+";");
+      if(token!==patternGeneration) return;
+      if(step===levels.length-1){
+        await finishPattern(token);
+        return;
+      }
+      step+=1;
+      patternTimer=setTimeout(advance,500);
+    }catch(error){
+      if(token===patternGeneration){
+        status("Remote wave failed: "+rawError(error));
+        await finishPattern(token);
+      }
+    }
+  };
+  await advance();
+}
+async function triggerRemoteCommand(command){
+  if(!tx) return;
+  const fixed={
+    "20":{level:4,label:"Remote: 20% vibration"},
+    "40":{level:8,label:"Remote: 40% vibration"},
+    "60":{level:12,label:"Remote: 60% vibration"},
+    "70":{level:14,label:"Remote: 70% vibration"}
+  };
+  if(fixed[command]) return startFixedPattern(fixed[command].level,fixed[command].label);
+  if(command==="wave") return startWavePattern();
+  throw new Error("Unsupported remote command.");
 }
 function setupRemoteClient(){
   if(!window.supabase) throw new Error("The Supabase realtime library did not load.");
@@ -194,10 +249,11 @@ async function createRemoteSession(){
   controllerLinkEl.value=url.toString();
   remoteChannel=remoteClient.channel("lushcon:"+remoteSessionId);
   remoteChannel
-    .on("broadcast",{event:"test-pulse"},async payload=>{
-      if(payload?.payload?.command!=="test-pulse") return;
-      try{await triggerRemoteTestPulse()}
-      catch(error){console.error("Remote pulse failed",error);status("Remote test pulse failed: "+rawError(error))}
+    .on("broadcast",{event:"control-command"},async payload=>{
+      const command=payload?.payload?.command;
+      if(!["20","40","60","70","wave"].includes(command)) return;
+      try{await triggerRemoteCommand(command)}
+      catch(error){console.error("Remote command failed",error);status("Remote command failed: "+rawError(error))}
     })
     .subscribe((state,error)=>{
       if(state==="SUBSCRIBED"){
@@ -272,15 +328,12 @@ connectBtn.addEventListener("click",async()=>{
 
 vibrateBtn.addEventListener("click",async()=>{
   try{
-    await write("Vibrate:4;");
-    clearTimeout(stopTimer);
-    stopTimer=setTimeout(()=>write("Vibrate:0;").catch(()=>{}),5000);
-    status("Vibrating at 20%","#7ee787");
+    await startFixedPattern(4,"Vibrating at 20%");
   }catch(error){status("Vibration failed: "+errorText(error))}
 });
 
 stopBtn.addEventListener("click",async()=>{
-  clearTimeout(stopTimer);
+  cancelTimedPattern();
   try{await write("Vibrate:0;");status("Connected — stopped","#7ee787")}
   catch(error){status("Stop failed: "+errorText(error))}
 });
