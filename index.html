@@ -119,12 +119,12 @@ button:disabled{cursor:not-allowed;filter:saturate(.25) brightness(.62);opacity:
 <p id="edge-status" class="edge-status" role="status" aria-live="polite" hidden></p>
 </section>
 <section class="card" aria-labelledby="tease-heading">
-<div class="card-heading"><h2 id="tease-heading">How close?</h2></div>
-<div id="tease-stages" class="tease-stage-grid" role="group" aria-label="How close?">
-<button class="tease-stage" type="button" data-tease-stage="1" aria-pressed="true" disabled>Relaxed</button>
-<button class="tease-stage" type="button" data-tease-stage="2" aria-pressed="false" disabled>Frustration building</button>
-<button class="tease-stage" type="button" data-tease-stage="3" aria-pressed="false" disabled>OMG</button>
-<button class="tease-stage" type="button" data-tease-stage="4" aria-pressed="false" disabled>PLEASE</button>
+<div class="card-heading"><h2 id="tease-heading">Arousal state</h2></div>
+<div id="tease-stages" class="tease-stage-grid" role="group" aria-label="Arousal state">
+<button class="tease-stage" type="button" data-tease-stage="1" aria-pressed="true" disabled>LOW</button>
+<button class="tease-stage" type="button" data-tease-stage="2" aria-pressed="false" disabled>MEDIUM</button>
+<button class="tease-stage" type="button" data-tease-stage="3" aria-pressed="false" disabled>DESPERATE!</button>
+<button class="tease-stage" type="button" data-tease-stage="4" aria-pressed="false" disabled>MAXIMUM FRUSTRATION</button>
 </div>
 <p class="tease-note">Information only — STOP remains the safety control.</p>
 </section>
@@ -281,10 +281,6 @@ function setTeaseStage(stage){
   if(!Number.isInteger(stage)||stage<1||stage>4||!remoteSessionId)return;
   teaseStage=stage;renderHostTeaseState();publishTeaseState();
 }
-function startTeaseTimerIfAccepted(){
-  if(teaseStartedAt!==null)return;
-  teaseStartedAt=Date.now();publishTeaseState();
-}
 async function endRemoteSession(message="No remote session is active."){
   sessionGeneration++;
   const endingSession=remoteSessionId,channel=remoteChannel;
@@ -342,7 +338,6 @@ async function receiveControl(payload){
   if(seenCommands.has(p.id)||seenCommands.size>=10000)return;
   if(!["20","40","60","70","hold-start","max-hold-start"].includes(p.command))return;
   seenCommands.add(p.id);
-  startTeaseTimerIfAccepted();
   if(p.command==="hold-start")await engine.hold(p.id,issued+1200,"random");
   else if(p.command==="max-hold-start")await engine.hold(p.id,issued+1200,"max-hold");
   else await engine.fixed(p.command,p.id);
@@ -432,6 +427,7 @@ async function subscribeRemoteChannel(recovering=false){
       if(remoteChannel!==channel) return;
       if(state==="SUBSCRIBED"){
         remoteReady=true;
+        if(teaseStartedAt===null)teaseStartedAt=Date.now();
         publishHostState();
         publishTeaseState();
         copyControllerBtn.disabled=false;

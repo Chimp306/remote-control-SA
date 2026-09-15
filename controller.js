@@ -78,14 +78,14 @@ function showEdgeCelebration(count){
   celebrationTimer=setTimeout(hideEdgeCelebration,1800);
 }
 const guestTeaseMessages={
-  1:{name:"😈 RELAXED",copy:"I can handle this."},
-  2:{name:"😏 BUILDING",copy:"The frustration is building… and this is good."},
-  3:{name:"🔥 DESPERATE",copy:"You’re an epic tease. You’ve really got me now."},
-  4:{name:"❤️ PLEASE",copy:"Okay… really. PLEASE."}
+  1:{name:"LOW",copy:"Are you sure you’re teasing?"},
+  2:{name:"MEDIUM",copy:"I know I’m being teased now."},
+  3:{name:"DESPERATE!",copy:"Fuck!"},
+  4:{name:"MAXIMUM FRUSTRATION",copy:"PLEASE!"}
 };
 function renderTeaseState(){
   const content=guestTeaseMessages[teaseStage];teasePanelEl.dataset.stage=String(teaseStage);teaseMessageEl.textContent=content.name;teaseCopyEl.textContent=content.copy;
-  if(teaseStartedAt===null){teaseTimerEl.textContent="Waiting for the first control…";return}
+  if(teaseStartedAt===null){teaseTimerEl.textContent="Teasing for 0:00";return}
   const hostNow=Date.now()-teaseHostClockOffset,total=Math.max(0,Math.floor((hostNow-teaseStartedAt)/1000)),hours=Math.floor(total/3600),minutes=Math.floor(total%3600/60),seconds=total%60;
   teaseTimerEl.textContent="Teasing for "+(hours?hours+":"+String(minutes).padStart(2,"0"):
     minutes)+":"+String(seconds).padStart(2,"0");
@@ -256,9 +256,9 @@ function beginPreviewHold(button){
   status(button.querySelector(".level").textContent+" active — release to stop","#f0c98c");
 }
 function enablePreviewInteractions(){
-  document.querySelector("#preview-badge").hidden=false;previewToolsEl.hidden=false;hapticStateEl.hidden=false;document.body.dataset.controlState="ready";edgeCountEl.textContent="EDGE used: 0 times · preview";setControls(true);stopPreview();renderTeaseState();
+  document.querySelector("#preview-badge").hidden=false;previewToolsEl.hidden=false;hapticStateEl.hidden=false;document.body.dataset.controlState="ready";edgeCountEl.textContent="EDGE used: 0 times · preview";setControls(true);stopPreview();teaseHostClockOffset=0;teaseStartedAt=Date.now();renderTeaseState();
   document.querySelectorAll("[data-preview-stage]").forEach(button=>button.addEventListener("click",()=>{teaseStage=Number(button.dataset.previewStage);renderTeaseState();guestHaptic("tease")}));
-  document.querySelector("#preview-timer").addEventListener("click",()=>{teaseHostClockOffset=0;teaseStartedAt=Date.now()-1122000;renderTeaseState()});
+  document.querySelector("#preview-timer").addEventListener("click",()=>{teaseHostClockOffset=0;teaseStartedAt=Date.now();renderTeaseState()});
   document.querySelector("#preview-haptic").addEventListener("click",()=>guestHaptic("tease"));
   document.querySelector("#preview-edge-first").addEventListener("click",()=>{guestHaptic("edge");showEdgeCelebration(1)});
   document.querySelector("#preview-edge-later").addEventListener("click",()=>{guestHaptic("edge");showEdgeCelebration(2)});
