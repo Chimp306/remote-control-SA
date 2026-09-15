@@ -12,6 +12,7 @@ h1{font-size:1.35rem;margin:0 0 22px}
 button{width:100%;padding:15px;margin:7px 0;border:0;border-radius:12px;font-size:1rem;font-weight:700;color:#fff;background:#7157d9}
 button:disabled{opacity:.45}
 #stop{background:#b33d55}
+#reconnect{background:#3f7fc4}
 #edge{background:#e05666;font-size:1.12rem;padding:18px;box-shadow:0 0 0 2px #ff8b98 inset}
 .edge-status{margin:7px 0 14px;padding:12px;border-radius:10px;background:#191720;color:#ff9ca7;font-weight:700;line-height:1.35}
 .edge-status[hidden]{display:none}
@@ -30,6 +31,7 @@ small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
 <h1>Lovense Lush Mini — local Bluetooth test</h1>
 <p id="status" class="status">Disconnected</p>
 <button id="connect">Connect Device</button>
+<button id="reconnect" hidden>Reconnect Device</button>
 <button id="vibrate" disabled>20% vibration (max 5 seconds)</button>
 <button id="stop" disabled>Stop</button>
 <button id="edge" disabled>EDGE — pause remote control</button>
@@ -48,6 +50,7 @@ small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
 <script>
 const statusEl=document.querySelector("#status");
 const connectBtn=document.querySelector("#connect");
+const reconnectBtn=document.querySelector("#reconnect");
 const vibrateBtn=document.querySelector("#vibrate");
 const stopBtn=document.querySelector("#stop");
 const edgeBtn=document.querySelector("#edge");
@@ -89,19 +92,19 @@ const SERVICES=LOVENSE_GATT.map(profile=>profile.service);
 const SUPABASE_URL="https://hqciviafxtfescteyvnn.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
 
-let server, tx, device, stopTimer, patternTimer, patternGeneration=0, remoteClient, remoteChannel, remoteSessionId, remoteReady=false, edgeLockUntil=0, edgeCountdownTimer, edgeUseCount=0, edgeSigningKey;
+let server, tx, device, stopTimer, patternTimer, patternGeneration=0, remoteClient, remoteChannel, remoteSessionId, remoteReady=false, edgeLockUntil=0, edgeCountdownTimer, edgeUseCount=0, edgeSigningKey, remoteRecoveryTimer, remoteRecoveryPromise, bluetoothRecoveryPromise, wakeLock;
 const encoder=new TextEncoder();
 
 function status(text,colour="#ffca65"){
   statusEl.textContent=text;
   statusEl.style.color=colour;
 }
-function ready(yes){
+function ready(yes,preserveRemoteSession=false){
   vibrateBtn.disabled=!yes;
   stopBtn.disabled=!yes;
   edgeBtn.disabled=!yes;
   createControllerBtn.disabled=!yes;
-  if(!yes) endRemoteSession("Connect the Lush Mini first.");
+  if(!yes&&!preserveRemoteSession) endRemoteSession("Connect the Lush Mini first.");
 }
 function remoteStatus(text,colour="#c7c0d0"){
   remoteStatusEl.textContent=text;
@@ -248,6 +251,63 @@ function setupRemoteClient(){
     });
   }
 }
+function remoteChannelSubscribed(){
+  const socketConnected=typeof remoteClient?.realtime?.isConnected!=="function"||remoteClient.realtime.isConnected();
+  return remoteReady&&remoteChannel?.state==="joined"&&socketConnected;
+}
+function remoteChannelConnecting(){
+  return remoteChannel?.state==="joining";
+}
+function scheduleRemoteRecovery(){
+  clearTimeout(remoteRecoveryTimer);
+  if(!remoteSessionId||document.visibilityState!=="visible") return;
+  remoteRecoveryTimer=setTimeout(()=>recoverRemoteSession(),1500);
+}
+async function subscribeRemoteChannel(recovering=false){
+  if(!remoteSessionId) return;
+  setupRemoteClient();
+  clearTimeout(remoteRecoveryTimer);
+  const sessionId=remoteSessionId;
+  const previousChannel=remoteChannel;
+  remoteReady=false;
+  remoteChannel=null;
+  if(previousChannel){
+    try{await remoteClient.removeChannel(previousChannel)}catch(error){console.warn("Could not replace remote channel",error)}
+  }
+  if(sessionId!==remoteSessionId) return;
+  if(recovering) remoteStatus("Restoring existing controller session…");
+  const channel=remoteClient.channel("lushcon:"+sessionId);
+  remoteChannel=channel;
+  channel
+    .on("broadcast",{event:"control-command"},async payload=>{
+      const command=payload?.payload?.command;
+      if(!["20","40","60","70","wave"].includes(command)) return;
+      if(edgeLocked()) return;
+      try{await triggerRemoteCommand(command)}
+      catch(error){console.error("Remote command failed",error);status("Remote command failed: "+rawError(error))}
+    })
+    .on("broadcast",{event:"edge-count-request"},()=>publishEdgeCount())
+    .subscribe((state,error)=>{
+      if(remoteChannel!==channel) return;
+      if(state==="SUBSCRIBED"){
+        remoteReady=true;
+        copyControllerBtn.disabled=false;
+        remoteStatus(recovering ? "Existing controller session restored." : "Controller link is live. Share it only with the person you want to control this test.","#7ee787");
+      }else if(state==="CHANNEL_ERROR"||state==="TIMED_OUT"||state==="CLOSED"){
+        remoteReady=false;
+        copyControllerBtn.disabled=true;
+        remoteStatus("Remote session disconnected — reconnecting…");
+        console.error("Supabase host channel status:",state,error);
+        scheduleRemoteRecovery();
+      }
+    });
+}
+async function recoverRemoteSession(){
+  if(!remoteSessionId||remoteChannelSubscribed()||remoteChannelConnecting()) return;
+  if(remoteRecoveryPromise) return remoteRecoveryPromise;
+  remoteRecoveryPromise=subscribeRemoteChannel(true).finally(()=>{remoteRecoveryPromise=null});
+  return remoteRecoveryPromise;
+}
 function diagnostics(text,append=true){
   console.log(text);
   diagnosticsEl.textContent=append ? diagnosticsEl.textContent+"\n"+text : text;
@@ -298,6 +358,50 @@ async function write(command){
   if(tx.properties.writeWithoutResponse) await tx.writeValueWithoutResponse(data);
   else await tx.writeValue(data);
 }
+async function acquireWakeLock(){
+  if(wakeLock||document.visibilityState!=="visible"||(!tx&&!remoteSessionId)||!navigator.wakeLock?.request) return;
+  try{
+    const lock=await navigator.wakeLock.request("screen");
+    wakeLock=lock;
+    lock.addEventListener("release",()=>{if(wakeLock===lock) wakeLock=null},{once:true});
+  }catch(error){
+    console.warn("Screen wake lock unavailable",error);
+  }
+}
+async function reconnectBluetooth(manual=false){
+  if(!device) return;
+  if(bluetoothRecoveryPromise) return bluetoothRecoveryPromise;
+  bluetoothRecoveryPromise=(async()=>{
+    reconnectBtn.disabled=true;
+    status(manual ? "Reconnecting to authorised device…" : "Restoring Bluetooth connection…");
+    try{
+      server=device.gatt.connected ? device.gatt : await device.gatt.connect();
+      tx=await findCharacteristic();
+      ready(true,true);
+      connectBtn.disabled=true;
+      reconnectBtn.hidden=true;
+      status("Reconnected: "+(device.name||"Lovense device"),"#7ee787");
+      acquireWakeLock();
+    }catch(error){
+      tx=null;
+      server=null;
+      ready(false,true);
+      reconnectBtn.hidden=false;
+      reconnectBtn.disabled=false;
+      status("Bluetooth needs your help — press Reconnect Device. "+errorText(error,"connection"));
+      diagnostics("Bluetooth recovery failed: "+rawError(error));
+    }
+  })().finally(()=>{bluetoothRecoveryPromise=null});
+  return bluetoothRecoveryPromise;
+}
+async function recoverActiveConnections(){
+  if(document.visibilityState!=="visible") return;
+  acquireWakeLock();
+  const recoveries=[];
+  if(remoteSessionId&&!remoteChannelSubscribed()&&!remoteChannelConnecting()) recoveries.push(recoverRemoteSession());
+  if(device&&(!device.gatt.connected||!tx)) recoveries.push(reconnectBluetooth(false));
+  await Promise.allSettled(recoveries);
+}
 async function createRemoteSession(){
   if(!tx) throw new Error("Connect the Lush Mini before creating a controller link.");
   setupRemoteClient();
@@ -311,28 +415,8 @@ async function createRemoteSession(){
   url.searchParams.set("session",remoteSessionId);
   url.searchParams.set("edgeKey",edgePublicKey);
   controllerLinkEl.value=url.toString();
-  remoteChannel=remoteClient.channel("lushcon:"+remoteSessionId);
-  remoteChannel
-    .on("broadcast",{event:"control-command"},async payload=>{
-      const command=payload?.payload?.command;
-      if(!["20","40","60","70","wave"].includes(command)) return;
-      if(edgeLocked()) return;
-      try{await triggerRemoteCommand(command)}
-      catch(error){console.error("Remote command failed",error);status("Remote command failed: "+rawError(error))}
-    })
-    .on("broadcast",{event:"edge-count-request"},()=>publishEdgeCount())
-    .subscribe((state,error)=>{
-      if(state==="SUBSCRIBED"){
-        remoteReady=true;
-        copyControllerBtn.disabled=false;
-        remoteStatus("Controller link is live. Share it only with the person you want to control this test.","#7ee787");
-      }else if(state==="CHANNEL_ERROR"||state==="TIMED_OUT"||state==="CLOSED"){
-        remoteReady=false;
-        copyControllerBtn.disabled=true;
-        remoteStatus("Remote session unavailable: "+rawError(error));
-        console.error("Supabase host channel status:",state,error);
-      }
-    });
+  await subscribeRemoteChannel(false);
+  acquireWakeLock();
 }
 async function copyControllerLink(){
   if(!remoteReady||!controllerLinkEl.value) return;
@@ -371,8 +455,11 @@ connectBtn.addEventListener("click",async()=>{
       optionalServices:SERVICES
     });
     device.addEventListener("gattserverdisconnected",()=>{
-      tx=null; server=null; ready(false); connectBtn.disabled=false; status("Disconnected");
+      cancelTimedPattern();
+      tx=null; server=null; ready(false,true); connectBtn.disabled=true; reconnectBtn.hidden=false; reconnectBtn.disabled=false;
+      status("Bluetooth disconnected — attempting to reconnect…");
       diagnostics("Disconnected.");
+      if(document.visibilityState==="visible") reconnectBluetooth(false);
     });
     status("Connecting to "+(device.name||"Lovense device")+"…");
     stage="connection";
@@ -382,7 +469,9 @@ connectBtn.addEventListener("click",async()=>{
     tx=await findCharacteristic();
     await write("DeviceType;");
     ready(true);
+    reconnectBtn.hidden=true;
     status("Connected: "+(device.name||"Lovense device"),"#7ee787");
+    acquireWakeLock();
   }catch(error){
     console.error(error);
     ready(false);
@@ -391,6 +480,8 @@ connectBtn.addEventListener("click",async()=>{
     status(errorText(error,stage));
   }
 });
+
+reconnectBtn.addEventListener("click",()=>reconnectBluetooth(true));
 
 vibrateBtn.addEventListener("click",async()=>{
   try{
@@ -413,7 +504,16 @@ createControllerBtn.addEventListener("click",async()=>{
   finally{createControllerBtn.disabled=!tx}
 });
 copyControllerBtn.addEventListener("click",copyControllerLink);
-addEventListener("pagehide",()=>{if(remoteChannel&&remoteClient) remoteClient.removeChannel(remoteChannel)});
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible") recoverActiveConnections();
+  else if(wakeLock){
+    const lock=wakeLock;
+    wakeLock=null;
+    lock.release().catch(()=>{});
+  }
+});
+addEventListener("pageshow",recoverActiveConnections);
+addEventListener("online",recoverActiveConnections);
 </script>
 </body>
 </html>

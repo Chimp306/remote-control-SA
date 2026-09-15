@@ -39,7 +39,7 @@ const edgeCountEl=document.querySelector("#edge-count");
 const commandButtons=[...document.querySelectorAll("[data-command]")];
 const session=new URLSearchParams(location.search).get("session");
 const edgeKeyText=new URLSearchParams(location.search).get("edgeKey");
-let edgeVerificationKey,edgeCount=0;
+let edgeVerificationKey,edgeCount=0,client,channel,guestReady=false,guestRecoveryTimer,guestRecoveryPromise;
 
 function status(text,colour="#ffca65"){
   statusEl.textContent=text;
@@ -72,38 +72,76 @@ async function receiveEdgeCount(payload){
     console.warn("Ignored invalid EDGE count update",error);
   }
 }
+function guestChannelSubscribed(){
+  const socketConnected=typeof client?.realtime?.isConnected!=="function"||client.realtime.isConnected();
+  return guestReady&&channel?.state==="joined"&&socketConnected;
+}
+function guestChannelConnecting(){
+  return channel?.state==="joining";
+}
+function scheduleGuestRecovery(){
+  clearTimeout(guestRecoveryTimer);
+  if(document.visibilityState!=="visible") return;
+  guestRecoveryTimer=setTimeout(()=>recoverGuestSession(),1500);
+}
+async function subscribeGuestChannel(recovering=false){
+  clearTimeout(guestRecoveryTimer);
+  const previousChannel=channel;
+  guestReady=false;
+  channel=null;
+  commandButtons.forEach(button=>button.disabled=true);
+  if(previousChannel){
+    try{await client.removeChannel(previousChannel)}catch(error){console.warn("Could not replace guest channel",error)}
+  }
+  if(recovering) status("Restoring controller session…");
+  const activeChannel=client.channel("lushcon:"+session);
+  channel=activeChannel;
+  activeChannel
+    .on("broadcast",{event:"edge-count"},payload=>receiveEdgeCount(payload?.payload))
+    .subscribe(async(state,error)=>{
+      if(channel!==activeChannel) return;
+      if(state==="SUBSCRIBED"){
+        try{
+          if(!edgeVerificationKey){
+            edgeVerificationKey=await crypto.subtle.importKey(
+              "raw",fromBase64Url(edgeKeyText),{name:"ECDSA",namedCurve:"P-256"},false,["verify"]
+            );
+          }
+          if(channel!==activeChannel) return;
+          guestReady=true;
+          commandButtons.forEach(button=>button.disabled=false);
+          status(recovering ? "Controller session restored." : "Connected — ready to send a command.","#7ee787");
+          await activeChannel.send({type:"broadcast",event:"edge-count-request",payload:{}});
+        }catch(keyError){
+          guestReady=false;
+          commandButtons.forEach(button=>button.disabled=true);
+          status("This controller link has an invalid EDGE counter key.");
+          console.error(keyError);
+        }
+      }else if(state==="CHANNEL_ERROR"||state==="TIMED_OUT"||state==="CLOSED"){
+        guestReady=false;
+        commandButtons.forEach(button=>button.disabled=true);
+        status("Controller session disconnected — reconnecting…");
+        console.error("Supabase channel status:",state,error);
+        scheduleGuestRecovery();
+      }
+    });
+}
+async function recoverGuestSession(){
+  if(guestChannelSubscribed()||guestChannelConnecting()) return;
+  if(guestRecoveryPromise) return guestRecoveryPromise;
+  guestRecoveryPromise=subscribeGuestChannel(true).finally(()=>{guestRecoveryPromise=null});
+  return guestRecoveryPromise;
+}
 if(!/^[a-f0-9]{48}$/.test(session||"")||!/^[A-Za-z0-9_-]+$/.test(edgeKeyText||"")){
   status("This controller link is missing or invalid.");
 }else if(!window.supabase){
   status("The realtime library did not load. Check your internet connection and reload.");
 }else{
-  const client=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{
+  client=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{
     auth:{persistSession:false,autoRefreshToken:false}
   });
-  const channel=client.channel("lushcon:"+session);
-
-  channel
-    .on("broadcast",{event:"edge-count"},payload=>receiveEdgeCount(payload?.payload))
-    .subscribe(async(state,error)=>{
-    if(state==="SUBSCRIBED"){
-      try{
-        edgeVerificationKey=await crypto.subtle.importKey(
-          "raw",fromBase64Url(edgeKeyText),{name:"ECDSA",namedCurve:"P-256"},false,["verify"]
-        );
-        commandButtons.forEach(button=>button.disabled=false);
-        status("Connected — ready to send a command.","#7ee787");
-        await channel.send({type:"broadcast",event:"edge-count-request",payload:{}});
-      }catch(keyError){
-        commandButtons.forEach(button=>button.disabled=true);
-        status("This controller link has an invalid EDGE counter key.");
-        console.error(keyError);
-      }
-    }else if(state==="CHANNEL_ERROR"||state==="TIMED_OUT"||state==="CLOSED"){
-      commandButtons.forEach(button=>button.disabled=true);
-      status("Remote session unavailable: "+rawError(error));
-      console.error("Supabase channel status:",state,error);
-    }
-    });
+  subscribeGuestChannel(false);
 
   commandButtons.forEach(button=>button.addEventListener("click",async()=>{
     const command=button.dataset.command;
@@ -121,11 +159,15 @@ if(!/^[a-f0-9]{48}$/.test(session||"")||!/^[A-Za-z0-9_-]+$/.test(edgeKeyText||""
       console.error(error);
       status("Could not send command: "+rawError(error));
     }finally{
-      commandButtons.forEach(item=>item.disabled=false);
+      commandButtons.forEach(item=>item.disabled=!guestReady);
     }
   }));
 
-  addEventListener("pagehide",()=>client.removeChannel(channel));
+  document.addEventListener("visibilitychange",()=>{
+    if(document.visibilityState==="visible"&&!guestChannelSubscribed()&&!guestChannelConnecting()) recoverGuestSession();
+  });
+  addEventListener("pageshow",()=>{if(!guestChannelSubscribed()&&!guestChannelConnecting()) recoverGuestSession()});
+  addEventListener("online",()=>{if(document.visibilityState==="visible"&&!guestChannelSubscribed()&&!guestChannelConnecting()) recoverGuestSession()});
 }
 </script>
 </body>
