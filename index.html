@@ -159,7 +159,7 @@ async function startWavePattern(){
         return;
       }
       step+=1;
-      patternTimer=setTimeout(advance,500);
+      patternTimer=setTimeout(advance,400);
     }catch(error){
       if(token===patternGeneration){
         status("Remote wave failed: "+rawError(error));
