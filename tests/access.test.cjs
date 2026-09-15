@@ -35,6 +35,10 @@ test('authorised preview check creates no session, pairing or guest record',asyn
   const f=await fixture(),before=JSON.stringify(f.db);const result=await f.request({action:'preview'},'host');
   assert.equal(result.status,200);assert.equal(result.body.ok,true);assert.equal(JSON.stringify(f.db),before);
 });
+test('host guest names are normalised and remain presentation data',async()=>{
+  const f=await fixture();const created=await f.request({action:'create',name:'  Sophie\u0000   Rae  '},'host');
+  assert.equal(created.status,200);assert.equal(created.body.profile.name,'Sophie Rae');
+});
 test('four-character code alone cannot resolve a control session or reveal name',async()=>{
   const f=await fixture();const r=await f.request({action:'resolve',token:'ABCD'});assert.equal(r.body.available,false);assert.ok(!JSON.stringify(r.body).includes(f.profile.name));
 });
@@ -47,15 +51,15 @@ test('pairing requires explicit host approval and possession of request secret',
   const granted=await f.request({action:'pair-poll',code:'ABCD',secret});assert.equal(granted.body.token,f.profile.token);
   assert.equal((await f.request({action:'pair-poll',code:'ABCD',secret:other})).body.token,undefined);
 });
-test('guest resolver reveals only current session and public verification key',async()=>{
+test('approved capability resolves the display name with session data',async()=>{
   const f=await fixture();f.db.control_sessions.push({host_id:'host-1',profile_id:'guest-1',session:'a'.repeat(48),edge_key:'test-public-key',lease_until:new Date(Date.now()+10000).toISOString()});
-  const result=await f.request({action:'resolve',token:f.profile.token});assert.equal(result.body.session,'a'.repeat(48));assert.equal(result.body.edgeKey,'test-public-key');assert.equal(result.body.name,undefined);assert.equal(result.body.token,undefined);
-  f.db.control_sessions[0].lease_until=new Date(Date.now()-1).toISOString();assert.equal((await f.request({action:'resolve',token:f.profile.token})).body.available,false);
+  const result=await f.request({action:'resolve',token:f.profile.token});assert.equal(result.body.session,'a'.repeat(48));assert.equal(result.body.edgeKey,'test-public-key');assert.equal(result.body.name,f.profile.name);assert.equal(result.body.token,undefined);
+  f.db.control_sessions[0].lease_until=new Date(Date.now()-1).toISOString();const idle=await f.request({action:'resolve',token:f.profile.token});assert.equal(idle.body.available,false);assert.equal(idle.body.name,f.profile.name);
 });
 test('rotation invalidates remembered secret and old approved pairing cannot acquire replacement',async()=>{
   const f=await fixture(),secret='A'.repeat(32),oldToken=f.profile.token;
   await f.request({action:'pair-request',code:'ABCD',secret});await f.request({action:'pair-approve',request:f.db.control_pairings[0].id},'host');
-  const rotated=await f.request({action:'rotate',profile:'guest-1'},'host');assert.equal(rotated.status,200);assert.notEqual(f.profile.token,oldToken);
+  const rotated=await f.request({action:'rotate',profile:'guest-1',name:'Sophie'},'host');assert.equal(rotated.status,200);assert.notEqual(f.profile.token,oldToken);assert.equal(f.profile.name,'Sophie');
   assert.equal((await f.request({action:'resolve',token:oldToken})).body.valid,false);
   assert.notEqual((await f.request({action:'pair-poll',code:'ABCD',secret})).body.token,f.profile.token);
 });

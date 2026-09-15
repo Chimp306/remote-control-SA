@@ -6,70 +6,139 @@
 <meta name="referrer" content="no-referrer">
 <script>if(location.hash)location.replace("/controller.html"+location.hash);</script>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Lush Mini Bluetooth Test</title>
+<title>Private Host Control</title>
 <style>
+:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;--wine:#721f3d;--wine-bright:#a83c62;--gold:#d6ad68;--ink:#09080a;--panel:#171216;--panel-raised:#21171d;--text:#fff8f4;--muted:#c8b8bd;--green:#7ee787}
+*{box-sizing:border-box}
 [hidden]{display:none!important}
-input{width:100%;box-sizing:border-box;padding:12px;margin:8px 0 14px;border:1px solid #5a5368;border-radius:9px;background:#121018;color:#fff;font-size:16px}
-:root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:#17151d;color:#fff}
-main{width:min(92vw,420px);box-sizing:border-box;padding:28px;border-radius:20px;background:#27232f;box-shadow:0 12px 40px #0006}
-h1{font-size:1.35rem;margin:0 0 22px}
-button{width:100%;padding:15px;margin:7px 0;border:0;border-radius:12px;font-size:1rem;font-weight:700;color:#fff;background:#7157d9}
-button:disabled{opacity:.45}
-#stop{background:#b33d55}
-#reconnect{background:#3f7fc4}
-#edge{background:#e05666;font-size:1.12rem;padding:18px;box-shadow:0 0 0 2px #ff8b98 inset}
-.edge-status{margin:7px 0 14px;padding:12px;border-radius:10px;background:#191720;color:#ff9ca7;font-weight:700;line-height:1.35}
-.edge-status[hidden]{display:none}
-.status{margin:0 0 18px;padding:12px;border-radius:10px;background:#191720;color:#ffca65;line-height:1.35;overflow-wrap:anywhere}
-small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
-.remote{margin:18px 0;padding:14px;border-radius:12px;background:#1d1926}
-.remote h2{font-size:1rem;margin:0 0 8px}
-.remote p{margin:0 0 10px;color:#c7c0d0;line-height:1.4}
-.remote button{padding:12px;font-size:.95rem}
-#controller-link{width:100%;box-sizing:border-box;margin:8px 0;padding:11px;border:1px solid #5a5368;border-radius:9px;background:#121018;color:#e9e3f2;font:12px ui-monospace,SFMono-Regular,Consolas,monospace}
-.diagnostics{margin:16px 0 0;padding:12px;max-height:250px;overflow:auto;border-radius:10px;background:#191720;color:#d8d1e8;font:12px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+body{margin:0;min-height:100svh;padding:max(14px,env(safe-area-inset-top)) 12px max(18px,env(safe-area-inset-bottom));background:radial-gradient(circle at 50% -12%,#451526 0,#190d13 31%,#09080a 72%);color:var(--text)}
+main{width:min(100%,470px);margin:0 auto}
+.shell{padding:20px;border:1px solid #b9768b38;border-radius:24px;background:linear-gradient(155deg,#21171d 0,#120e11 72%);box-shadow:0 24px 65px #000b,0 0 0 1px #0008 inset}
+.eyebrow,.section-label{margin:0;color:#d3a9b7;font-size:.66rem;font-weight:800;letter-spacing:.2em;text-transform:uppercase}
+h1{margin:5px 0 4px;font-family:Georgia,"Times New Roman",serif;font-size:clamp(1.75rem,8vw,2.2rem);font-weight:600;letter-spacing:-.035em}
+h2,h3,p{margin-top:0}
+.intro{margin:0 0 17px;color:var(--muted);font-size:.9rem;line-height:1.4}
+.card{margin-top:12px;padding:15px;border:1px solid #b9768b2e;border-radius:17px;background:linear-gradient(155deg,#24181fdb,#120e11e8);box-shadow:0 10px 24px #0005,0 1px 0 #ffffff0b inset}
+.card-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:11px}
+.card-heading h2,.card-heading h3{margin:0;color:#e7cfd6;font-size:.72rem;font-weight:850;letter-spacing:.15em;text-transform:uppercase}
+label{display:block;margin-bottom:6px;color:#ddcbd1;font-size:.8rem;font-weight:750}
+input{width:100%;padding:12px 13px;border:1px solid #8b5a6966;border-radius:11px;background:#080709bd;color:var(--text);font:inherit;font-size:16px;box-shadow:0 1px 0 #ffffff0a inset}
+input:focus{outline:3px solid #d6ad684d;border-color:#d6ad68}
+input::placeholder{color:#88777d}
+button{width:100%;min-height:45px;padding:11px 13px;border:1px solid #b7788c73;border-bottom-color:#3b1723;border-radius:12px;background:linear-gradient(165deg,#6f2240,#451629);box-shadow:0 5px 0 #10070b,0 9px 18px #0006,0 1px 0 #ffffff18 inset;color:var(--text);font:inherit;font-size:.9rem;font-weight:800;touch-action:manipulation;transition:transform .1s ease,box-shadow .1s ease,filter .15s ease}
+button:active:not(:disabled){transform:translateY(4px) scale(.99);box-shadow:0 1px 0 #10070b,0 4px 10px #0007}
+button:focus-visible,summary:focus-visible{outline:3px solid #f6d59d;outline-offset:3px}
+button:disabled{cursor:not-allowed;filter:saturate(.25) brightness(.62);opacity:.6}
+.host-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.host-header .intro{margin-bottom:0}
+.device-overview{display:flex;align-items:center;gap:11px;margin-bottom:8px}
+.device-icon{width:42px;height:42px;display:grid;flex:0 0 auto;place-items:center;border:1px solid #92506a66;border-radius:13px;background:#2b111c;color:#e4b6c5;font-size:1.1rem}
+.device-name{display:block;font-size:1rem;line-height:1.25}
+.state-pill{display:inline-flex;align-items:center;gap:6px;margin-top:3px;color:#c9b9be;font-size:.73rem;font-weight:750}
+.state-pill::before{content:"";width:7px;height:7px;border-radius:50%;background:#806f75;box-shadow:0 0 0 3px #806f751c}
+.device-card[data-state="connected"] .state-pill{color:var(--green)}
+.device-card[data-state="connected"] .state-pill::before{background:var(--green);box-shadow:0 0 0 3px #7ee78720,0 0 10px #7ee78780}
+.status,.edge-status{margin:9px 0 0;padding:10px 11px;border:1px solid #ffffff0d;border-radius:10px;background:#080709a3;color:#e4bf80;font-size:.82rem;line-height:1.35;overflow-wrap:anywhere}
+.device-actions{margin-top:11px}
+#connect,#reconnect,#create-controller{background:linear-gradient(165deg,#7f2949,#50182e)}
+.safety-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+#stop,#edge{min-height:66px;font-size:1rem;letter-spacing:.045em}
+#stop{border-color:#b8546e;background:linear-gradient(165deg,#9b2948,#571629)}
+#edge{border-color:#d3a05e9e;background:linear-gradient(165deg,#684022,#382112);color:#ffe0ab;box-shadow:0 5px 0 #10070b,0 0 20px #c8893e20,0 1px 0 #ffffff18 inset}
+.edge-status{color:#ffc1d2;border-color:#a2415d;background:#2a111a;font-weight:750}
+.field-note{margin:5px 0 11px;color:#97878c;font-size:.7rem;line-height:1.35}
+#create-controller{margin-top:10px}
+.remote-status{margin:10px 0 0;color:#cdbbc1;font-size:.8rem;line-height:1.4}
+.link-panel{margin-top:11px;padding:11px;border:1px solid #d6ad6842;border-radius:13px;background:#130c0f}
+.link-panel label{color:#cfaeb8}
+#controller-link{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:1rem;font-weight:800;letter-spacing:.015em;text-align:center;color:#f4d59f}
+#copy-controller{margin-top:8px;border-color:#c398607a;background:linear-gradient(165deg,#5d3921,#352013);color:#ffe1ad}
+.pairing{margin-top:13px;padding-top:13px;border-top:1px solid #ffffff0e}
+.pairing .help{margin:5px 0 10px;color:#a9999e;font-size:.75rem;line-height:1.35}
+#pair-requests{color:#b8a7ad;font-size:.8rem}
+.approval-row{padding:10px;border:1px solid #a15a7047;border-radius:11px;background:#100a0d}
+.approval-row+.approval-row{margin-top:8px}
+.approval-row p{margin:0 0 8px;color:#f2dce3;line-height:1.35}
+.approval-actions{display:grid;grid-template-columns:1fr auto;gap:8px}
+.approval-actions .deny{width:auto;min-width:70px;background:#241a1e;border-color:#57434a;color:#cbbbc0;box-shadow:0 4px 0 #090708,0 7px 13px #0005}
+.secondary-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:13px}
+.secondary-actions button,#logout{background:#20171c;border-color:#684955;color:#d6c7cc;box-shadow:0 4px 0 #0b0809,0 7px 14px #0005;font-size:.8rem}
+.advanced{margin-top:12px;border:1px solid #ffffff12;border-radius:13px;background:#0d0a0c80;color:#a9999e}
+.advanced summary{padding:12px 14px;cursor:pointer;font-size:.78rem;font-weight:750;list-style-position:inside}
+.advanced-content{padding:0 12px 12px}
+#vibrate{background:#251b20;color:#d8c8cd;box-shadow:none}
+.diagnostics{margin:10px 0 0;padding:11px;max-height:220px;overflow:auto;border-radius:9px;background:#070608;color:#b7aabf;font:11px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.tech-note{display:block;margin-top:10px;color:#897b80;font-size:.68rem;line-height:1.4}
+#logout{margin-top:12px}
+.login-card+.login-card{margin-top:12px}
+.login-card button{margin-top:10px}
+.login-status{margin:0 0 12px;color:#d4b8c1;font-size:.83rem;line-height:1.4}
+@media(max-width:370px){.shell{padding:16px}.card{padding:13px}.safety-grid,.secondary-actions{gap:7px}button{padding-inline:9px}.approval-actions{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
-<main>
+<main class="shell">
 <section id="login">
-<h1>Private host access</h1>
-<p id="login-status" role="status">Sign in with your authorised host account.</p>
-<form id="guest-code-form">
-<label for="guest-code">Invited guest? Enter your four-character code</label>
-<input id="guest-code" minlength="4" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
-<button type="submit">Open guest controller</button>
+<p class="eyebrow">PRIVATE CONTROL</p>
+<h1>Welcome</h1>
+<p class="intro">Open a guest invitation or sign in to host a private session.</p>
+<form id="guest-code-form" class="card login-card">
+<div class="card-heading"><h2>Guest invitation</h2></div>
+<label for="guest-code">Four-character code</label>
+<input id="guest-code" minlength="4" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="K7MP" required>
+<button type="submit">Open Guest Controller</button>
 </form>
-<form id="login-form">
+<form id="login-form" class="card login-card">
+<div class="card-heading"><h2>Host access</h2></div>
+<p id="login-status" class="login-status" role="status">Sign in with your authorised host account.</p>
 <label for="email">Email</label><input id="email" type="email" autocomplete="username" required>
 <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required>
 <button id="login-button" type="submit">Sign in</button>
 </form>
 </section>
 <section id="host-controls" hidden>
-<h1>Lovense Lush Mini — local Bluetooth test</h1>
-<p id="status" class="status">Disconnected</p>
-<button id="connect">Connect Device</button>
-<button id="reconnect" hidden>Reconnect Device</button>
-<button id="vibrate" disabled>20% vibration (max 5 seconds)</button>
-<button id="stop" disabled>Stop</button>
-<button id="edge" disabled>EDGE — pause remote control</button>
-<p id="edge-status" class="edge-status" role="status" aria-live="polite" hidden></p>
-<section class="remote" aria-labelledby="remote-heading">
-<h2 id="remote-heading">Guest control</h2>
-<p id="remote-status">Connect the Lush Mini first.</p>
-<button id="preview-controller">Preview Guest Controller</button>
-<section class="pairing"><h3>Browser approvals</h3>
-<p>Confirm the check number with your guest in your private conversation before approving.</p>
-<div id="pair-requests">No pending requests.</div></section>
-<button id="end-session">End control session</button>
-<button id="create-controller" disabled>Create Fresh Guest Link</button>
-<input id="controller-link" aria-label="Guest link" readonly placeholder="Your fresh four-character guest link will appear here">
-<button id="copy-controller" disabled>Copy Guest Link</button>
+<header class="host-header">
+<div><p class="eyebrow">PRIVATE CONTROL</p><h1>Host control</h1><p class="intro">Connect. Invite. Stay in control.</p></div>
+</header>
+<section id="device-card" class="card device-card" data-state="disconnected" aria-labelledby="device-heading">
+<div class="card-heading"><h2 id="device-heading">Device</h2></div>
+<div class="device-overview"><span class="device-icon" aria-hidden="true">●</span><div><strong id="device-name" class="device-name">No device selected</strong><span id="device-state" class="state-pill">Disconnected</span></div></div>
+<p id="status" class="status" role="status" aria-live="polite">Turn on the device, then connect.</p>
+<div class="device-actions"><button id="connect">Connect Device</button><button id="reconnect" hidden>Reconnect Device</button></div>
 </section>
+<section class="card" aria-labelledby="safety-heading">
+<div class="card-heading"><h2 id="safety-heading">Safety</h2></div>
+<div class="safety-grid"><button id="stop" disabled>STOP</button><button id="edge" disabled>EDGE — 30s</button></div>
+<p id="edge-status" class="edge-status" role="status" aria-live="polite" hidden></p>
+</section>
+<section class="card remote" aria-labelledby="remote-heading">
+<div class="card-heading"><h2 id="remote-heading">Guest control</h2></div>
+<label for="guest-name">Guest name</label>
+<input id="guest-name" maxlength="40" autocomplete="off" placeholder="Sophie" aria-describedby="guest-name-note" required>
+<p id="guest-name-note" class="field-note">Used only to personalise this fresh invitation.</p>
+<button id="create-controller" disabled>Create Fresh Guest Link</button>
+<p id="remote-status" class="remote-status">Connect the device first.</p>
+<div class="link-panel">
+<label for="controller-link">Private guest link</label>
+<input id="controller-link" readonly placeholder="ctmp.uk/#K7MP">
+<button id="copy-controller" disabled>Copy Guest Link</button>
+</div>
+<section class="pairing" aria-labelledby="approvals-heading">
+<div class="card-heading"><h3 id="approvals-heading">Browser approvals</h3></div>
+<p class="help">Match the check number with your guest before approving their browser.</p>
+<div id="pair-requests">No pending requests.</div>
+</section>
+<div class="secondary-actions"><button id="preview-controller">Preview Guest Controller</button><button id="end-session">End Control Session</button></div>
+</section>
+<details class="advanced">
+<summary>Advanced / Diagnostics</summary>
+<div class="advanced-content">
+<button id="vibrate" disabled>Run 20% Bluetooth Test</button>
 <pre id="diagnostics" class="diagnostics" aria-live="polite">Diagnostics will appear here after a device connects.</pre>
-<small>Use Chrome on Android over HTTPS. Turn the Lush Mini on and keep it nearby. Keep this page visible while controlling the device.</small>
+<small class="tech-note">For troubleshooting: use Chrome on Android over HTTPS, keep the device nearby and leave this page visible while controlling it.</small>
+</div>
+</details>
 <button id="logout">Sign out</button>
 </section>
 </main>
@@ -85,10 +154,14 @@ const stopBtn=document.querySelector("#stop");
 const edgeBtn=document.querySelector("#edge");
 const edgeStatusEl=document.querySelector("#edge-status");
 const diagnosticsEl=document.querySelector("#diagnostics");
+const deviceCardEl=document.querySelector("#device-card");
+const deviceNameEl=document.querySelector("#device-name");
+const deviceStateEl=document.querySelector("#device-state");
 const remoteStatusEl=document.querySelector("#remote-status");
 const createControllerBtn=document.querySelector("#create-controller");
 const copyControllerBtn=document.querySelector("#copy-controller");
 const controllerLinkEl=document.querySelector("#controller-link");
+const guestNameEl=document.querySelector("#guest-name");
 
 const STATIC_LOVENSE_GATT=[
   {
@@ -133,6 +206,9 @@ function ready(yes,preserveRemoteSession=false){
   stopBtn.disabled=!yes;
   edgeBtn.disabled=!yes;
   createControllerBtn.disabled=!yes;
+  deviceCardEl.dataset.state=yes?"connected":"disconnected";
+  deviceStateEl.textContent=yes?"Connected":"Disconnected";
+  deviceNameEl.textContent=device?.name||"No device selected";
   if(!yes&&!preserveRemoteSession) endRemoteSession("Connect the Lush Mini first.");
 }
 function remoteStatus(text,colour="#c7c0d0"){
@@ -533,10 +609,13 @@ edgeBtn.addEventListener("click",activateEdgeLockout);
 createControllerBtn.addEventListener("click",async()=>{
   createControllerBtn.disabled=true;
   try{
+    const name=guestNameEl.value.normalize("NFKC").replace(/[\u0000-\u001f\u007f-\u009f]/g,"").replace(/\s+/g," ").trim();
+    if(!name||name.length>40)throw new Error("Enter a guest name of 1–40 characters.");
+    guestNameEl.value=name;
     await endRemoteSession("Creating a fresh guest link…");
     const result=currentProfile
-      ? await backend("rotate",{profile:currentProfile.id})
-      : await backend("create",{name:"Guest access"});
+      ? await backend("rotate",{profile:currentProfile.id,name})
+      : await backend("create",{name});
     currentProfile=result.profile;
     await createRemoteSession(currentProfile);
   }

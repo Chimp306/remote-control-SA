@@ -10,6 +10,7 @@ function token(){
   return [...crypto.getRandomValues(new Uint8Array(16))].map(b=>alphabet[b&31]).join(""); // 16 x 5 = 80 random bits.
 }
 async function hash(value:string){return [...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value)))].map(b=>b.toString(16).padStart(2,"0")).join("")}
+function guestName(value:unknown){return typeof value==="string"?value.normalize("NFKC").replace(/[\u0000-\u001f\u007f-\u009f]/g,"").replace(/\s+/g," ").trim():""}
 function check<T extends {error:unknown}>(result:T):T{if(result.error)throw new Error("Database operation failed");return result}
 Deno.serve(async req=>{
   if(req.method==="OPTIONS")return new Response(null,{headers});
@@ -37,10 +38,10 @@ Deno.serve(async req=>{
     if(body.action==="resolve"){
       const secret=typeof body.token==="string"?body.token.toUpperCase():"";
       if(!/^[2-9A-HJ-NP-Z]{16}$/.test(secret))return answer({available:false});
-      const {data:profile}=check(await admin.from("control_guests").select("id,host_id").eq("token_hash",await hash(secret)).maybeSingle());
+      const {data:profile}=check(await admin.from("control_guests").select("id,host_id,name").eq("token_hash",await hash(secret)).maybeSingle());
       if(!profile)return answer({available:false,valid:false});
       const {data:session}=check(await admin.from("control_sessions").select("session,edge_key").eq("profile_id",profile.id).eq("host_id",profile.host_id).gt("lease_until",new Date().toISOString()).maybeSingle());
-      return answer(session?{valid:true,available:true,session:session.session,edgeKey:session.edge_key}:{valid:true,available:false});
+      return answer(session?{valid:true,available:true,name:profile.name,session:session.session,edgeKey:session.edge_key}:{valid:true,available:false,name:profile.name});
     }
     const jwt=req.headers.get("authorization")?.replace(/^Bearer /i,"");
     if(!jwt)return answer({error:"Sign in required"},401);
@@ -65,8 +66,8 @@ Deno.serve(async req=>{
       return answer({ok:true});
     }
     if(body.action==="create"){
-      const name=typeof body.name==="string"?body.name.trim():"";
-      if(!name||name.length>80)return answer({error:"Enter a guest name of 1–80 characters"},400);
+      const name=guestName(body.name);
+      if(!name||name.length>40)return answer({error:"Enter a guest name of 1–40 characters"},400);
       const secret=token();
       const {data}=check(await admin.from("control_guests").insert({host_id:user.id,name,token:secret,token_hash:await hash(secret),pair_code:token().slice(0,4)}).select("id,name,token,pair_code").single());
       return answer({profile:data});
@@ -79,13 +80,15 @@ Deno.serve(async req=>{
       const {data}=check(await admin.from("control_sessions").update({lease_until:new Date(Date.now()+45000).toISOString()}).eq("host_id",user.id).eq("session",body.session).select("session").maybeSingle());
       return answer({ok:!!data});
     }
-    const {data:profile}=check(await admin.from("control_guests").select("id").eq("id",body.profile).eq("host_id",user.id).maybeSingle());
+    const {data:profile}=check(await admin.from("control_guests").select("id,name").eq("id",body.profile).eq("host_id",user.id).maybeSingle());
     if(!profile)return answer({error:"Guest unavailable"},404);
     if(body.action==="rotate"){
+      const name=body.name===undefined?profile.name:guestName(body.name);
+      if(!name||name.length>40)return answer({error:"Enter a guest name of 1–40 characters"},400);
       const secret=token();
       // End the old session before replacing the private capability.
       check(await admin.from("control_sessions").delete().eq("host_id",user.id).eq("profile_id",profile.id));
-      const {data}=check(await admin.from("control_guests").update({token:secret,token_hash:await hash(secret),pair_code:token().slice(0,4)}).eq("id",profile.id).eq("host_id",user.id).select("id,name,token,pair_code").single());
+      const {data}=check(await admin.from("control_guests").update({name,token:secret,token_hash:await hash(secret),pair_code:token().slice(0,4)}).eq("id",profile.id).eq("host_id",user.id).select("id,name,token,pair_code").single());
       check(await admin.from("control_pairings").delete().eq("profile_id",profile.id));
       return answer({profile:data});
     }

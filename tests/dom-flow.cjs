@@ -13,7 +13,7 @@ function page(file,hash='',storage={}){
   const dom=new JSDOM(html,{url:'https://ctmp.uk/'+(file==='index.html'?'':file)+hash,runScripts:'dangerously',pretendToBeVisual:true,virtualConsole,beforeParse(window){
     window.TextEncoder=TextEncoder;window.TextDecoder=TextDecoder;window.AbortSignal=AbortSignal;
     Object.defineProperty(window.crypto,'subtle',{value:crypto.subtle});
-    window.__writes=[];window.__channels=[];window.__fetchActions=[];window.__visibility='visible';window.__opened=[];window.__bluetoothRequests=0;
+    window.__writes=[];window.__channels=[];window.__fetchActions=[];window.__fetchBodies=[];window.__visibility='visible';window.__opened=[];window.__bluetoothRequests=0;
     window.open=url=>{window.__opened.push(url);return {opener:window}};
     Object.defineProperty(window.document,'visibilityState',{get:()=>window.__visibility});
     window.HTMLElement.prototype.setPointerCapture=()=>{};
@@ -31,12 +31,12 @@ function page(file,hash='',storage={}){
     const device={name:'LVS-test',addEventListener(type,handler){this[type]=handler},gatt:{connected:false,async connect(){this.connected=true;return this},disconnect(){this.connected=false;device.gattserverdisconnected?.()},getPrimaryService:async()=>service,getPrimaryServices:async()=>[service]}};
     Object.defineProperty(window.navigator,'bluetooth',{value:{requestDevice:async()=>{window.__bluetoothRequests++;return device}}});
     window.fetch=async(url,options)=>{
-      const body=JSON.parse(options.body);window.__fetchActions.push({action:body.action,authorization:options.headers.Authorization||null});let result={ok:true};
+      const body=JSON.parse(options.body);window.__fetchActions.push({action:body.action,authorization:options.headers.Authorization||null});window.__fetchBodies.push(body);let result={ok:true};
       if(body.action==='list')result={profiles:[profile]};
-      if(['create','rotate'].includes(body.action))result={profile};
+      if(['create','rotate'].includes(body.action)){profile.name=body.name;result={profile}}
       if(body.action==='activate')active={session:body.session,edgeKey:body.edgeKey};
       if(body.action==='end'&&active?.session===body.session)active=null;
-      if(body.action==='resolve')result=active?{valid:true,available:true,...active}:{valid:true,available:false};
+      if(body.action==='resolve')result=active?{valid:true,available:true,name:profile.name,...active}:{valid:true,available:false,name:profile.name};
       if(body.action==='pair-list')result={requests:[{id:'request-1',profile_id:profile.id,check_number:'3814',control_guests:{name:profile.name}}]};
       if(['pair-poll','pair-request'].includes(body.action))result=approved?{state:'approved',token:profile.token}:{state:'pending',checkNumber:'7261'};
       return {ok:true,status:200,json:async()=>result};
@@ -49,10 +49,12 @@ function pointer(window,type,selector='#random'){const event=new window.Event(ty
 (async()=>{
   try{
     const host=page('index.html');await until(()=>host.eval('hostAuthorized'),'host login');
-    assert.equal(host.document.querySelector('#guest-name'),null);assert.equal(host.document.querySelector('#guest-select'),null);assert.equal(host.document.querySelector('#rotate-guest'),null);
+    assert.ok(host.document.querySelector('#guest-name'));assert.equal(host.document.querySelector('#guest-select'),null);assert.equal(host.document.querySelector('#rotate-guest'),null);
+    assert.equal(host.document.querySelector('.advanced').open,false);assert.ok(host.document.querySelector('.advanced #vibrate'));assert.ok(host.document.querySelector('.advanced #diagnostics'));
     assert.equal(host.document.querySelector('#controller-link').value,'');
-    assert.equal(host.document.querySelector('#preview-controller').disabled,false);click(host,'#preview-controller');assert.equal(host.__opened[0],'/controller.html?preview=1');assert.equal(host.__bluetoothRequests,0);
-    const preview=page('controller.html','?preview=1');await until(()=>!preview.document.querySelector('#preview-badge').hidden,'preview authorisation');
+    host.document.querySelector('#guest-name').value='Sophie';
+    assert.equal(host.document.querySelector('#preview-controller').disabled,false);click(host,'#preview-controller');assert.equal(host.__opened[0],'/controller.html?preview=1&name=Sophie');assert.equal(host.__bluetoothRequests,0);
+    const preview=page('controller.html','?preview=1&name=Sophie');await until(()=>!preview.document.querySelector('#preview-badge').hidden,'preview authorisation');assert.equal(preview.document.querySelector('#guest-welcome').textContent,'WELCOME, SOPHIE');
     assert.ok([...preview.document.querySelectorAll('[data-command]')].every(button=>!button.disabled));assert.deepEqual(preview.__fetchActions,[{action:'preview',authorization:'Bearer test'}]);assert.equal(preview.__channels.length,0);assert.equal(preview.__writes.length,0);assert.equal(active,undefined);
     for(const command of ['20','40','60','70']){
       click(preview,'[data-command="'+command+'"]');assert.ok(preview.document.querySelector('[data-command="'+command+'"]').classList.contains('active'));
@@ -61,11 +63,12 @@ function pointer(window,type,selector='#random'){const event=new window.Event(ty
     }
     pointer(preview,'pointerdown','#random');assert.ok(preview.document.querySelector('#random').classList.contains('active'));pointer(preview,'pointerup','#random');assert.ok(!preview.document.querySelector('#random').classList.contains('active'));
     pointer(preview,'pointerdown','#max-hold');assert.ok(preview.document.querySelector('#max-hold').classList.contains('active'));pointer(preview,'pointerup','#max-hold');assert.ok(!preview.document.querySelector('#max-hold').classList.contains('active'));assert.equal(preview.__channels.length,0);assert.equal(preview.__writes.length,0);
-    click(host,'#connect');await until(()=>host.eval('!!tx'),'Bluetooth connect');click(host,'#create-controller');await until(()=>host.eval('remoteReady'),'host session');
+    click(host,'#connect');await until(()=>host.eval('!!tx'),'Bluetooth connect');assert.equal(host.document.querySelector('#device-state').textContent,'Connected');assert.equal(host.document.querySelector('#device-name').textContent,'LVS-test');click(host,'#create-controller');await until(()=>host.eval('remoteReady'),'host session');
+    assert.equal(host.__fetchBodies.find(body=>body.action==='rotate').name,'Sophie');
     assert.equal(host.document.querySelector('#controller-link').value,'https://ctmp.uk/#ABCD');
-    await host.eval('refreshApprovals()');assert.ok(host.document.querySelector('#pair-requests').textContent.includes('Check number 3814'));assert.ok(!host.document.querySelector('#pair-requests').textContent.includes(profile.name));
-    const guest=page('controller.html','#ABCD');await until(()=>!guest.document.querySelector('#pairing').hidden,'guest pairing');click(guest,'#request-access');await until(()=>guest.document.querySelector('#pairing-message').textContent.includes('7261'),'check number');assert.equal(guest.document.querySelector('[data-command="70"]').disabled,true);
-    approved=true;await guest.eval('pollPairing()');await until(()=>guest.eval('guestReady&&lastStateAt>0'),'signed ready');
+    await host.eval('refreshApprovals()');assert.ok(host.document.querySelector('#pair-requests').textContent.includes('Sophie · Check number 3814'));assert.equal(host.document.querySelector('#pair-requests').textContent.includes('guest-1'),false);
+    const guest=page('controller.html','#ABCD');assert.equal(guest.document.querySelector('#guest-welcome').textContent,'WELCOME, GUEST');assert.equal(guest.document.querySelectorAll('.control .release').length,2);assert.equal(guest.document.querySelector('.hold-note'),null);await until(()=>!guest.document.querySelector('#pairing').hidden,'guest pairing');click(guest,'#request-access');await until(()=>guest.document.querySelector('#pairing-message').textContent.includes('7261'),'check number');assert.equal(guest.document.querySelector('[data-command="70"]').disabled,true);
+    approved=true;await guest.eval('pollPairing()');await until(()=>guest.eval('guestReady&&lastStateAt>0'),'signed ready');assert.equal(guest.document.querySelector('#guest-welcome').textContent,'WELCOME, SOPHIE');
     click(guest,'[data-command="70"]');await until(()=>host.__writes.includes('Vibrate:14;'),'peak 14');assert.ok(guest.document.querySelector('[data-command="70"]').classList.contains('active'));
     await until(()=>parseFloat(guest.document.querySelector('[data-command="70"]').style.getPropertyValue('--progress'))>0,'fixed progress fill');
     pointer(guest,'pointerdown','#max-hold');await until(()=>host.eval('engine.active?.command==="max-hold"'),'max hold before EDGE');await until(()=>host.__writes.at(-1)==='Vibrate:14;','max hold before EDGE level');
@@ -90,6 +93,6 @@ function pointer(window,type,selector='#random'){const event=new window.Event(ty
     assert.ok(host.__writes.every(command=>!command.startsWith('Vibrate:')||Number(command.match(/\d+/)[0])<=14));
     authorised=false;const deniedPreview=page('controller.html','?preview=1');await until(()=>deniedPreview.document.querySelector('#status').textContent.includes('Sign in on the host page first'),'preview denied');assert.ok([...deniedPreview.document.querySelectorAll('[data-command]')].every(button=>button.disabled));assert.equal(deniedPreview.__channels.length,0);assert.equal(deniedPreview.__fetchActions.length,0);
     const visitor=page('index.html');await pause(100);assert.equal(visitor.document.querySelector('#host-controls').hidden,true);assert.equal(visitor.document.querySelector('#login').hidden,false);
-    assert.deepEqual(errors,[]);console.log('PASS: authenticated no-device preview with local-only fixed/HOLD interactions; compact host workflow; pairing and storage; signed state/count and forgery; EDGE/repeat; random/MAX hold release and dead-man; stale command; refresh; GATT/realtime recovery; host background stop; max14; visitor login gate.');
+    assert.deepEqual(errors,[]);console.log('PASS: polished host hierarchy and collapsed diagnostics; capability-protected guest name; authenticated no-device preview; fixed/HOLD interactions; pairing and storage; signed state/count and forgery; EDGE/repeat; dead-man; stale command; refresh; GATT/realtime recovery; host background stop; max14; visitor login gate.');
   }finally{for(const window of windows)window.close()}
 })().catch(error=>{console.error(error);process.exitCode=1});

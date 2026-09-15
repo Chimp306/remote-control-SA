@@ -1,7 +1,9 @@
 const SUPABASE_URL="https://hqciviafxtfescteyvnn.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
-const statusEl=document.querySelector("#status"),edgeCountEl=document.querySelector("#edge-count"),commandButtons=[...document.querySelectorAll("[data-command]")],holdButtons=[...document.querySelectorAll(".control.hold")];
+const statusEl=document.querySelector("#status"),edgeCountEl=document.querySelector("#edge-count"),guestWelcomeEl=document.querySelector("#guest-welcome"),commandButtons=[...document.querySelectorAll("[data-command]")],holdButtons=[...document.querySelectorAll(".control.hold")];
 const previewRequested=new URLSearchParams(location.search).get("preview")==="1";
+function cleanGuestName(value){return typeof value==="string"?value.normalize("NFKC").replace(/[\u0000-\u001f\u007f-\u009f]/g,"").replace(/\s+/g," ").trim().slice(0,40):""}
+function showGuestName(value){const name=cleanGuestName(value);guestWelcomeEl.textContent="WELCOME, "+(name||"GUEST").toLocaleUpperCase()}
 const invitationCode=location.hash.slice(1).toUpperCase();
 const shortInvitation=/^[2-9A-HJ-NP-Z]{4}$/.test(invitationCode);
 const storageKey="lushcon-invitation:"+invitationCode;
@@ -126,6 +128,7 @@ async function resolveSession(){
     const response=await fetch(SUPABASE_URL+"/functions/v1/guest-access",{method:"POST",headers:{"Content-Type":"application/json",apikey:SUPABASE_PUBLISHABLE_KEY},body:JSON.stringify({action:"resolve",token:guestToken}),signal:AbortSignal.timeout(6000)});
     if(!response.ok)throw new Error("Resolution unavailable");
     const result=await response.json();
+    if(result.valid)showGuestName(result.name);
     if(result.valid===false&&shortInvitation){saveToken("");showPairing()}
     if(!result.available){
       if(guestToken)unavailable("Control is currently unavailable. Your invitation will work when your host starts a session.");
@@ -162,7 +165,7 @@ function startPreviewFixed(button){
 function releasePreviewHold(){if(previewHolding)stopPreview("Released — preview stopped")}
 function beginPreviewHold(button){
   stopPreview();previewHolding=button;button.classList.add("active");
-  status(button.querySelector(".duration").textContent+" active — release to stop","#f0c98c");
+  status(button.querySelector(".level").textContent+" active — release to stop","#f0c98c");
 }
 function enablePreviewInteractions(){
   document.querySelector("#preview-badge").hidden=false;document.body.dataset.controlState="ready";edgeCountEl.textContent="EDGE used: 0 times · preview";setControls(true);stopPreview();
@@ -192,6 +195,7 @@ async function startPreview(){
     const response=await fetch(SUPABASE_URL+"/functions/v1/guest-access",{method:"POST",headers:{"Content-Type":"application/json",apikey:SUPABASE_PUBLISHABLE_KEY,Authorization:"Bearer "+hostSession.access_token},body:JSON.stringify({action:"preview"}),signal:AbortSignal.timeout(6000)});
     if(!response.ok)throw new Error("This account is not authorised for host preview.");
     const result=await response.json();if(!result.ok)throw new Error("Host preview unavailable.");
+    showGuestName(new URLSearchParams(location.search).get("name"));
     enablePreviewInteractions();
   }catch(error){setControls(false);status("Preview unavailable — "+error.message)}
 }

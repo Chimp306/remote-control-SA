@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Chastity Vibrator</title>
+<title>Private Guest Control</title>
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="referrer" content="no-referrer">
 <style>
@@ -12,7 +12,7 @@
 body{margin:0;min-height:100svh;display:grid;place-items:center;padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom));background:radial-gradient(circle at 50% -15%,#451526 0,#190d13 32%,#09080a 72%);color:var(--text)}
 main{width:min(100%,430px);padding:20px;border:1px solid #b9768b38;border-radius:24px;background:linear-gradient(155deg,#21171d 0,#120e11 72%);box-shadow:0 24px 65px #000b,0 0 0 1px #0008 inset}
 [hidden]{display:none!important}
-.eyebrow{margin:0 0 7px;color:#d3a9b7;font-size:.66rem;font-weight:750;letter-spacing:.21em;text-transform:uppercase}
+.eyebrow{margin:0 0 7px;color:#d3a9b7;font-size:.66rem;font-weight:800;letter-spacing:.18em;text-transform:uppercase}
 .preview-badge{float:right;margin-top:-2px;padding:4px 7px;border:1px solid #d6ad686b;border-radius:999px;background:#3b291b;color:#f0ce96;font-size:.59rem;font-weight:850;letter-spacing:.12em}
 h1{margin:0;font-family:Georgia,"Times New Roman",serif;font-size:clamp(1.65rem,8vw,2.1rem);font-weight:600;letter-spacing:-.035em}
 .subtitle{margin:5px 0 12px;color:var(--muted);font-size:.9rem;line-height:1.35}
@@ -30,13 +30,14 @@ button{font:inherit;color:inherit}
 .control .level{font-size:1.08rem;font-weight:850;letter-spacing:.055em}
 .control.fixed:nth-child(2),.control.fixed:nth-child(4){background:linear-gradient(165deg,#4a1c2d,#2a141d)}
 .control.hold{border-color:#c398607a;background:linear-gradient(165deg,#432b20,#251712);touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
-.control.hold .duration{color:#dabf95}
+.control.hold .level{font-size:1rem}
+.control.hold .duration{margin:5px 0 0;color:#dabf95;font-size:.75rem}
+.control .release{position:relative;z-index:1;display:block;margin-top:5px;color:#cdbb9e;font-size:.61rem;font-weight:650;letter-spacing:.035em}
 .control:active:not(:disabled){transform:translateY(5px) scale(.985);box-shadow:0 2px 0 #10070b,0 5px 12px #0008,0 1px 0 #ffffff15 inset}
 .control.active{border-color:#e7bd7c;background:linear-gradient(165deg,#8b2e51,#4c172a);box-shadow:0 5px 0 #16080d,0 0 24px #b8487166,0 0 0 1px #f1c88766 inset}
 .control.hold.active{animation:hold-glow 1.15s ease-in-out infinite;background:linear-gradient(165deg,#764529,#452416)}
 .control:focus-visible,#request-access:focus-visible{outline:3px solid #f6d59d;outline-offset:3px}
 .control:disabled{cursor:not-allowed;filter:saturate(.35) brightness(.58);border-color:#55464b;box-shadow:0 5px 0 #0b0809,0 8px 16px #0006}
-.hold-note{grid-column:1/-1;margin:1px 0 0;color:#bca9af;font-size:.72rem;font-weight:650;letter-spacing:.08em;text-align:center;text-transform:uppercase}
 .privacy{display:block;margin-top:12px;color:#897a7f;font-size:.68rem;line-height:1.35;text-align:center}
 body[data-control-state="locked"] .controls{opacity:.68}
 body[data-control-state="locked"] .status{border-color:#a2415d;background:#2a111a;color:#ffc1d2}
@@ -49,9 +50,9 @@ body[data-control-state="unavailable"] .controls{opacity:.58}
 <body>
 <main>
 <span id="preview-badge" class="preview-badge" hidden>PREVIEW MODE</span>
-<div class="eyebrow">PRIVATE CONTROL</div>
-<h1>Chastity Vibrator</h1>
-<p class="subtitle">Choose a vibration level for the connected toy</p>
+<p id="guest-welcome" class="eyebrow">WELCOME, GUEST</p>
+<h1>Are you a tease?</h1>
+<p class="subtitle"><em>Mean or nice — the choice is yours.</em></p>
 <p id="status" class="status" role="status" aria-live="polite">Opening private control session…</p>
 <section id="pairing" hidden>
 <p id="pairing-message"></p>
@@ -63,9 +64,8 @@ body[data-control-state="unavailable"] .controls{opacity:.58}
 <button class="control fixed" data-command="40" disabled><span class="duration">5 seconds</span><span class="level">MED</span></button>
 <button class="control fixed" data-command="60" disabled><span class="duration">5 seconds</span><span class="level">HIGH</span></button>
 <button class="control fixed" data-command="70" disabled><span class="duration">5 seconds</span><span class="level">MAX</span></button>
-<button id="random" class="control hold" data-command="random" disabled><span class="duration">Random</span><span class="level">HOLD</span></button>
-<button id="max-hold" class="control hold" data-command="max-hold" disabled><span class="duration">MAX</span><span class="level">HOLD</span></button>
-<p class="hold-note">Release to stop</p>
+<button id="random" class="control hold" data-command="random" disabled><span class="level">RANDOM</span><span class="duration">HOLD</span><span class="release">Release to stop</span></button>
+<button id="max-hold" class="control hold" data-command="max-hold" disabled><span class="level">MAX</span><span class="duration">HOLD</span><span class="release">Release to stop</span></button>
 </section>
 <small class="privacy">Private invitation · control works only while your host is connected</small>
 </main>

@@ -66,7 +66,8 @@ setInterval(()=>{if(document.visibilityState==="visible")renewLease()},10000);
 setInterval(()=>{if(remoteSessionId&&performance.now()>=leaseDeadline&&engine.active)stopNow("Session verification expired")},100);
 document.querySelector("#end-session").addEventListener("click",()=>endRemoteSession());
 document.querySelector("#preview-controller").addEventListener("click",()=>{
-  const preview=window.open("/controller.html?preview=1","_blank");
+  const name=guestNameEl.value.normalize("NFKC").replace(/[\u0000-\u001f\u007f-\u009f]/g,"").replace(/\s+/g," ").trim().slice(0,40);
+  const preview=window.open("/controller.html?preview=1"+(name?"&name="+encodeURIComponent(name):""),"_blank");
   if(preview)preview.opener=null;
   else remoteStatus("Preview was blocked. Allow pop-ups for this site and try again.");
 });
@@ -87,14 +88,16 @@ async function refreshApprovals(){
     container.replaceChildren();
     if(!currentRequests.length)container.textContent="No pending requests.";
     for(const request of currentRequests){
-      const row=document.createElement("div"),label=document.createElement("p"),approve=document.createElement("button"),deny=document.createElement("button");
-      label.textContent="Check number "+request.check_number;
-      approve.textContent="Approve "+request.check_number;deny.textContent="Deny";
+      const row=document.createElement("div"),label=document.createElement("p"),actions=document.createElement("div"),approve=document.createElement("button"),deny=document.createElement("button");
+      const name=request.control_guests?.name||currentProfile?.name||"Guest";
+      row.className="approval-row";actions.className="approval-actions";deny.className="deny";
+      label.textContent=name+" · Check number "+request.check_number;
+      approve.textContent="Approve browser";deny.textContent="Deny";
       for(const [button,action] of [[approve,"pair-approve"],[deny,"pair-deny"]])button.addEventListener("click",async()=>{
         approve.disabled=true;deny.disabled=true;
-        try{await backend(action,{request:request.id});row.remove()}catch(error){remoteStatus(error.message)}
+        try{await backend(action,{request:request.id});row.remove();if(!container.children.length)container.textContent="No pending requests."}catch(error){remoteStatus(error.message)}
       });
-      row.append(label,approve,deny);container.append(row);
+      actions.append(approve,deny);row.append(label,actions);container.append(row);
     }
   }catch(error){console.warn("Browser approvals unavailable")}finally{approvalBusy=false}
 }

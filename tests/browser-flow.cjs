@@ -34,10 +34,10 @@ const server=http.createServer((req,res)=>{
   await context.route('https://hqciviafxtfescteyvnn.supabase.co/functions/v1/guest-access',async route=>{
     const body=route.request().postDataJSON();let result={ok:true};
     if(body.action==='list')result={profiles:[profile]};
-    if(['create','rotate'].includes(body.action))result={profile};
+    if(['create','rotate'].includes(body.action)){profile.name=body.name;result={profile}}
     if(body.action==='activate'){active={session:body.session,edgeKey:body.edgeKey};}
     if(body.action==='end'&&active?.session===body.session)active=null;
-    if(body.action==='resolve')result=active?{valid:true,available:true,...active}:{valid:true,available:false};
+    if(body.action==='resolve')result=active?{valid:true,available:true,name:profile.name,...active}:{valid:true,available:false,name:profile.name};
     if(body.action==='pair-list')result={requests:[]};
     if(body.action==='pair-request'||body.action==='pair-poll')result=approved?{state:'approved',token:profile.token}:{state:'pending',checkNumber:'7261'};
     await route.fulfill({contentType:'application/json',body:JSON.stringify(result),headers:{'Access-Control-Allow-Origin':'*'}});
@@ -45,21 +45,22 @@ const server=http.createServer((req,res)=>{
   try{
     const host=await context.newPage();pages.push(host);host.on('pageerror',e=>errors.push(e.message));
     await host.goto(origin);await host.locator('#host-controls').waitFor({state:'visible'});
-    assert.equal(await host.locator('#guest-name').count(),0);assert.equal(await host.locator('#guest-select').count(),0);assert.equal(await host.locator('#rotate-guest').count(),0);
+    assert.equal(await host.locator('#guest-name').count(),1);assert.equal(await host.locator('#guest-select').count(),0);assert.equal(await host.locator('#rotate-guest').count(),0);assert.equal(await host.locator('.advanced').evaluate(details=>details.open),false);
     assert.equal(await host.locator('#controller-link').inputValue(),'');
+    await host.locator('#guest-name').fill('Sophie');
     assert.equal(await host.locator('#preview-controller').isEnabled(),true);
     const previewPromise=context.waitForEvent('page');await host.locator('#preview-controller').click();const preview=await previewPromise;pages.push(preview);preview.on('pageerror',e=>errors.push(e.message));
-    await preview.locator('#preview-badge').waitFor({state:'visible'});assert.equal(await preview.locator('[data-command]:enabled').count(),6);assert.equal(await preview.evaluate(()=>window.channels.length),0);
+    await preview.locator('#preview-badge').waitFor({state:'visible'});assert.equal(await preview.locator('#guest-welcome').textContent(),'WELCOME, SOPHIE');assert.equal(await preview.locator('[data-command]:enabled').count(),6);assert.equal(await preview.evaluate(()=>window.channels.length),0);
     await preview.locator('[data-command="20"]').click();await preview.waitForFunction(()=>parseFloat(document.querySelector('[data-command="20"]').style.getPropertyValue('--progress'))>0);
     await preview.evaluate(()=>{previewStartedAt-=5000;updatePreviewFixed()});assert.equal(await preview.locator('[data-command="20"]').evaluate(button=>button.classList.contains('active')),false);
     const previewHold=await preview.locator('#max-hold').boundingBox();await preview.mouse.move(previewHold.x+20,previewHold.y+20);await preview.mouse.down();assert.equal(await preview.locator('#max-hold').evaluate(button=>button.classList.contains('active')),true);await preview.mouse.up();assert.equal(await preview.locator('#max-hold').evaluate(button=>button.classList.contains('active')),false);assert.equal(await preview.evaluate(()=>window.channels.length),0);await preview.close();
     await host.locator('#connect').click();await host.locator('#create-controller').waitFor({state:'visible'});await host.locator('#create-controller').click();
     await host.waitForFunction(()=>remoteReady);
-    assert.equal(await host.locator('#controller-link').inputValue(),'https://ctmp.uk/#ABCD');
+    assert.equal(await host.locator('#controller-link').inputValue(),'https://ctmp.uk/#ABCD');assert.equal(await host.locator('#device-state').textContent(),'Connected');
     const guest=await context.newPage();pages.push(guest);guest.on('pageerror',e=>errors.push(e.message));
     await guest.goto(origin+'/controller.html#ABCD');await guest.locator('#request-access').click();await guest.waitForFunction(()=>document.querySelector('#pairing-message').textContent.includes('7261'));
     assert.equal(await guest.locator('[data-command="20"]').isDisabled(),true);
-    approved=true;await guest.evaluate(()=>pollPairing());await guest.waitForFunction(()=>guestReady&&lastStateAt>0);
+    approved=true;await guest.evaluate(()=>pollPairing());await guest.waitForFunction(()=>guestReady&&lastStateAt>0);assert.equal(await guest.locator('#guest-welcome').textContent(),'WELCOME, SOPHIE');assert.equal(await guest.locator('.control .release').count(),2);
     await guest.screenshot({path:'/tmp/lushcon-guest-ready.png',fullPage:true});
     await guest.locator('[data-command="70"]').click();await guest.waitForFunction(()=>document.querySelector('[data-command="70"]').classList.contains('active'));
     await host.waitForFunction(()=>window.__writes.some(w=>w.command==='Vibrate:14;'));
