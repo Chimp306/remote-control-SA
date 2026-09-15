@@ -7,7 +7,7 @@ const laterCelebrations=['Edged — nice work 😈','You found my limit — edge
 const server=http.createServer((req,res)=>{
   const file=path.join(root,req.url.split('?')[0]==='/'?'index.html':req.url.split('?')[0]);
   if(!file.startsWith(root)){res.writeHead(403).end();return}
-  try{res.setHeader('Content-Type',file.endsWith('.html')?'text/html':'text/javascript');res.end(fs.readFileSync(file))}catch{res.writeHead(404).end()}
+  try{res.setHeader('Content-Type',file.endsWith('.html')?'text/html':file.endsWith('.jpg')?'image/jpeg':'text/javascript');res.end(fs.readFileSync(file))}catch{res.writeHead(404).end()}
 });
 (async()=>{
   await new Promise(r=>server.listen(0,'127.0.0.1',r));const origin='http://127.0.0.1:'+server.address().port;
@@ -41,7 +41,8 @@ const server=http.createServer((req,res)=>{
     if(body.action==='activate'){active={session:body.session,edgeKey:body.edgeKey,contactKey:body.contactKey};}
     if(body.action==='end'&&active?.session===body.session)active=null;
     if(body.action==='resolve')result=active?{valid:true,available:true,name:profile.name,...active}:{valid:true,available:false,name:profile.name};
-    if(body.action==='pair-list')result={requests:[]};
+    if(body.action==='pair-list')result={requests:approved?[]:[{id:'request-1',profile_id:profile.id,check_number:'7261'}]};
+    if(body.action==='pair-approve')approved=true;
     if(body.action==='pair-request'||body.action==='pair-poll')result=approved?{state:'approved',token:profile.token}:{state:'pending',checkNumber:'7261'};
     await route.fulfill({contentType:'application/json',body:JSON.stringify(result),headers:{'Access-Control-Allow-Origin':'*'}});
   });
@@ -66,7 +67,20 @@ const server=http.createServer((req,res)=>{
     const guest=await context.newPage();pages.push(guest);guest.on('pageerror',e=>errors.push(e.message));
     await guest.goto(origin+'/controller.html#ABCD');await guest.locator('#request-access').click();await guest.waitForFunction(()=>document.querySelector('#pairing-message').textContent.includes('7261'));
     assert.equal(await guest.locator('[data-command="20"]').isDisabled(),true);
-    approved=true;await guest.evaluate(()=>pollPairing());await guest.waitForFunction(()=>guestReady&&lastStateAt>0&&!edgeCountBaselinePending&&!teaseBaselinePending&&!ratingBaselinePending);assert.equal(await guest.locator('#guest-welcome').textContent(),'WELCOME, SOPHIE');assert.equal(await guest.locator('.control .release').count(),2);assert.equal(await guest.evaluate(()=>celebrationSerial),0);assert.ok(Number.isSafeInteger(await guest.evaluate(()=>teaseStartedAt)));await guest.locator('#contact-toggle').click();await guest.locator('#contact-value').fill('sophie@example.com');const contactWrites=await host.evaluate(()=>window.__writes.length);await guest.locator('#contact-send').click();await host.locator('#guest-contact-card').waitFor({state:'visible'});assert.equal(await host.locator('#guest-contact-value').textContent(),'sophie@example.com');assert.equal(await host.evaluate(()=>window.__writes.length),contactWrites);
+    assert.equal(await host.locator('#live-session').isHidden(),true);
+    assert.equal(await host.locator('#enter-live').isDisabled(),true);
+    const beforeApproval=await host.evaluate(()=>window.__writes.length);
+    await host.evaluate(()=>refreshApprovals());
+    await host.getByRole('button',{name:'Approve browser'}).click();
+    await host.locator('#live-session').waitFor({state:'visible'});
+    assert.equal(await host.locator('#live-arousal-slot [data-tease-stage]').count(),4);
+    assert.equal(await host.locator('#live-rating-slot [data-tease-rating]').count(),4);
+    assert.equal(await host.locator('.live-battery').count(),0);
+    assert.equal(await host.evaluate(()=>window.__writes.length),beforeApproval);
+    assert.match(await host.locator('#live-backdrop').evaluate(el=>el.style.backgroundImage),/host-live-background.jpg/);
+    await host.locator('#leave-live').click();
+    await guest.evaluate(()=>pollPairing());await guest.waitForFunction(()=>guestReady&&lastStateAt>0&&!edgeCountBaselinePending&&!teaseBaselinePending&&!ratingBaselinePending);assert.equal(await guest.locator('#guest-welcome').textContent(),'WELCOME, SOPHIE');assert.equal(await guest.locator('.control .release').count(),2);assert.equal(await guest.evaluate(()=>celebrationSerial),0);assert.ok(Number.isSafeInteger(await guest.evaluate(()=>teaseStartedAt)));await guest.locator('#contact-toggle').click();await guest.locator('#contact-value').fill('sophie@example.com');const contactWrites=await host.evaluate(()=>window.__writes.length);await guest.locator('#contact-send').click();await host.locator('#guest-contact-card').waitFor({state:'visible'});assert.equal(await host.locator('#guest-contact-value').textContent(),'sophie@example.com');assert.equal(await host.evaluate(()=>window.__writes.length),contactWrites);
+    await host.locator('#enter-live').click();
     const writesBeforeStage=await host.evaluate(()=>window.__writes.length);await host.locator('[data-tease-stage="2"]').click();await guest.waitForFunction(()=>teaseStage===2);assert.equal(await guest.locator('#tease-message').textContent(),'MEDIUM');assert.equal(await guest.locator('#tease-copy').textContent(),'I know I’m being teased now.');assert.equal(await host.evaluate(()=>window.__writes.length),writesBeforeStage);assert.equal(await host.evaluate(()=>engine.active),null);await guest.evaluate(()=>receiveTeaseState({message:JSON.stringify({stage:4,startedAt:null,seq:9999}),signature:'AAAA'}));assert.equal(await guest.evaluate(()=>teaseStage),2);
     await host.locator('[data-tease-rating="3"]').click();await guest.waitForFunction(()=>teaseRating===3);assert.equal(await guest.locator('#rating-message').textContent(),'DANGEROUSLY GOOD 😈');assert.equal(await guest.locator('#rating-copy').textContent(),'You know exactly what you’re doing.');assert.equal(await host.evaluate(()=>window.__writes.length),writesBeforeStage);assert.equal(await host.evaluate(()=>engine.active),null);await guest.evaluate(()=>receiveTeaseRating({message:JSON.stringify({rating:4,seq:9999}),signature:'AAAA'}));assert.equal(await guest.evaluate(()=>teaseRating),3);
     await guest.screenshot({path:'/tmp/lushcon-guest-ready.png',fullPage:true});
@@ -100,6 +114,12 @@ const server=http.createServer((req,res)=>{
     await host.evaluate(async()=>{device.gatt.connected=false;await reconnectBluetooth(false)});
     const recovered=await host.evaluate(start=>window.__writes.slice(start),start);assert.ok(recovered.every(w=>w.command==='Vibrate:0;'));
     assert.ok((await host.evaluate(()=>window.__writes)).every(w=>!w.command.startsWith('Vibrate:')||Number(w.command.match(/\d+/)[0])<=14));
+    // Returning to setup must stay there, including across a recovery refresh.
+    await host.locator('#leave-live').click();
+    await host.evaluate(()=>window.dispatchEvent(new Event('pageshow')));
+    assert.equal(await host.locator('#host-setup').isVisible(),true);
+    assert.equal(await host.locator('#host-setup [data-tease-stage]').count(),4);
+    assert.equal(await host.locator('#host-setup [data-tease-rating]').count(),4);
     // Live Session is a view: opening, closing and local images add no device writes.
     await host.waitForFunction(()=>!document.querySelector('#enter-live').disabled);
     const beforeLive=await host.evaluate(()=>window.__writes.length);
@@ -109,7 +129,7 @@ const server=http.createServer((req,res)=>{
     await host.locator('#enter-live').click();await host.locator('#live-session').waitFor({state:'visible'});
     assert.equal(await host.locator('#live-stop-slot #stop').count(),1);assert.equal(await host.locator('#live-edge-slot #edge').count(),1);
     assert.equal(await host.locator('#stop').count(),1);assert.equal(await host.evaluate(()=>window.__writes.length),beforeLive);
-    assert.match(await host.locator('#live-session-state').textContent(),/presence not tracked/);
+    assert.match(await host.locator('#live-session-state').textContent(),/Guest browser approved/);
     for(const command of ['20','40','60','70']){
       await host.evaluate(command=>engine.fixed(command,'live-fixed-test'),command);
       await host.waitForFunction(command=>document.querySelector('#live-output-meter').getAttribute('aria-valuenow')===command,command);
@@ -145,9 +165,26 @@ const server=http.createServer((req,res)=>{
     await host.evaluate(()=>{Object.defineProperty(document,'visibilityState',{value:'visible',configurable:true});document.dispatchEvent(new Event('visibilitychange'))});
     await host.evaluate(async()=>{remoteReady=false;remoteChannel.state='closed';await recoverRemoteSession()});
     await host.waitForFunction(()=>remoteChannelSubscribed());assert.equal(await host.evaluate(()=>remoteSessionId),liveSession);
+    // Restore the supplied background and inspect narrow, regular and landscape layouts.
+    await host.locator('#leave-live').click();await host.locator('#clear-live-background').click();await host.locator('#enter-live').click();
+    for(const viewport of [{width:390,height:844},{width:320,height:568},{width:844,height:390}]){
+      await host.setViewportSize(viewport);
+      assert.equal(await host.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+      const left=await host.locator('#live-arousal-slot').boundingBox(),right=await host.locator('#live-rating-slot').boundingBox();
+      assert.ok(left.x+left.width<right.x);
+      for(const selector of ['#live-arousal-slot button','#live-rating-slot button']){
+        for(const button of await host.locator(selector).all()){
+          const box=await button.boundingBox();assert.ok(box.height>=44);
+          assert.equal(await button.evaluate(el=>el.scrollWidth<=el.clientWidth),true);
+        }
+      }
+      const edgeBox=await host.locator('#edge').boundingBox();assert.ok(edgeBox.y+edgeBox.height<=viewport.height);
+      await host.screenshot({path:'/tmp/lushcon-live-'+viewport.width+'x'+viewport.height+'.png',fullPage:true});
+    }
+    await host.setViewportSize({width:390,height:844});
     await host.screenshot({path:'/tmp/lushcon-live-session.png',fullPage:true});
     await host.locator('#leave-live').click();assert.equal(await host.locator('#host-setup #stop').count(),1);
-    await host.locator('#clear-live-background').click();assert.equal(await host.locator('#live-backdrop').evaluate(el=>el.style.backgroundImage),'none');
+    assert.match(await host.locator('#live-backdrop').evaluate(el=>el.style.backgroundImage),/host-live-background.jpg/);
     await host.locator('#enter-live').click();await host.evaluate(()=>endRemoteSession());
     await host.locator('#live-session').waitFor({state:'hidden'});assert.equal(await host.locator('#enter-live').isDisabled(),true);
     // A plain visitor sees login + code entry, never controls.

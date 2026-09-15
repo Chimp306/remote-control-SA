@@ -92,21 +92,47 @@ button:disabled{cursor:not-allowed;filter:saturate(.25) brightness(.62);opacity:
 @media(max-width:370px){.shell{padding:16px}.card{padding:13px}.safety-grid,.secondary-actions{gap:7px}button{padding-inline:9px}.approval-actions{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 
-/* Host-only presentation. Original safety buttons are moved here while live. */
+/* Host-only presentation; existing controls keep their original listeners. */
 .live-options input{font-size:.8rem;padding:9px}.live-options #clear-live-background{margin-top:8px}
 body.host-live{padding:0}body.host-live .shell{width:100%;max-width:none;padding:0;border:0;background:none;box-shadow:none}
-.live-session{position:fixed;inset:0;z-index:30;isolation:isolate;overflow:auto;display:grid;grid-template-rows:auto 1fr auto;gap:12px;background:radial-gradient(ellipse at 50% 45%,#4b172d,#160c13 60%,#070609);padding:0 max(20px,env(safe-area-inset-right)) max(22px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left))}
-.live-backdrop{position:fixed;inset:0;z-index:-2;background-position:center;background-size:cover;filter:blur(2px);pointer-events:none}
-.live-session::before{content:"";position:fixed;inset:0;z-index:-1;background:linear-gradient(180deg,#09060bef,#210c1cb5 45%,#070609f5);pointer-events:none}
-.live-top{position:sticky;top:0;z-index:5;display:flex;align-items:start;justify-content:space-between;gap:16px;padding:max(18px,env(safe-area-inset-top)) 0 12px;background:linear-gradient(#100a11 75%,#100a1100)}
-.live-device{display:grid;gap:6px;color:#cbbcc2;font-size:.72rem}.live-battery{color:#d7b87e}.live-device #live-connection{max-width:220px}.live-quiet{width:auto;padding:7px 0;border:0;background:none;box-shadow:none;text-align:left;color:#d7bcc7;font-size:.75rem;text-decoration:underline;text-underline-offset:4px}
-#live-stop-slot #stop{width:auto;min-width:86px;min-height:48px;margin:0;padding:12px 20px;border:2px solid #ff9bac;background:#8c1736;color:white;box-shadow:0 3px 16px #0007}
-.live-main{align-self:center;display:grid;justify-items:center;text-align:center;padding:8px 0;gap:9px}.live-main h1{font-size:clamp(2rem,7vw,3.2rem);margin:0;color:#f6e6dd}.live-session-state{max-width:330px;min-height:2.5em;margin:0;color:#ccbac2;font-size:.77rem;line-height:1.4}
-.live-output-meter{--output-turn:0deg;width:clamp(180px,60vw,300px);aspect-ratio:1;border-radius:50%;padding:8px;margin:14px 0;background:conic-gradient(from 225deg,#efc686 0deg,#c35c75 var(--output-turn),#ffffff12 var(--output-turn),#ffffff12 270deg,transparent 270deg);box-shadow:0 0 65px #a1385725;transform:rotate(0)}
-.live-output-core{height:100%;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:radial-gradient(circle at 50% 30%,#341b29,#110b12 75%);border:1px solid #d6ad682a;box-shadow:inset 0 0 45px #0008}.live-output-core strong{font-size:clamp(3.8rem,15vw,6rem);font-weight:500;letter-spacing:-.06em;line-height:1;color:#f8dfb7;font-variant-numeric:tabular-nums}.live-output-core strong span{font-size:.3em;letter-spacing:0;color:#c5a17b;margin-left:5px}.live-output-core>span{font-size:.62rem;letter-spacing:.22em;color:#ba929f}
-.live-pattern{margin:0;color:#ecd3dc;font-size:1rem;font-weight:700}.live-cap{margin:0;color:#a58b96;font-size:.7rem}
-.live-footer{width:min(100%,460px);justify-self:center;text-align:center}.live-footer>p{margin:0 0 12px;color:#dbb87e;font-size:.8rem}#live-edge-slot #edge{width:100%;min-height:72px;margin:0;border:1px solid #edbf78;background:linear-gradient(130deg,#732b43,#4c1a2e);color:#ffe5b8;font-size:1.35rem;letter-spacing:.14em;box-shadow:0 8px 30px #0008}#live-edge-status-slot{min-height:28px;padding-top:10px}#live-edge-status-slot .edge-status{margin:0;color:#f8d69e}
-@media(max-height:650px){.live-output-meter{width:170px;margin:0}.live-main h1{font-size:1.6rem}.live-main{gap:5px}.live-output-core strong{font-size:3.8rem}#live-edge-slot #edge{min-height:58px}}
+.live-session{position:fixed;inset:0;z-index:30;isolation:isolate;overflow:auto;display:grid;grid-template-rows:auto minmax(285px,1fr) auto;gap:12px;background:#160c13;padding:0 max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.live-backdrop{position:fixed;inset:0;z-index:-2;background-position:58% center;background-size:cover;pointer-events:none}
+.live-session::before{content:"";position:fixed;inset:0;z-index:-1;background:linear-gradient(180deg,#09060bc9 0%,#210c1c38 35%,#210c1c40 55%,#09060bed 100%);pointer-events:none}
+.live-top{position:sticky;top:0;z-index:5;display:flex;align-items:start;justify-content:space-between;gap:12px;padding:max(16px,env(safe-area-inset-top)) 0 8px;background:linear-gradient(#100a118c,#100a1100)}
+.live-device{display:grid;gap:4px;font-size:.72rem}.live-device #live-connection{padding:9px 11px;border:1px solid #e6c39640;border-radius:999px;background:#100a11bb;backdrop-filter:blur(12px);color:#b9e1bf}
+.live-quiet{width:auto;min-height:44px;padding:8px 2px;border:0;background:none;box-shadow:none;text-align:left;color:#f2dce5;font-size:.75rem;text-decoration:underline;text-underline-offset:4px}
+#live-stop-slot #stop{width:auto;min-width:82px;min-height:46px;margin:0;padding:11px 17px;border:1px solid #ff9bac;background:#8c1736;color:white;box-shadow:0 3px 16px #0007}
+.live-main{position:relative;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:30px 0 0}
+.live-title{position:absolute;inset:0 0 auto;text-align:center;color:#f6dcb0;font-size:.63rem;letter-spacing:.28em}
+.live-rail{width:clamp(104px,29vw,155px);align-self:center;padding:10px 5px 5px;border:1px solid #e1b88b40;border-radius:17px;background:linear-gradient(140deg,#1b0c17d9,#1b0c17a8);backdrop-filter:blur(14px);box-shadow:0 10px 35px #0004}
+.live-rail h2{min-height:2.4em;display:grid;place-items:center;margin:0 0 9px;text-align:center;color:#e7c5aa;font-size:.56rem;letter-spacing:.12em;text-transform:uppercase}
+.live-rail .tease-stage-grid{grid-template-columns:minmax(0,1fr);gap:0}
+.live-rail .tease-stage{min-height:56px;padding:8px 5px;border:1px solid transparent;border-radius:10px;background:none;box-shadow:none;color:#d6c6ce;font-size:clamp(.6rem,2.4vw,.72rem);line-height:1.25;overflow-wrap:anywhere}
+.live-rail .tease-stage+.tease-stage{border-top-color:#f7d4c012}
+.live-rail .tease-stage::before{display:none}
+.live-rail .tease-stage[aria-pressed="true"]{border-color:#e8bb747a;background:linear-gradient(135deg,#863952e6,#512335de);color:#fff2da;box-shadow:0 0 16px #d3924f22}
+.live-rail .tease-stage:active:not(:disabled){transform:scale(.98)}
+.live-footer{width:min(100%,400px);justify-self:center;text-align:center}
+.live-session-state{min-height:1.4em;margin:0 0 8px;color:#e2cdd5;font-size:.72rem;line-height:1.4}
+.live-output{margin:0 auto 15px;padding:11px 14px;border:1px solid #e4b78030;border-radius:14px;background:#140c14c9;backdrop-filter:blur(12px);text-align:left}
+.live-output-label{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px;color:#d8b6a9;font-size:.58rem;letter-spacing:.14em}
+.live-output-label strong{color:#f8dfb7;font-size:1.05rem;letter-spacing:0;font-variant-numeric:tabular-nums}.live-output-label strong span{margin-left:3px;font-size:.65em}
+.live-output-meter{height:7px;border-radius:999px;background:#ffffff18;overflow:hidden}
+.live-output-fill{display:block;width:100%;height:100%;transform:scaleX(var(--output-fraction,0));transform-origin:left;background:linear-gradient(90deg,#a54363,#f0c581);border-radius:inherit;transition:transform 80ms linear;box-shadow:0 0 12px #e8b76a80}
+.live-output-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px}.live-pattern,.live-cap{margin:0;font-size:.61rem;color:#c7aeba}.live-pattern{color:#efd8df}
+.live-footer>p#live-edge-count{margin:0 0 9px;color:#e8c78f;font-size:.75rem}
+#live-edge-slot #edge{width:100%;min-height:62px;margin:0;border:1px solid #edbf78;background:linear-gradient(130deg,#732b43,#4c1a2e);color:#ffe5b8;font-size:1.2rem;letter-spacing:.14em;box-shadow:0 8px 30px #0008}
+#live-edge-status-slot{min-height:24px;padding-top:8px}#live-edge-status-slot .edge-status{margin:0;color:#f8d69e}
+#live-reconnect{margin:0 auto 8px;text-align:center}
+@media(min-width:700px){.live-main{padding-inline:4vw}.live-rail{width:155px}.live-rail .tease-stage{min-height:64px}.live-backdrop{background-position:center 38%}}
+@media(max-height:650px){.live-session{gap:4px;grid-template-rows:auto minmax(230px,1fr) auto}.live-main{padding-top:20px}.live-rail .tease-stage{min-height:46px}.live-output{margin-bottom:9px;padding:8px 12px}.live-top{padding-top:max(8px,env(safe-area-inset-top))}#live-edge-slot #edge{min-height:50px}}
+@media(orientation:landscape) and (max-height:500px){
+.live-session{grid-template-rows:auto minmax(240px,1fr);padding-bottom:8px}
+.live-main{padding-top:12px;align-self:stretch}.live-title{top:-2px}
+.live-footer{position:absolute;bottom:max(8px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:clamp(230px,42vw,360px)}
+.live-session-state{font-size:.65rem}.live-output{margin-bottom:8px}.live-rail .tease-stage{min-height:44px}
+#live-edge-slot #edge{min-height:48px}#live-edge-status-slot{min-height:16px;padding-top:4px}
+}
 </style>
 </head>
 <body>
@@ -137,11 +163,11 @@ body.host-live{padding:0}body.host-live .shell{width:100%;max-width:none;padding
 <section class="card live-options" aria-labelledby="live-options-title">
 <div class="card-heading"><h2 id="live-options-title">Live Session</h2></div>
 <button id="enter-live" type="button" disabled>Enter Live Session</button>
-<p id="live-availability" class="field-note">Connect the toy and establish a controller session first.</p>
-<label for="live-background-input">Optional background image</label>
+<p id="live-availability" class="field-note">Connect the toy, create an invitation and approve your guest’s browser.</p>
+<label for="live-background-input">Choose a different background image</label>
 <input id="live-background-input" type="file" accept="image/jpeg,image/png,image/webp,image/avif">
 <button id="clear-live-background" type="button" hidden>Remove background</button>
-<p id="live-background-note" class="field-note" role="status">Stays in this browser tab. Never uploaded or shared.</p>
+<p id="live-background-note" class="field-note" role="status">Your selection stays in this tab. Remove it to restore the default image.</p>
 </section>
 <section id="device-card" class="card device-card" data-state="disconnected" aria-labelledby="device-heading">
 <div class="card-heading"><h2 id="device-heading">Device</h2></div>
@@ -212,21 +238,24 @@ body.host-live{padding:0}body.host-live .shell{width:100%;max-width:none;padding
 <section id="live-session" class="live-session" aria-label="Live Session" hidden>
 <div id="live-backdrop" class="live-backdrop" aria-hidden="true"></div>
 <header class="live-top">
-<div class="live-device"><span class="live-battery">Battery unavailable</span><span id="live-connection" role="status">Toy disconnected</span><button id="leave-live" class="live-quiet" type="button">Back to setup</button></div>
+<div class="live-device"><span id="live-connection" role="status">Toy disconnected</span><button id="leave-live" class="live-quiet" type="button">Back to setup</button></div>
 <div id="live-stop-slot"></div>
 </header>
 <div class="live-main">
-<p class="eyebrow">LIVE SESSION</p>
-<h1>Your moment.</h1>
-<p id="live-session-state" class="live-session-state" role="status">Controller session ready · guest presence not tracked</p>
+<p class="eyebrow live-title">LIVE SESSION</p>
+<section class="live-rail" aria-labelledby="live-arousal-title"><h2 id="live-arousal-title">Arousal state</h2><div id="live-arousal-slot"></div></section>
+<section class="live-rail" aria-labelledby="live-rating-title"><h2 id="live-rating-title">Tease rating</h2><div id="live-rating-slot"></div></section>
+</div>
+<footer class="live-footer">
+<p id="live-session-state" class="live-session-state" role="status">Guest browser approved</p>
 <button id="live-reconnect" class="live-quiet" type="button" hidden>Reconnect Device</button>
-<div id="live-output-meter" class="live-output-meter" role="meter" aria-label="Commanded toy output" aria-valuemin="0" aria-valuemax="70" aria-valuenow="0">
-<div class="live-output-core"><strong id="live-output-number">0<span>%</span></strong><span>TOY OUTPUT</span></div>
+<div class="live-output">
+<div class="live-output-label"><span>TOY OUTPUT</span><strong id="live-output-number">0<span>%</span></strong></div>
+<div id="live-output-meter" class="live-output-meter" role="meter" aria-label="Commanded toy output" aria-valuemin="0" aria-valuemax="70" aria-valuenow="0"><span class="live-output-fill"></span></div>
+<div class="live-output-meta"><p id="live-pattern" class="live-pattern">Stopped</p><p class="live-cap">70% maximum</p></div>
 </div>
-<p id="live-pattern" class="live-pattern">Stopped</p>
-<p class="live-cap">70% maximum · commanded output</p>
-</div>
-<footer class="live-footer"><p id="live-edge-count">EDGE used: 0 times</p><div id="live-edge-slot"></div><div id="live-edge-status-slot"></div></footer>
+<p id="live-edge-count">EDGE used: 0 times</p><div id="live-edge-slot"></div><div id="live-edge-status-slot"></div>
+</footer>
 </section>
 </section>
 </main>
@@ -829,7 +858,7 @@ addEventListener("offline",()=>stopNow("Network unavailable"));
 addEventListener("pageshow",recoverActiveConnections);
 addEventListener("online",recoverActiveConnections);
 </script>
-<script src="host-access.js"></script>
-<script src="live-session.js?v=1"></script>
+<script src="host-access.js?v=2"></script>
+<script src="live-session.js?v=2"></script>
 </body>
 </html>

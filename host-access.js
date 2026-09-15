@@ -95,7 +95,7 @@ async function refreshApprovals(){
       approve.textContent="Approve browser";deny.textContent="Deny";
       for(const [button,action] of [[approve,"pair-approve"],[deny,"pair-deny"]])button.addEventListener("click",async()=>{
         approve.disabled=true;deny.disabled=true;
-        try{await backend(action,{request:request.id});row.remove();if(!container.children.length)container.textContent="No pending requests."}catch(error){remoteStatus(error.message)}
+        try{const approvedSession=remoteSessionId;await backend(action,{request:request.id});if(action==="pair-approve")window.hostLiveView?.paired?.(approvedSession);row.remove();if(!container.children.length)container.textContent="No pending requests."}catch(error){remoteStatus(error.message)}
       });
       actions.append(approve,deny);row.append(label,actions);container.append(row);
     }
