@@ -51,6 +51,13 @@ button:disabled{cursor:not-allowed;filter:saturate(.25) brightness(.62);opacity:
 .tease-stage::before{content:"STAGE " attr(data-tease-stage);display:block;margin-bottom:4px;color:#a98994;font-size:.54rem;font-weight:850;letter-spacing:.14em}
 .tease-stage[aria-pressed="true"]{border-color:#d5a66b;background:linear-gradient(165deg,#7d2c48,#482031);color:#fff6ef;box-shadow:0 4px 0 #12080c,0 0 20px #bb5e7657,0 1px 0 #ffffff1a inset}
 .tease-stage:nth-child(4)[aria-pressed="true"]{background:linear-gradient(165deg,#96383f,#61211f);box-shadow:0 4px 0 #150807,0 0 25px #e39a5166,0 1px 0 #ffffff1a inset}
+.host-feedback-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.host-feedback-grid .card{min-width:0;padding:12px}
+.host-feedback-grid .card-heading h2{font-size:.66rem}
+.host-feedback-grid .tease-stage{min-height:62px;padding:7px 6px;font-size:.68rem}
+.rating-stage::before{content:"RATING " attr(data-tease-rating)}
+.rating-stage[aria-pressed="true"]{border-color:#e0b56d;background:linear-gradient(165deg,#7b3543,#4a2427);box-shadow:0 4px 0 #12080c,0 0 20px #d1934f5c,0 1px 0 #ffffff1a inset}
+.rating-stage:nth-child(4)[aria-pressed="true"]{background:linear-gradient(165deg,#9b493f,#65301f);box-shadow:0 4px 0 #150807,0 0 25px #ecb45d73,0 1px 0 #ffffff1a inset}
 .tease-note{margin:9px 0 0;color:#9f8e94;font-size:.7rem;line-height:1.35;text-align:center}
 .field-note{margin:5px 0 11px;color:#97878c;font-size:.7rem;line-height:1.35}
 #create-controller{margin-top:10px}
@@ -79,6 +86,7 @@ button:disabled{cursor:not-allowed;filter:saturate(.25) brightness(.62);opacity:
 .login-card+.login-card{margin-top:12px}
 .login-card button{margin-top:10px}
 .login-status{margin:0 0 12px;color:#d4b8c1;font-size:.83rem;line-height:1.4}
+@media(max-width:430px){.host-feedback-grid{grid-template-columns:1fr}.host-feedback-grid .card{padding:13px}.host-feedback-grid .tease-stage{font-size:.78rem}}
 @media(max-width:370px){.shell{padding:16px}.card{padding:13px}.safety-grid,.secondary-actions{gap:7px}button{padding-inline:9px}.approval-actions{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -118,6 +126,7 @@ button:disabled{cursor:not-allowed;filter:saturate(.25) brightness(.62);opacity:
 <div class="safety-grid"><button id="stop" disabled>STOP</button><button id="edge" disabled>EDGE — 30s</button></div>
 <p id="edge-status" class="edge-status" role="status" aria-live="polite" hidden></p>
 </section>
+<div class="host-feedback-grid">
 <section class="card" aria-labelledby="tease-heading">
 <div class="card-heading"><h2 id="tease-heading">Arousal state</h2></div>
 <div id="tease-stages" class="tease-stage-grid" role="group" aria-label="Arousal state">
@@ -128,6 +137,17 @@ button:disabled{cursor:not-allowed;filter:saturate(.25) brightness(.62);opacity:
 </div>
 <p class="tease-note">Information only — STOP remains the safety control.</p>
 </section>
+<section class="card" aria-labelledby="rating-heading">
+<div class="card-heading"><h2 id="rating-heading">Tease rating</h2></div>
+<div id="rating-stages" class="tease-stage-grid" role="group" aria-label="Tease rating">
+<button class="tease-stage rating-stage" type="button" data-tease-rating="1" aria-pressed="true" disabled>FUN TEASE</button>
+<button class="tease-stage rating-stage" type="button" data-tease-rating="2" aria-pressed="false" disabled>A LITTLE MEAN 😏</button>
+<button class="tease-stage rating-stage" type="button" data-tease-rating="3" aria-pressed="false" disabled>DANGEROUSLY GOOD 😈</button>
+<button class="tease-stage rating-stage" type="button" data-tease-rating="4" aria-pressed="false" disabled>GIRL OF MY DREAMS ❤️</button>
+</div>
+<p class="tease-note">Information only — a little verdict for your guest.</p>
+</section>
+</div>
 <section class="card remote" aria-labelledby="remote-heading">
 <div class="card-heading"><h2 id="remote-heading">Guest control</h2></div>
 <label for="guest-name">Guest name</label>
@@ -179,6 +199,7 @@ const copyControllerBtn=document.querySelector("#copy-controller");
 const controllerLinkEl=document.querySelector("#controller-link");
 const guestNameEl=document.querySelector("#guest-name");
 const teaseStageButtons=[...document.querySelectorAll("[data-tease-stage]")];
+const teaseRatingButtons=[...document.querySelectorAll("[data-tease-rating]")];
 
 const STATIC_LOVENSE_GATT=[
   {
@@ -213,6 +234,7 @@ const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
 
 let server, tx, device, stopTimer, patternTimer, patternGeneration=0, remoteClient, remoteChannel, remoteSessionId, remoteReady=false, edgeLockUntil=0, edgeCountdownTimer, edgeUseCount=0, edgeSigningKey, remoteRecoveryTimer, remoteRecoveryPromise, bluetoothRecoveryPromise, wakeLock;
 let teaseStage=1,teaseStartedAt=null,teaseSequence=0,teaseBusy=false,teasePublishQueued=false;
+let teaseRating=1,ratingSequence=0,ratingBusy=false,ratingPublishQueued=false;
 const encoder=new TextEncoder();
 
 function status(text,colour="#ffca65"){
@@ -237,6 +259,12 @@ function renderHostTeaseState(){
   teaseStageButtons.forEach(button=>{
     button.disabled=!remoteSessionId;
     button.setAttribute("aria-pressed",String(Number(button.dataset.teaseStage)===teaseStage));
+  });
+}
+function renderHostTeaseRating(){
+  teaseRatingButtons.forEach(button=>{
+    button.disabled=!remoteSessionId;
+    button.setAttribute("aria-pressed",String(Number(button.dataset.teaseRating)===teaseRating));
   });
 }
 function rawSessionId(){
@@ -281,11 +309,30 @@ function setTeaseStage(stage){
   if(!Number.isInteger(stage)||stage<1||stage>4||!remoteSessionId)return;
   teaseStage=stage;renderHostTeaseState();publishTeaseState();
 }
+async function publishTeaseRating(){
+  if(ratingBusy){ratingPublishQueued=true;return}
+  if(!remoteReady||!remoteChannel||!remoteSessionId||!edgeSigningKey)return;
+  ratingBusy=true;
+  try{
+    do{
+      ratingPublishQueued=false;
+      const activeChannel=remoteChannel,session=remoteSessionId,key=edgeSigningKey;
+      const message=JSON.stringify({rating:teaseRating,seq:++ratingSequence});
+      const signature=base64Url(await crypto.subtle.sign({name:"ECDSA",hash:"SHA-256"},key,encoder.encode("tease-rating:"+session+":"+message)));
+      if(activeChannel===remoteChannel&&session===remoteSessionId)await activeChannel.send({type:"broadcast",event:"tease-rating",payload:{message,signature}});
+    }while(ratingPublishQueued&&remoteReady&&remoteSessionId)
+  }catch(error){console.warn("Tease rating unavailable",error)}finally{ratingBusy=false}
+}
+function setTeaseRating(rating){
+  if(!Number.isInteger(rating)||rating<1||rating>4||!remoteSessionId)return;
+  teaseRating=rating;renderHostTeaseRating();publishTeaseRating();
+}
 async function endRemoteSession(message="No remote session is active."){
   sessionGeneration++;
   const endingSession=remoteSessionId,channel=remoteChannel;
   remoteReady=false;remoteSessionId=null;remoteChannel=null;leaseDeadline=0;
   teaseStage=1;teaseStartedAt=null;teaseSequence=0;teasePublishQueued=false;renderHostTeaseState();
+  teaseRating=1;ratingSequence=0;ratingPublishQueued=false;renderHostTeaseRating();
   seenCommands.clear();challenges.clear();
   controllerLinkEl.value="";
   copyControllerBtn.disabled=true;
@@ -438,6 +485,7 @@ async function subscribeRemoteChannel(recovering=false){
     })
     .on("broadcast",{event:"edge-count-request"},()=>{publishEdgeCount();publishHostState()})
     .on("broadcast",{event:"tease-state-request"},()=>publishTeaseState())
+    .on("broadcast",{event:"tease-rating-request"},()=>publishTeaseRating())
     .subscribe((state,error)=>{
       if(remoteChannel!==channel) return;
       if(state==="SUBSCRIBED"){
@@ -445,6 +493,7 @@ async function subscribeRemoteChannel(recovering=false){
         if(teaseStartedAt===null)teaseStartedAt=Date.now();
         publishHostState();
         publishTeaseState();
+        publishTeaseRating();
         copyControllerBtn.disabled=false;
         remoteStatus(recovering ? "Existing controller session restored." : "Controller link is live. Share it only with the person you want to control this test.","#7ee787");
       }else if(state==="CHANNEL_ERROR"||state==="TIMED_OUT"||state==="CLOSED"){
@@ -583,6 +632,7 @@ async function createRemoteSession(profile){
   if(generation!==sessionGeneration||!hostAuthorized||!tx){backend("end",{session}).catch(()=>{});return}
   remoteSessionId=session;edgeSigningKey=signingKeys.privateKey;edgeUseCount=0;
   teaseStage=1;teaseStartedAt=null;teaseSequence=0;teasePublishQueued=false;renderHostTeaseState();
+  teaseRating=1;ratingSequence=0;ratingPublishQueued=false;renderHostTeaseRating();
   leaseDeadline=started+30000;hostState={state:"ready"};stateSequence=0;
   controllerLinkEl.value="https://ctmp.uk/#"+profile.pair_code;
   await subscribeRemoteChannel(false);
@@ -668,6 +718,7 @@ stopBtn.addEventListener("click",async()=>{
 
 edgeBtn.addEventListener("click",activateEdgeLockout);
 teaseStageButtons.forEach(button=>button.addEventListener("click",()=>setTeaseStage(Number(button.dataset.teaseStage))));
+teaseRatingButtons.forEach(button=>button.addEventListener("click",()=>setTeaseRating(Number(button.dataset.teaseRating))));
 
 createControllerBtn.addEventListener("click",async()=>{
   createControllerBtn.disabled=true;

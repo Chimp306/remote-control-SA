@@ -3,6 +3,7 @@ const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
 const statusEl=document.querySelector("#status"),edgeCountEl=document.querySelector("#edge-count"),guestWelcomeEl=document.querySelector("#guest-welcome"),commandButtons=[...document.querySelectorAll("[data-command]")],holdButtons=[...document.querySelectorAll(".control.hold")];
 const celebrationEl=document.querySelector("#edge-celebration"),celebrationEmojiEl=document.querySelector("#celebration-emoji"),celebrationMessageEl=document.querySelector("#celebration-message"),previewToolsEl=document.querySelector("#preview-tools");
 const teasePanelEl=document.querySelector("#tease-panel"),teaseMessageEl=document.querySelector("#tease-message"),teaseCopyEl=document.querySelector("#tease-copy"),teaseTimerEl=document.querySelector("#tease-timer"),hapticStateEl=document.querySelector("#haptic-state");
+const ratingPanelEl=document.querySelector("#rating-panel"),ratingMessageEl=document.querySelector("#rating-message"),ratingCopyEl=document.querySelector("#rating-copy");
 const manualToggleEl=document.querySelector("#manual-toggle"),manualPanelEl=document.querySelector("#manual-panel"),manualSliderEl=document.querySelector("#manual-slider"),manualKnobEl=document.querySelector(".manual-knob"),manualReadoutEl=document.querySelector("#manual-readout");
 const previewRequested=new URLSearchParams(location.search).get("preview")==="1";
 function cleanGuestName(value){return typeof value==="string"?value.normalize("NFKC").replace(/[\u0000-\u001f\u007f-\u009f]/g,"").replace(/\s+/g," ").trim().slice(0,40):""}
@@ -47,6 +48,7 @@ let session,edgeKeyText,edgeVerificationKey,edgeCount=0,edgeCountBaselinePending
 let resolving,lastStateAt=0,lastSequence=0,hostState,challenge,holding,holdTimer,progressUntil=0,pendingId;
 let manualHolding=null,manualHeartbeatTimer=null,manualSendTimer=null,manualQueuedValue=null,manualLastSentLevel=null,manualPointerId=null;
 let teaseStage=1,teaseStartedAt=null,teaseHostClockOffset=0,lastTeaseSequence=0,teaseBaselinePending=true,hapticFlashTimer;
+let teaseRating=1,lastRatingSequence=0,ratingBaselinePending=true;
 const released=new Set(),hapticAcknowledgements=new Set();
 function status(text,colour="#ffca65"){statusEl.textContent=text;statusEl.style.color=colour}
 function fromBase64Url(text){const binary=atob(text.replaceAll("-","+").replaceAll("_","/").padEnd(Math.ceil(text.length/4)*4,"="));return Uint8Array.from(binary,c=>c.charCodeAt(0))}
@@ -85,6 +87,15 @@ const guestTeaseMessages={
   3:{name:"DESPERATE!",copy:"Fuck!"},
   4:{name:"MAXIMUM FRUSTRATION",copy:"PLEASE!"}
 };
+const guestRatingMessages={
+  1:{name:"FUN TEASE",copy:"This is fun."},
+  2:{name:"A LITTLE MEAN 😏",copy:"But I like it."},
+  3:{name:"DANGEROUSLY GOOD 😈",copy:"You know exactly what you’re doing."},
+  4:{name:"GIRL OF MY DREAMS ❤️",copy:"Perfect!"}
+};
+function renderTeaseRating(){
+  const content=guestRatingMessages[teaseRating];ratingPanelEl.dataset.rating=String(teaseRating);ratingMessageEl.textContent=content.name;ratingCopyEl.textContent=content.copy;
+}
 function renderTeaseState(){
   const content=guestTeaseMessages[teaseStage];teasePanelEl.dataset.stage=String(teaseStage);teaseMessageEl.textContent=content.name;teaseCopyEl.textContent=content.copy;
   if(teaseStartedAt===null){teaseTimerEl.textContent="Teasing for 0:00";return}
@@ -93,7 +104,7 @@ function renderTeaseState(){
     minutes)+":"+String(seconds).padStart(2,"0");
 }
 function resetGuestTeaseState(){
-  teaseStage=1;teaseStartedAt=null;teaseHostClockOffset=0;lastTeaseSequence=0;teaseBaselinePending=true;hapticAcknowledgements.clear();renderTeaseState();
+  teaseStage=1;teaseStartedAt=null;teaseHostClockOffset=0;lastTeaseSequence=0;teaseBaselinePending=true;teaseRating=1;lastRatingSequence=0;ratingBaselinePending=true;hapticAcknowledgements.clear();renderTeaseState();renderTeaseRating();
 }
 function showHapticVisual(kind){
   if(!previewRequested)return;
@@ -103,7 +114,7 @@ function showHapticVisual(kind){
 function guestHaptic(kind){
   showHapticVisual(kind);
   if(document.visibilityState!=="visible"||typeof navigator.vibrate!=="function")return;
-  const pattern={fixed:12,hold:[18,28,18],edge:[28,22,42],tease:[14,28,14]}[kind];
+  const pattern={fixed:12,hold:[18,28,18],edge:[28,22,42],tease:[14,28,14],rating:[14,28,14]}[kind];
   if(pattern!==undefined)try{navigator.vibrate(pattern)}catch{}
 }
 async function receiveTeaseState(payload){
@@ -118,6 +129,19 @@ async function receiveTeaseState(payload){
     const previousStage=teaseStage,restoring=teaseBaselinePending;
     lastTeaseSequence=next.seq;teaseStage=next.stage;teaseStartedAt=next.startedAt;teaseHostClockOffset=Date.now()-next.sentAt;teaseBaselinePending=false;renderTeaseState();
     if(!restoring&&next.stage!==previousStage)guestHaptic("tease");
+  }catch{}
+}
+async function receiveTeaseRating(payload){
+  const key=edgeVerificationKey,currentSession=session;
+  if(!key||typeof payload?.message!=="string"||payload.message.length>256||typeof payload.signature!=="string")return;
+  try{
+    const valid=await crypto.subtle.verify({name:"ECDSA",hash:"SHA-256"},key,fromBase64Url(payload.signature),new TextEncoder().encode("tease-rating:"+currentSession+":"+payload.message));
+    if(!valid||currentSession!==session)return;
+    const next=JSON.parse(payload.message);
+    if(!Number.isSafeInteger(next.seq)||next.seq<=lastRatingSequence||![1,2,3,4].includes(next.rating))return;
+    const previousRating=teaseRating,restoring=ratingBaselinePending;
+    lastRatingSequence=next.seq;teaseRating=next.rating;ratingBaselinePending=false;renderTeaseRating();
+    if(!restoring&&next.rating!==previousRating)guestHaptic("rating");
   }catch{}
 }
 async function receiveEdgeCount(payload){
@@ -241,7 +265,7 @@ function releaseManual(sendStop=true){
 function scheduleGuestRecovery(){clearTimeout(guestRecoveryTimer);if(document.visibilityState==="visible")guestRecoveryTimer=setTimeout(recoverGuestSession,1500)}
 async function subscribeGuestChannel(recovering=false){
   clearTimeout(guestRecoveryTimer);releaseHold();
-  edgeCountBaselinePending=true;teaseBaselinePending=true;
+  edgeCountBaselinePending=true;teaseBaselinePending=true;ratingBaselinePending=true;
   const previousChannel=channel;guestReady=false;channel=null;unavailable(recovering?"Restoring controller session…":"Waiting for your host…");
   if(previousChannel)try{await client.removeChannel(previousChannel)}catch{}
   if(!session)return;
@@ -253,13 +277,15 @@ async function subscribeGuestChannel(recovering=false){
     .on("broadcast",{event:"edge-count"},payload=>{if(channel===activeChannel)receiveEdgeCount(payload?.payload)})
     .on("broadcast",{event:"host-state"},payload=>{if(channel===activeChannel)receiveHostState(payload?.payload)})
     .on("broadcast",{event:"tease-state"},payload=>{if(channel===activeChannel)receiveTeaseState(payload?.payload)})
+    .on("broadcast",{event:"tease-rating"},payload=>{if(channel===activeChannel)receiveTeaseRating(payload?.payload)})
     .subscribe(async(state)=>{
       if(channel!==activeChannel)return;
       if(state==="SUBSCRIBED"){
         guestReady=true;
         await Promise.all([
           activeChannel.send({type:"broadcast",event:"edge-count-request",payload:{}}),
-          activeChannel.send({type:"broadcast",event:"tease-state-request",payload:{}})
+          activeChannel.send({type:"broadcast",event:"tease-state-request",payload:{}}),
+          activeChannel.send({type:"broadcast",event:"tease-rating-request",payload:{}})
         ]);
       }else if(["CHANNEL_ERROR","TIMED_OUT","CLOSED"].includes(state)){
         guestReady=false;unavailable();scheduleGuestRecovery();
@@ -316,8 +342,9 @@ function beginPreviewHold(button){
   status(button.querySelector(".level").textContent+" active — release to stop","#f0c98c");
 }
 function enablePreviewInteractions(){
-  document.querySelector("#preview-badge").hidden=false;previewToolsEl.hidden=false;hapticStateEl.hidden=false;document.body.dataset.controlState="ready";edgeCountEl.textContent="EDGE used: 0 times · preview";setControls(true);stopPreview();teaseHostClockOffset=0;teaseStartedAt=Date.now();renderTeaseState();
+  document.querySelector("#preview-badge").hidden=false;previewToolsEl.hidden=false;hapticStateEl.hidden=false;document.body.dataset.controlState="ready";edgeCountEl.textContent="EDGE used: 0 times · preview";setControls(true);stopPreview();teaseHostClockOffset=0;teaseStartedAt=Date.now();renderTeaseState();renderTeaseRating();
   document.querySelectorAll("[data-preview-stage]").forEach(button=>button.addEventListener("click",()=>{teaseStage=Number(button.dataset.previewStage);renderTeaseState();guestHaptic("tease")}));
+  document.querySelectorAll("[data-preview-rating]").forEach(button=>button.addEventListener("click",()=>{teaseRating=Number(button.dataset.previewRating);renderTeaseRating();guestHaptic("rating")}));
   document.querySelector("#preview-timer").addEventListener("click",()=>{teaseHostClockOffset=0;teaseStartedAt=Date.now();renderTeaseState()});
   document.querySelector("#preview-haptic").addEventListener("click",()=>guestHaptic("tease"));
   document.querySelector("#preview-edge-first").addEventListener("click",()=>{guestHaptic("edge");showEdgeCelebration(1)});
