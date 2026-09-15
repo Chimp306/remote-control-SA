@@ -91,6 +91,22 @@ button:disabled{cursor:not-allowed;filter:saturate(.25) brightness(.62);opacity:
 @media(max-width:430px){.host-feedback-grid{grid-template-columns:1fr}.host-feedback-grid .card{padding:13px}.host-feedback-grid .tease-stage{font-size:.78rem}}
 @media(max-width:370px){.shell{padding:16px}.card{padding:13px}.safety-grid,.secondary-actions{gap:7px}button{padding-inline:9px}.approval-actions{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* Host-only presentation. Original safety buttons are moved here while live. */
+.live-options input{font-size:.8rem;padding:9px}.live-options #clear-live-background{margin-top:8px}
+body.host-live{padding:0}body.host-live .shell{width:100%;max-width:none;padding:0;border:0;background:none;box-shadow:none}
+.live-session{position:fixed;inset:0;z-index:30;isolation:isolate;overflow:auto;display:grid;grid-template-rows:auto 1fr auto;gap:12px;background:radial-gradient(ellipse at 50% 45%,#4b172d,#160c13 60%,#070609);padding:0 max(20px,env(safe-area-inset-right)) max(22px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left))}
+.live-backdrop{position:fixed;inset:0;z-index:-2;background-position:center;background-size:cover;filter:blur(2px);pointer-events:none}
+.live-session::before{content:"";position:fixed;inset:0;z-index:-1;background:linear-gradient(180deg,#09060bef,#210c1cb5 45%,#070609f5);pointer-events:none}
+.live-top{position:sticky;top:0;z-index:5;display:flex;align-items:start;justify-content:space-between;gap:16px;padding:max(18px,env(safe-area-inset-top)) 0 12px;background:linear-gradient(#100a11 75%,#100a1100)}
+.live-device{display:grid;gap:6px;color:#cbbcc2;font-size:.72rem}.live-battery{color:#d7b87e}.live-device #live-connection{max-width:220px}.live-quiet{width:auto;padding:7px 0;border:0;background:none;box-shadow:none;text-align:left;color:#d7bcc7;font-size:.75rem;text-decoration:underline;text-underline-offset:4px}
+#live-stop-slot #stop{width:auto;min-width:86px;min-height:48px;margin:0;padding:12px 20px;border:2px solid #ff9bac;background:#8c1736;color:white;box-shadow:0 3px 16px #0007}
+.live-main{align-self:center;display:grid;justify-items:center;text-align:center;padding:8px 0;gap:9px}.live-main h1{font-size:clamp(2rem,7vw,3.2rem);margin:0;color:#f6e6dd}.live-session-state{max-width:330px;min-height:2.5em;margin:0;color:#ccbac2;font-size:.77rem;line-height:1.4}
+.live-output-meter{--output-turn:0deg;width:clamp(180px,60vw,300px);aspect-ratio:1;border-radius:50%;padding:8px;margin:14px 0;background:conic-gradient(from 225deg,#efc686 0deg,#c35c75 var(--output-turn),#ffffff12 var(--output-turn),#ffffff12 270deg,transparent 270deg);box-shadow:0 0 65px #a1385725;transform:rotate(0)}
+.live-output-core{height:100%;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:radial-gradient(circle at 50% 30%,#341b29,#110b12 75%);border:1px solid #d6ad682a;box-shadow:inset 0 0 45px #0008}.live-output-core strong{font-size:clamp(3.8rem,15vw,6rem);font-weight:500;letter-spacing:-.06em;line-height:1;color:#f8dfb7;font-variant-numeric:tabular-nums}.live-output-core strong span{font-size:.3em;letter-spacing:0;color:#c5a17b;margin-left:5px}.live-output-core>span{font-size:.62rem;letter-spacing:.22em;color:#ba929f}
+.live-pattern{margin:0;color:#ecd3dc;font-size:1rem;font-weight:700}.live-cap{margin:0;color:#a58b96;font-size:.7rem}
+.live-footer{width:min(100%,460px);justify-self:center;text-align:center}.live-footer>p{margin:0 0 12px;color:#dbb87e;font-size:.8rem}#live-edge-slot #edge{width:100%;min-height:72px;margin:0;border:1px solid #edbf78;background:linear-gradient(130deg,#732b43,#4c1a2e);color:#ffe5b8;font-size:1.35rem;letter-spacing:.14em;box-shadow:0 8px 30px #0008}#live-edge-status-slot{min-height:28px;padding-top:10px}#live-edge-status-slot .edge-status{margin:0;color:#f8d69e}
+@media(max-height:650px){.live-output-meter{width:170px;margin:0}.live-main h1{font-size:1.6rem}.live-main{gap:5px}.live-output-core strong{font-size:3.8rem}#live-edge-slot #edge{min-height:58px}}
 </style>
 </head>
 <body>
@@ -114,9 +130,19 @@ button:disabled{cursor:not-allowed;filter:saturate(.25) brightness(.62);opacity:
 </form>
 </section>
 <section id="host-controls" hidden>
+<div id="host-setup">
 <header class="host-header">
 <div><p class="eyebrow">PRIVATE CONTROL</p><h1>Host control</h1><p class="intro">Connect. Invite. Stay in control.</p></div>
 </header>
+<section class="card live-options" aria-labelledby="live-options-title">
+<div class="card-heading"><h2 id="live-options-title">Live Session</h2></div>
+<button id="enter-live" type="button" disabled>Enter Live Session</button>
+<p id="live-availability" class="field-note">Connect the toy and establish a controller session first.</p>
+<label for="live-background-input">Optional background image</label>
+<input id="live-background-input" type="file" accept="image/jpeg,image/png,image/webp,image/avif">
+<button id="clear-live-background" type="button" hidden>Remove background</button>
+<p id="live-background-note" class="field-note" role="status">Stays in this browser tab. Never uploaded or shared.</p>
+</section>
 <section id="device-card" class="card device-card" data-state="disconnected" aria-labelledby="device-heading">
 <div class="card-heading"><h2 id="device-heading">Device</h2></div>
 <div class="device-overview"><span class="device-icon" aria-hidden="true">●</span><div><strong id="device-name" class="device-name">No device selected</strong><span id="device-state" class="state-pill">Disconnected</span></div></div>
@@ -182,6 +208,26 @@ button:disabled{cursor:not-allowed;filter:saturate(.25) brightness(.62);opacity:
 </div>
 </details>
 <button id="logout">Sign out</button>
+</div>
+<section id="live-session" class="live-session" aria-label="Live Session" hidden>
+<div id="live-backdrop" class="live-backdrop" aria-hidden="true"></div>
+<header class="live-top">
+<div class="live-device"><span class="live-battery">Battery unavailable</span><span id="live-connection" role="status">Toy disconnected</span><button id="leave-live" class="live-quiet" type="button">Back to setup</button></div>
+<div id="live-stop-slot"></div>
+</header>
+<div class="live-main">
+<p class="eyebrow">LIVE SESSION</p>
+<h1>Your moment.</h1>
+<p id="live-session-state" class="live-session-state" role="status">Controller session ready · guest presence not tracked</p>
+<button id="live-reconnect" class="live-quiet" type="button" hidden>Reconnect Device</button>
+<div id="live-output-meter" class="live-output-meter" role="meter" aria-label="Commanded toy output" aria-valuemin="0" aria-valuemax="70" aria-valuenow="0">
+<div class="live-output-core"><strong id="live-output-number">0<span>%</span></strong><span>TOY OUTPUT</span></div>
+</div>
+<p id="live-pattern" class="live-pattern">Stopped</p>
+<p class="live-cap">70% maximum · commanded output</p>
+</div>
+<footer class="live-footer"><p id="live-edge-count">EDGE used: 0 times</p><div id="live-edge-slot"></div><div id="live-edge-status-slot"></div></footer>
+</section>
 </section>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
@@ -244,11 +290,13 @@ let teaseStage=1,teaseStartedAt=null,teaseSequence=0,teaseBusy=false,teasePublis
 let teaseRating=1,ratingSequence=0,ratingBusy=false,ratingPublishQueued=false;
 const encoder=new TextEncoder();
 
+function reportLiveOutput(level){try{window.hostLiveView?.output(level)}catch{}}
 function status(text,colour="#ffca65"){
   statusEl.textContent=text;
   statusEl.style.color=colour;
 }
 function ready(yes,preserveRemoteSession=false){
+  if(!yes)reportLiveOutput(0);
   vibrateBtn.disabled=!yes;
   stopBtn.disabled=!yes;
   edgeBtn.disabled=!yes;
@@ -372,8 +420,8 @@ const engine=new PatternEngine({
   allowed:()=>hostAuthorized&&!!tx&&!!device?.gatt?.connected&&!edgeLocked()&&document.visibilityState==="visible"&&(!remoteSessionId||performance.now()<leaseDeadline),
   onState:value=>{const changed=hostState.state!==value.state||hostState.id!==value.id||hostState.level!==value.level;hostState=value;if(changed)publishHostState()}
 });
-function cancelTimedPattern(){return engine.cancel()}
-function stopNow(reason="stopped"){challenges.clear();if(!tx){engine.cancel();hostState={state:"stopped",reason};return Promise.resolve()}return engine.stop(reason).catch(error=>status("Stop failed: "+rawError(error)))}
+function cancelTimedPattern(){reportLiveOutput(0);return engine.cancel()}
+function stopNow(reason="stopped"){reportLiveOutput(0);challenges.clear();if(!tx){engine.cancel();hostState={state:"stopped",reason};return Promise.resolve()}return engine.stop(reason).catch(error=>status("Stop failed: "+rawError(error)))}
 async function publishHostState(){
   if(stateBusy||!remoteReady||!edgeSigningKey||!remoteSessionId)return;
   stateBusy=true;
@@ -581,7 +629,8 @@ function errorText(error,stage="operation"){
   return rawError(error);
 }
 async function write(command,guard=()=>true){
-  const characteristic=tx;
+  if(command==="Vibrate:0;")reportLiveOutput(0);
+  const characteristic=tx,outputGeneration=engine.generation;
   const perform=async()=>{
     if(!guard())return;
     if(!characteristic||characteristic!==tx)throw new Error("No Lovense write characteristic is connected.");
@@ -590,6 +639,7 @@ async function write(command,guard=()=>true){
     const data=encoder.encode(command);
     if(characteristic.properties.writeWithoutResponse)await characteristic.writeValueWithoutResponse(data);
     else await characteristic.writeValue(data);
+    if(match&&outputGeneration===engine.generation&&guard())reportLiveOutput(Number(match[1]));
   };
   const result=writeQueue.then(perform);
   writeQueue=result.catch(()=>{});
@@ -780,5 +830,6 @@ addEventListener("pageshow",recoverActiveConnections);
 addEventListener("online",recoverActiveConnections);
 </script>
 <script src="host-access.js"></script>
+<script src="live-session.js?v=1"></script>
 </body>
 </html>

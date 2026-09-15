@@ -28,7 +28,7 @@ h1{margin:0 0 10px;font-family:Georgia,"Times New Roman",serif;font-size:clamp(1
 .tease-top{display:flex;align-items:center;color:#b98d9b;font-size:.57rem;font-weight:850;letter-spacing:.16em;text-transform:uppercase}.rating-panel .tease-top{justify-content:flex-end;text-align:right}.tease-message,.rating-message{align-self:start;min-height:2.25em;margin:0;color:#f4dce4;font-size:.9rem;font-weight:900;line-height:1.12;letter-spacing:.055em;overflow-wrap:anywhere}.rating-panel .rating-message,.rating-panel .rating-copy{text-align:right}#tease-panel{padding-right:20px}.rating-panel{padding-left:20px}.feedback-meter{position:absolute;z-index:2;top:27px;bottom:10px;width:6px;overflow:hidden;border:1px solid #e5c59055;border-radius:999px;background:#070508aa;box-shadow:0 0 0 1px #0007 inset}.arousal-meter{right:7px}.rating-meter{left:7px}.feedback-meter-fill{position:absolute;right:0;bottom:0;left:0;height:25%;border-radius:999px;background:#875467;box-shadow:0 0 8px #b96a6770;transition:height .32s ease,background .32s ease,box-shadow .32s ease}#tease-panel[data-stage="2"] .feedback-meter-fill{height:50%;background:#b9685d}#tease-panel[data-stage="3"] .feedback-meter-fill{height:75%;background:#db8b58;box-shadow:0 0 10px #dd915a80}#tease-panel[data-stage="4"] .feedback-meter-fill{height:100%;background:#f0b968;box-shadow:0 0 13px #f0ae6fa8}#rating-panel[data-rating="1"] .feedback-meter-fill{height:25%;background:#92576a}#rating-panel[data-rating="2"] .feedback-meter-fill{height:50%;background:#c5755d}#rating-panel[data-rating="3"] .feedback-meter-fill{height:75%;background:#e47d4c;box-shadow:0 0 10px #e47d4c85}#rating-panel[data-rating="4"] .feedback-meter-fill{height:100%;background:#ef5551;box-shadow:0 0 13px #ef5e57ad}#tease-panel[data-stage="4"] .feedback-meter,#rating-panel[data-rating="4"] .feedback-meter{animation:meter-pulse .82s ease-in-out infinite}
 .tease-copy,.rating-copy{align-self:start;min-height:2.45em;margin:0;color:#ceb9c0;font-family:Georgia,"Times New Roman",serif;font-size:.69rem;font-style:italic;line-height:1.22}
 .tease-timer{align-self:end;margin:0;padding-top:5px;border-top:1px solid #ffffff0b;color:#ad969e;font-size:.69rem;font-weight:700}
-#tease-panel .tease-top{position:static}.haptic-state{position:absolute;right:20px;bottom:8px;padding:3px 6px;border:1px solid #d6ad6852;border-radius:999px;color:#dabe8e;font-size:.52rem;letter-spacing:.08em}
+.haptic-state{position:absolute;z-index:1;right:10px;bottom:8px;padding:3px 6px;border:1px solid #d6ad6852;border-radius:999px;color:#dabe8e;font-size:.52rem;letter-spacing:.08em}
 .haptic-state.flash{background:#75422a;color:#fff1d7;box-shadow:0 0 15px #d9965680}
 .tease-panel[data-stage="2"]{border-color:#c084526e;background:linear-gradient(145deg,#4a261f,#211116);box-shadow:0 7px 18px #0005,0 0 18px #c0783e35}
 .tease-panel[data-stage="2"]::after{opacity:.38}
@@ -122,13 +122,13 @@ body[data-control-state="unavailable"] .controls,body[data-control-state="unavai
 <h1>Teasemeplease</h1>
 <div class="feedback-grid">
 <section id="tease-panel" class="tease-panel" data-stage="1" aria-label="Host tease status">
-<div class="tease-top"><span>Arousal state</span><span id="haptic-state" class="haptic-state" hidden>HAPTIC PREVIEW</span></div>
+<div class="tease-top"><span>Arousal state</span></div>
 <span class="feedback-meter arousal-meter" aria-hidden="true"><span class="feedback-meter-fill"></span></span><p id="tease-message" class="tease-message" aria-live="polite"><span id="tease-message-text">LOW</span></p>
 <p id="tease-copy" class="tease-copy">Are you sure you’re teasing?</p>
 <p id="tease-timer" class="tease-timer">Teasing for 0:00</p>
 </section>
 <section id="rating-panel" class="tease-panel rating-panel" data-rating="1" aria-label="Host tease rating">
-<div class="tease-top"><span>Tease rating</span></div>
+<div class="tease-top"><span>Tease rating</span></div><span id="haptic-state" class="haptic-state" hidden>HAPTIC PREVIEW</span>
 <span class="feedback-meter rating-meter" aria-hidden="true"><span class="feedback-meter-fill"></span></span><p id="rating-message" class="rating-message" aria-live="polite"><span id="rating-message-text">FUN TEASE</span></p>
 <p id="rating-copy" class="rating-copy">This is fun.</p>
 </section>
