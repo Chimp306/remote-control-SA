@@ -2,6 +2,8 @@
 const fs=require('node:fs'),http=require('node:http'),path=require('node:path'),assert=require('node:assert/strict');
 const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES+'/playwright');
 const root=path.resolve(__dirname,'..');
+const firstCelebrations=['Edged me! ❤️','EDGED! ❤️'];
+const laterCelebrations=['Edged — nice work 😈','You found my limit — edged 🔥','Edged me again! 😏','Good girl — edged me! 😉','Perfect. 😈','Edged me! ❤️','EDGED! ❤️'];
 const server=http.createServer((req,res)=>{
   const file=path.join(root,req.url.split('?')[0]==='/'?'index.html':req.url.split('?')[0]);
   if(!file.startsWith(root)){res.writeHead(403).end();return}
@@ -53,22 +55,24 @@ const server=http.createServer((req,res)=>{
     await preview.locator('#preview-badge').waitFor({state:'visible'});assert.equal(await preview.locator('#guest-welcome').textContent(),'WELCOME, SOPHIE');assert.equal(await preview.locator('[data-command]:enabled').count(),6);assert.equal(await preview.evaluate(()=>window.channels.length),0);
     await preview.locator('[data-command="20"]').click();await preview.waitForFunction(()=>parseFloat(document.querySelector('[data-command="20"]').style.getPropertyValue('--progress'))>0);
     await preview.evaluate(()=>{previewStartedAt-=5000;updatePreviewFixed()});assert.equal(await preview.locator('[data-command="20"]').evaluate(button=>button.classList.contains('active')),false);
-    const previewHold=await preview.locator('#max-hold').boundingBox();await preview.mouse.move(previewHold.x+20,previewHold.y+20);await preview.mouse.down();assert.equal(await preview.locator('#max-hold').evaluate(button=>button.classList.contains('active')),true);await preview.mouse.up();assert.equal(await preview.locator('#max-hold').evaluate(button=>button.classList.contains('active')),false);assert.equal(await preview.evaluate(()=>window.channels.length),0);await preview.close();
+    const previewHold=await preview.locator('#max-hold').boundingBox();await preview.mouse.move(previewHold.x+20,previewHold.y+20);await preview.mouse.down();assert.equal(await preview.locator('#max-hold').evaluate(button=>button.classList.contains('active')),true);await preview.mouse.up();assert.equal(await preview.locator('#max-hold').evaluate(button=>button.classList.contains('active')),false);
+    await preview.locator('#preview-edge-first').click();const previewFirst=await preview.locator('#celebration-message').textContent();assert.ok(firstCelebrations.includes(previewFirst));await preview.locator('#preview-edge-later').click();const previewLater=await preview.locator('#celebration-message').textContent();assert.ok(laterCelebrations.includes(previewLater));assert.notEqual(previewLater,previewFirst);assert.equal(await preview.locator('#edge-count').textContent(),'EDGE used: 0 times · preview');assert.equal(await preview.evaluate(()=>window.channels.length),0);await preview.close();
     await host.locator('#connect').click();await host.locator('#create-controller').waitFor({state:'visible'});await host.locator('#create-controller').click();
     await host.waitForFunction(()=>remoteReady);
     assert.equal(await host.locator('#controller-link').inputValue(),'https://ctmp.uk/#ABCD');assert.equal(await host.locator('#device-state').textContent(),'Connected');
     const guest=await context.newPage();pages.push(guest);guest.on('pageerror',e=>errors.push(e.message));
     await guest.goto(origin+'/controller.html#ABCD');await guest.locator('#request-access').click();await guest.waitForFunction(()=>document.querySelector('#pairing-message').textContent.includes('7261'));
     assert.equal(await guest.locator('[data-command="20"]').isDisabled(),true);
-    approved=true;await guest.evaluate(()=>pollPairing());await guest.waitForFunction(()=>guestReady&&lastStateAt>0);assert.equal(await guest.locator('#guest-welcome').textContent(),'WELCOME, SOPHIE');assert.equal(await guest.locator('.control .release').count(),2);
+    approved=true;await guest.evaluate(()=>pollPairing());await guest.waitForFunction(()=>guestReady&&lastStateAt>0&&!edgeCountBaselinePending);assert.equal(await guest.locator('#guest-welcome').textContent(),'WELCOME, SOPHIE');assert.equal(await guest.locator('.control .release').count(),2);assert.equal(await guest.evaluate(()=>celebrationSerial),0);
     await guest.screenshot({path:'/tmp/lushcon-guest-ready.png',fullPage:true});
     await guest.locator('[data-command="70"]').click();await guest.waitForFunction(()=>document.querySelector('[data-command="70"]').classList.contains('active'));
     await host.waitForFunction(()=>window.__writes.some(w=>w.command==='Vibrate:14;'));
-    await host.locator('#edge').click();await guest.waitForFunction(()=>document.querySelector('#status').textContent.includes('paused'));
+    await host.locator('#edge').click();await guest.waitForFunction(()=>document.querySelector('#status').textContent.includes('paused')&&celebrationSerial===1);
     const edgeCount=await guest.locator('#edge-count').textContent();assert.equal(edgeCount,'EDGE used: 1 time');
+    assert.ok(firstCelebrations.includes(await guest.locator('#celebration-message').textContent()));
     // Forged count and host acknowledgement must fail signature verification.
     await guest.evaluate(()=>{receiveEdgeCount({count:999,signature:'AAAA'});receiveHostState({message:JSON.stringify({seq:9999,state:'ready'}),signature:'AAAA'})});
-    assert.equal(await guest.locator('#edge-count').textContent(),edgeCount);
+    assert.equal(await guest.locator('#edge-count').textContent(),edgeCount);assert.equal(await guest.evaluate(()=>celebrationSerial),1);
     await host.evaluate(()=>{edgeLockUntil=Date.now()-1;updateEdgeCountdown()});await guest.waitForFunction(()=>!document.querySelector('#random').disabled);
     const maxHoldBox=await guest.locator('#max-hold').boundingBox();await guest.mouse.move(maxHoldBox.x+20,maxHoldBox.y+20);await guest.mouse.down();
     await host.waitForFunction(()=>engine.active?.command==='max-hold');await host.waitForFunction(()=>window.__writes.at(-1)?.command==='Vibrate:14;');await guest.mouse.up();await host.waitForFunction(()=>engine.active===null);
@@ -82,7 +86,7 @@ const server=http.createServer((req,res)=>{
     const before=await host.evaluate(()=>window.__writes.length);
     await host.evaluate(()=>receiveControl({id:'late-start-123456789',command:'hold-start',challenge:'expired-challenge'}));
     assert.equal(await host.evaluate(()=>window.__writes.length),before);
-    await guest.reload();await guest.waitForFunction(()=>guestReady&&lastStateAt>0);assert.equal(await guest.locator('#pairing').isHidden(),true);assert.equal(await guest.locator('#edge-count').textContent(),'EDGE used: 1 time');
+    await guest.reload();await guest.waitForFunction(()=>guestReady&&lastStateAt>0&&!edgeCountBaselinePending);assert.equal(await guest.locator('#pairing').isHidden(),true);assert.equal(await guest.locator('#edge-count').textContent(),'EDGE used: 1 time');assert.equal(await guest.evaluate(()=>celebrationSerial),0);assert.equal(await guest.locator('#edge-celebration').isHidden(),true);
     await host.locator('#stop').click();assert.equal(await host.evaluate(()=>window.__writes.at(-1).command),'Vibrate:0;');
     // Existing GATT recovery path must only write a stop, never start a pattern.
     const start=await host.evaluate(()=>window.__writes.length);

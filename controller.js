@@ -1,6 +1,7 @@
 const SUPABASE_URL="https://hqciviafxtfescteyvnn.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
 const statusEl=document.querySelector("#status"),edgeCountEl=document.querySelector("#edge-count"),guestWelcomeEl=document.querySelector("#guest-welcome"),commandButtons=[...document.querySelectorAll("[data-command]")],holdButtons=[...document.querySelectorAll(".control.hold")];
+const celebrationEl=document.querySelector("#edge-celebration"),celebrationEmojiEl=document.querySelector("#celebration-emoji"),celebrationMessageEl=document.querySelector("#celebration-message"),previewToolsEl=document.querySelector("#preview-tools");
 const previewRequested=new URLSearchParams(location.search).get("preview")==="1";
 function cleanGuestName(value){return typeof value==="string"?value.normalize("NFKC").replace(/[\u0000-\u001f\u007f-\u009f]/g,"").replace(/\s+/g," ").trim().slice(0,40):""}
 function showGuestName(value){const name=cleanGuestName(value);guestWelcomeEl.textContent="WELCOME, "+(name||"GUEST").toLocaleUpperCase()}
@@ -40,18 +41,50 @@ requestAccess.addEventListener("click",()=>{
   requestAccess.disabled=true;pollPairing("pair-request");
 });
 setInterval(()=>{if(document.visibilityState==="visible")pollPairing()},2500);
-let session,edgeKeyText,edgeVerificationKey,edgeCount=0,client,channel,guestReady=false,guestRecoveryTimer,guestRecoveryPromise;
+let session,edgeKeyText,edgeVerificationKey,edgeCount=0,edgeCountBaselinePending=true,client,channel,guestReady=false,guestRecoveryTimer,guestRecoveryPromise;
 let resolving,lastStateAt=0,lastSequence=0,hostState,challenge,holding,holdTimer,progressUntil=0,pendingId;
 const released=new Set();
 function status(text,colour="#ffca65"){statusEl.textContent=text;statusEl.style.color=colour}
 function fromBase64Url(text){const binary=atob(text.replaceAll("-","+").replaceAll("_","/").padEnd(Math.ceil(text.length/4)*4,"="));return Uint8Array.from(binary,c=>c.charCodeAt(0))}
+const firstEdgeCelebrations=[
+  {message:"Edged me! ❤️",emoji:"❤️",weight:1},
+  {message:"EDGED! ❤️",emoji:"❤️",weight:1}
+];
+const laterEdgeCelebrations=[
+  {message:"Edged — nice work 😈",emoji:"😈",weight:1},
+  {message:"You found my limit — edged 🔥",emoji:"🔥",weight:1},
+  {message:"Edged me again! 😏",emoji:"😏",weight:1.35},
+  {message:"Good girl — edged me! 😉",emoji:"😉",weight:1},
+  {message:"Perfect. 😈",emoji:"😈",weight:1.35},
+  {message:"Edged me! ❤️",emoji:"❤️",weight:1},
+  {message:"EDGED! ❤️",emoji:"❤️",weight:1}
+];
+let lastCelebrationMessage="",celebrationTimer=null,celebrationSerial=0;
+function chooseEdgeCelebration(count){
+  const source=count===1?firstEdgeCelebrations:laterEdgeCelebrations;
+  const options=source.filter(option=>option.message!==lastCelebrationMessage);
+  const pool=options.length?options:source,total=pool.reduce((sum,option)=>sum+option.weight,0);
+  let choice=Math.random()*total;
+  for(const option of pool){choice-=option.weight;if(choice<0)return option}
+  return pool.at(-1);
+}
+function hideEdgeCelebration(){clearTimeout(celebrationTimer);celebrationTimer=null;celebrationEl.classList.remove("show");celebrationEl.hidden=true}
+function showEdgeCelebration(count){
+  const choice=chooseEdgeCelebration(count);lastCelebrationMessage=choice.message;celebrationSerial+=1;
+  clearTimeout(celebrationTimer);celebrationEmojiEl.textContent=choice.emoji;celebrationMessageEl.textContent=choice.message;
+  celebrationEl.hidden=false;celebrationEl.classList.remove("show");void celebrationEl.offsetWidth;celebrationEl.classList.add("show");
+  celebrationTimer=setTimeout(hideEdgeCelebration,1800);
+}
 async function receiveEdgeCount(payload){
   const count=payload?.count,currentSession=session,key=edgeVerificationKey;
   if(!key||!Number.isSafeInteger(count)||count<edgeCount||typeof payload?.signature!=="string")return;
   try{
     const valid=await crypto.subtle.verify({name:"ECDSA",hash:"SHA-256"},key,fromBase64Url(payload.signature),new TextEncoder().encode("edge-count:"+currentSession+":"+count));
     if(!valid||currentSession!==session||count<edgeCount)return;
+    if(edgeCountBaselinePending){edgeCount=Math.max(edgeCount,count);edgeCountBaselinePending=false;edgeCountEl.textContent="EDGE used: "+edgeCount+(edgeCount===1?" time":" times");return}
+    if(count<=edgeCount)return;
     edgeCount=count;edgeCountEl.textContent="EDGE used: "+count+(count===1?" time":" times");
+    if(document.visibilityState==="visible")showEdgeCelebration(count);
   }catch{}
 }
 function guestChannelSubscribed(){return guestReady&&channel?.state==="joined"&&(typeof client?.realtime?.isConnected!=="function"||client.realtime.isConnected())}
@@ -101,6 +134,7 @@ function releaseHold(){
 function scheduleGuestRecovery(){clearTimeout(guestRecoveryTimer);if(document.visibilityState==="visible")guestRecoveryTimer=setTimeout(recoverGuestSession,1500)}
 async function subscribeGuestChannel(recovering=false){
   clearTimeout(guestRecoveryTimer);releaseHold();
+  edgeCountBaselinePending=true;
   const previousChannel=channel;guestReady=false;channel=null;unavailable(recovering?"Restoring controller session…":"Waiting for your host…");
   if(previousChannel)try{await client.removeChannel(previousChannel)}catch{}
   if(!session)return;
@@ -136,7 +170,7 @@ async function resolveSession(){
     }
     if(!/^[a-f0-9]{48}$/.test(result.session)||typeof result.edgeKey!=="string")throw new Error("Invalid session");
     if(session!==result.session){
-      releaseHold();session=result.session;edgeKeyText=result.edgeKey;edgeVerificationKey=null;edgeCount=0;lastSequence=0;released.clear();edgeCountEl.textContent="EDGE used: 0 times";
+      releaseHold();session=result.session;edgeKeyText=result.edgeKey;edgeVerificationKey=null;edgeCount=0;edgeCountBaselinePending=true;lastSequence=0;released.clear();edgeCountEl.textContent="EDGE used: 0 times";
       await subscribeGuestChannel();
     }else if(!guestChannelSubscribed()&&!guestChannelConnecting())await subscribeGuestChannel(true);
   })().catch(()=>{unavailable();scheduleGuestRecovery()}).finally(()=>{resolving=null});
@@ -168,7 +202,9 @@ function beginPreviewHold(button){
   status(button.querySelector(".level").textContent+" active — release to stop","#f0c98c");
 }
 function enablePreviewInteractions(){
-  document.querySelector("#preview-badge").hidden=false;document.body.dataset.controlState="ready";edgeCountEl.textContent="EDGE used: 0 times · preview";setControls(true);stopPreview();
+  document.querySelector("#preview-badge").hidden=false;previewToolsEl.hidden=false;document.body.dataset.controlState="ready";edgeCountEl.textContent="EDGE used: 0 times · preview";setControls(true);stopPreview();
+  document.querySelector("#preview-edge-first").addEventListener("click",()=>showEdgeCelebration(1));
+  document.querySelector("#preview-edge-later").addEventListener("click",()=>showEdgeCelebration(2));
   commandButtons.filter(button=>!holdButtons.includes(button)).forEach(button=>button.addEventListener("click",()=>startPreviewFixed(button)));
   for(const button of holdButtons){
     let pointerId=null;
@@ -182,8 +218,8 @@ function enablePreviewInteractions(){
     button.addEventListener("keyup",event=>{if([" ","Enter"].includes(event.key)){event.preventDefault();releasePreviewHold()}});
     button.addEventListener("blur",releasePreviewHold);
   }
-  addEventListener("blur",releasePreviewHold);addEventListener("pagehide",()=>stopPreview("Preview paused"));
-  document.addEventListener("visibilitychange",()=>{if(document.visibilityState!=="visible")stopPreview("Preview paused — return to continue")});
+  addEventListener("blur",releasePreviewHold);addEventListener("pagehide",()=>{hideEdgeCelebration();stopPreview("Preview paused")});
+  document.addEventListener("visibilitychange",()=>{if(document.visibilityState!=="visible"){hideEdgeCelebration();stopPreview("Preview paused — return to continue")}});
 }
 async function startPreview(){
   pairingEl.hidden=true;setControls(false);document.body.dataset.controlState="unavailable";status("Authorising host preview…");
@@ -236,9 +272,9 @@ else{
     button.addEventListener("blur",releaseHold);
   }
   addEventListener("blur",releaseHold);
-  addEventListener("pagehide",releaseHold);
+  addEventListener("pagehide",()=>{hideEdgeCelebration();releaseHold()});
   addEventListener("offline",()=>unavailable("Connection lost — control stopped"));
-  document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")recoverGuestSession();else unavailable("Controller paused — return to reconnect")});
+  document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")recoverGuestSession();else{hideEdgeCelebration();unavailable("Controller paused — return to reconnect")}});
   addEventListener("pageshow",recoverGuestSession);addEventListener("online",recoverGuestSession);
   setInterval(()=>{
     if(lastStateAt&&performance.now()-lastStateAt>1800){unavailable("Host unavailable — waiting to reconnect…");return}
