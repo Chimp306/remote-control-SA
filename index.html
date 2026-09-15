@@ -782,7 +782,11 @@ connectBtn.addEventListener("click",async()=>{
   try{
     diagnostics("Opening Bluetooth device picker…",false);
     device=await navigator.bluetooth.requestDevice({
-      filters:[{namePrefix:"LVS-"},{namePrefix:"LOVE-"}],
+      filters:[
+        {namePrefix:"LVS-"},
+        {namePrefix:"LOVE-"},
+        {services:["53300001-0023-4bd4-bbd5-a6920e4c5653"]}
+      ],
       optionalServices:SERVICES
     });
     device.addEventListener("gattserverdisconnected",()=>{
