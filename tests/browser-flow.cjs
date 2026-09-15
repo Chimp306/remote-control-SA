@@ -20,7 +20,8 @@ const server=http.createServer((req,res)=>{
     return 'ok';
   });
   await context.addInitScript(()=>{
-    window.channels=[];window.__writes=[];
+    window.channels=[];window.__writes=[];window.__haptics=[];
+    Object.defineProperty(navigator,'vibrate',{value:pattern=>{window.__haptics.push(pattern);return true},configurable:true});
     window.supabase={createClient:()=>({
       auth:{getSession:async()=>({data:{session:{access_token:'test-only'}}}),onAuthStateChange:()=>{},signOut:async()=>{},signInWithPassword:async()=>({error:null})},
       realtime:{isConnected:()=>true},
@@ -56,6 +57,7 @@ const server=http.createServer((req,res)=>{
     await preview.locator('[data-command="20"]').click();await preview.waitForFunction(()=>parseFloat(document.querySelector('[data-command="20"]').style.getPropertyValue('--progress'))>0);
     await preview.evaluate(()=>{previewStartedAt-=5000;updatePreviewFixed()});assert.equal(await preview.locator('[data-command="20"]').evaluate(button=>button.classList.contains('active')),false);
     const previewHold=await preview.locator('#max-hold').boundingBox();await preview.mouse.move(previewHold.x+20,previewHold.y+20);await preview.mouse.down();assert.equal(await preview.locator('#max-hold').evaluate(button=>button.classList.contains('active')),true);await preview.mouse.up();assert.equal(await preview.locator('#max-hold').evaluate(button=>button.classList.contains('active')),false);
+    await preview.locator('[data-preview-stage="2"]').click();assert.equal(await preview.locator('#tease-message').textContent(),'You’re really getting to him… 😏');await preview.locator('[data-preview-stage="3"]').click();assert.equal(await preview.locator('#tease-panel').getAttribute('data-stage'),'3');await preview.locator('#preview-timer').click();assert.match(await preview.locator('#tease-timer').textContent(),/^Teasing for 18:4[12]$/);await preview.locator('#preview-haptic').click();assert.equal(await preview.locator('#haptic-state').textContent(),'TEASE TAP');
     await preview.locator('#preview-edge-first').click();const previewFirst=await preview.locator('#celebration-message').textContent();assert.ok(firstCelebrations.includes(previewFirst));await preview.locator('#preview-edge-later').click();const previewLater=await preview.locator('#celebration-message').textContent();assert.ok(laterCelebrations.includes(previewLater));assert.notEqual(previewLater,previewFirst);assert.equal(await preview.locator('#edge-count').textContent(),'EDGE used: 0 times · preview');assert.equal(await preview.evaluate(()=>window.channels.length),0);await preview.close();
     await host.locator('#connect').click();await host.locator('#create-controller').waitFor({state:'visible'});await host.locator('#create-controller').click();
     await host.waitForFunction(()=>remoteReady);
@@ -63,10 +65,12 @@ const server=http.createServer((req,res)=>{
     const guest=await context.newPage();pages.push(guest);guest.on('pageerror',e=>errors.push(e.message));
     await guest.goto(origin+'/controller.html#ABCD');await guest.locator('#request-access').click();await guest.waitForFunction(()=>document.querySelector('#pairing-message').textContent.includes('7261'));
     assert.equal(await guest.locator('[data-command="20"]').isDisabled(),true);
-    approved=true;await guest.evaluate(()=>pollPairing());await guest.waitForFunction(()=>guestReady&&lastStateAt>0&&!edgeCountBaselinePending);assert.equal(await guest.locator('#guest-welcome').textContent(),'WELCOME, SOPHIE');assert.equal(await guest.locator('.control .release').count(),2);assert.equal(await guest.evaluate(()=>celebrationSerial),0);
+    approved=true;await guest.evaluate(()=>pollPairing());await guest.waitForFunction(()=>guestReady&&lastStateAt>0&&!edgeCountBaselinePending&&!teaseBaselinePending);assert.equal(await guest.locator('#guest-welcome').textContent(),'WELCOME, SOPHIE');assert.equal(await guest.locator('.control .release').count(),2);assert.equal(await guest.evaluate(()=>celebrationSerial),0);assert.equal(await guest.evaluate(()=>teaseStartedAt),null);
+    const writesBeforeStage=await host.evaluate(()=>window.__writes.length);await host.locator('[data-tease-stage="2"]').click();await guest.waitForFunction(()=>teaseStage===2);assert.equal(await host.evaluate(()=>window.__writes.length),writesBeforeStage);assert.equal(await host.evaluate(()=>engine.active),null);await guest.evaluate(()=>receiveTeaseState({message:JSON.stringify({stage:3,startedAt:null,seq:9999}),signature:'AAAA'}));assert.equal(await guest.evaluate(()=>teaseStage),2);
     await guest.screenshot({path:'/tmp/lushcon-guest-ready.png',fullPage:true});
     await guest.locator('[data-command="70"]').click();await guest.waitForFunction(()=>document.querySelector('[data-command="70"]').classList.contains('active'));
     await host.waitForFunction(()=>window.__writes.some(w=>w.command==='Vibrate:14;'));
+    await guest.waitForFunction(()=>teaseStartedAt!==null);assert.equal(await guest.evaluate(()=>teaseStartedAt),await host.evaluate(()=>teaseStartedAt));assert.match(await guest.locator('#tease-timer').textContent(),/^Teasing for /);assert.ok((await guest.evaluate(()=>window.__haptics)).includes(12));
     await host.locator('#edge').click();await guest.waitForFunction(()=>document.querySelector('#status').textContent.includes('paused')&&celebrationSerial===1);
     const edgeCount=await guest.locator('#edge-count').textContent();assert.equal(edgeCount,'EDGE used: 1 time');
     assert.ok(firstCelebrations.includes(await guest.locator('#celebration-message').textContent()));
@@ -86,7 +90,7 @@ const server=http.createServer((req,res)=>{
     const before=await host.evaluate(()=>window.__writes.length);
     await host.evaluate(()=>receiveControl({id:'late-start-123456789',command:'hold-start',challenge:'expired-challenge'}));
     assert.equal(await host.evaluate(()=>window.__writes.length),before);
-    await guest.reload();await guest.waitForFunction(()=>guestReady&&lastStateAt>0&&!edgeCountBaselinePending);assert.equal(await guest.locator('#pairing').isHidden(),true);assert.equal(await guest.locator('#edge-count').textContent(),'EDGE used: 1 time');assert.equal(await guest.evaluate(()=>celebrationSerial),0);assert.equal(await guest.locator('#edge-celebration').isHidden(),true);
+    const timerStart=await host.evaluate(()=>teaseStartedAt);await guest.reload();await guest.waitForFunction(()=>guestReady&&lastStateAt>0&&!edgeCountBaselinePending&&!teaseBaselinePending);assert.equal(await guest.locator('#pairing').isHidden(),true);assert.equal(await guest.locator('#edge-count').textContent(),'EDGE used: 1 time');assert.equal(await guest.evaluate(()=>celebrationSerial),0);assert.equal(await guest.locator('#edge-celebration').isHidden(),true);assert.equal(await guest.evaluate(()=>teaseStartedAt),timerStart);assert.equal(await guest.evaluate(()=>window.__haptics.length),0);
     await host.locator('#stop').click();assert.equal(await host.evaluate(()=>window.__writes.at(-1).command),'Vibrate:0;');
     // Existing GATT recovery path must only write a stop, never start a pattern.
     const start=await host.evaluate(()=>window.__writes.length);
@@ -96,6 +100,6 @@ const server=http.createServer((req,res)=>{
     // A plain visitor sees login + code entry, never controls.
     await context.route('**/functions/v1/guest-access',route=>route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({error:'Sign in required'}),headers:{'Access-Control-Allow-Origin':'*'}}));
     const visitor=await context.newPage();await visitor.goto(origin);await visitor.locator('#login').waitFor({state:'visible'});assert.equal(await visitor.locator('#host-controls').isHidden(),true);await visitor.screenshot({path:'/tmp/lushcon-host-login.png',fullPage:true});
-    assert.deepEqual(errors,[]);console.log('PASS: pairing, remembered access, signed running/EDGE feedback, forged-message rejection, pointer release, dead-man expiry, stale starts, refresh count, GATT recovery, max level and unauthenticated UI.');
+    assert.deepEqual(errors,[]);console.log('PASS: signed tease status, timer recovery, acknowledgement haptics, isolated preview, pairing, signed EDGE feedback, pointer release, dead-man, GATT recovery, max level and unauthenticated UI.');
   }finally{await browser.close();server.close()}
 })().catch(error=>{console.error(error);server.close();process.exitCode=1});

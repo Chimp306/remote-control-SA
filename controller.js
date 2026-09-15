@@ -2,6 +2,7 @@ const SUPABASE_URL="https://hqciviafxtfescteyvnn.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
 const statusEl=document.querySelector("#status"),edgeCountEl=document.querySelector("#edge-count"),guestWelcomeEl=document.querySelector("#guest-welcome"),commandButtons=[...document.querySelectorAll("[data-command]")],holdButtons=[...document.querySelectorAll(".control.hold")];
 const celebrationEl=document.querySelector("#edge-celebration"),celebrationEmojiEl=document.querySelector("#celebration-emoji"),celebrationMessageEl=document.querySelector("#celebration-message"),previewToolsEl=document.querySelector("#preview-tools");
+const teasePanelEl=document.querySelector("#tease-panel"),teaseMessageEl=document.querySelector("#tease-message"),teaseTimerEl=document.querySelector("#tease-timer"),hapticStateEl=document.querySelector("#haptic-state");
 const previewRequested=new URLSearchParams(location.search).get("preview")==="1";
 function cleanGuestName(value){return typeof value==="string"?value.normalize("NFKC").replace(/[\u0000-\u001f\u007f-\u009f]/g,"").replace(/\s+/g," ").trim().slice(0,40):""}
 function showGuestName(value){const name=cleanGuestName(value);guestWelcomeEl.textContent="WELCOME, "+(name||"GUEST").toLocaleUpperCase()}
@@ -43,7 +44,8 @@ requestAccess.addEventListener("click",()=>{
 setInterval(()=>{if(document.visibilityState==="visible")pollPairing()},2500);
 let session,edgeKeyText,edgeVerificationKey,edgeCount=0,edgeCountBaselinePending=true,client,channel,guestReady=false,guestRecoveryTimer,guestRecoveryPromise;
 let resolving,lastStateAt=0,lastSequence=0,hostState,challenge,holding,holdTimer,progressUntil=0,pendingId;
-const released=new Set();
+let teaseStage=1,teaseStartedAt=null,teaseHostClockOffset=0,lastTeaseSequence=0,teaseBaselinePending=true,hapticFlashTimer;
+const released=new Set(),hapticAcknowledgements=new Set();
 function status(text,colour="#ffca65"){statusEl.textContent=text;statusEl.style.color=colour}
 function fromBase64Url(text){const binary=atob(text.replaceAll("-","+").replaceAll("_","/").padEnd(Math.ceil(text.length/4)*4,"="));return Uint8Array.from(binary,c=>c.charCodeAt(0))}
 const firstEdgeCelebrations=[
@@ -75,6 +77,42 @@ function showEdgeCelebration(count){
   celebrationEl.hidden=false;celebrationEl.classList.remove("show");void celebrationEl.offsetWidth;celebrationEl.classList.add("show");
   celebrationTimer=setTimeout(hideEdgeCelebration,1800);
 }
+const guestTeaseMessages={1:"He can take more. 😈",2:"You’re really getting to him… 😏",3:"He’s ready — your move. ❤️"};
+function renderTeaseState(){
+  teasePanelEl.dataset.stage=String(teaseStage);teaseMessageEl.textContent=guestTeaseMessages[teaseStage];
+  if(teaseStartedAt===null){teaseTimerEl.textContent="Waiting for the first control…";return}
+  const hostNow=Date.now()-teaseHostClockOffset,total=Math.max(0,Math.floor((hostNow-teaseStartedAt)/1000)),hours=Math.floor(total/3600),minutes=Math.floor(total%3600/60),seconds=total%60;
+  teaseTimerEl.textContent="Teasing for "+(hours?hours+":"+String(minutes).padStart(2,"0"):
+    minutes)+":"+String(seconds).padStart(2,"0");
+}
+function resetGuestTeaseState(){
+  teaseStage=1;teaseStartedAt=null;teaseHostClockOffset=0;lastTeaseSequence=0;teaseBaselinePending=true;hapticAcknowledgements.clear();renderTeaseState();
+}
+function showHapticVisual(kind){
+  if(!previewRequested)return;
+  clearTimeout(hapticFlashTimer);hapticStateEl.textContent=kind.toUpperCase()+" TAP";hapticStateEl.classList.add("flash");
+  hapticFlashTimer=setTimeout(()=>{hapticStateEl.textContent="HAPTIC PREVIEW";hapticStateEl.classList.remove("flash")},650);
+}
+function guestHaptic(kind){
+  showHapticVisual(kind);
+  if(document.visibilityState!=="visible"||typeof navigator.vibrate!=="function")return;
+  const pattern={fixed:12,hold:[18,28,18],edge:[28,22,42],tease:[14,28,14]}[kind];
+  if(pattern!==undefined)try{navigator.vibrate(pattern)}catch{}
+}
+async function receiveTeaseState(payload){
+  const key=edgeVerificationKey,currentSession=session;
+  if(!key||typeof payload?.message!=="string"||payload.message.length>512||typeof payload.signature!=="string")return;
+  try{
+    const valid=await crypto.subtle.verify({name:"ECDSA",hash:"SHA-256"},key,fromBase64Url(payload.signature),new TextEncoder().encode("tease-state:"+currentSession+":"+payload.message));
+    if(!valid||currentSession!==session)return;
+    const next=JSON.parse(payload.message);
+    const validStart=next.startedAt===null||(Number.isSafeInteger(next.startedAt)&&next.startedAt>0);
+    if(!Number.isSafeInteger(next.seq)||next.seq<=lastTeaseSequence||![1,2,3].includes(next.stage)||!validStart||!Number.isSafeInteger(next.sentAt)||next.sentAt<=0)return;
+    const previousStage=teaseStage,restoring=teaseBaselinePending;
+    lastTeaseSequence=next.seq;teaseStage=next.stage;teaseStartedAt=next.startedAt;teaseHostClockOffset=Date.now()-next.sentAt;teaseBaselinePending=false;renderTeaseState();
+    if(!restoring&&next.stage!==previousStage)guestHaptic("tease");
+  }catch{}
+}
 async function receiveEdgeCount(payload){
   const count=payload?.count,currentSession=session,key=edgeVerificationKey;
   if(!key||!Number.isSafeInteger(count)||count<edgeCount||typeof payload?.signature!=="string")return;
@@ -84,7 +122,7 @@ async function receiveEdgeCount(payload){
     if(edgeCountBaselinePending){edgeCount=Math.max(edgeCount,count);edgeCountBaselinePending=false;edgeCountEl.textContent="EDGE used: "+edgeCount+(edgeCount===1?" time":" times");return}
     if(count<=edgeCount)return;
     edgeCount=count;edgeCountEl.textContent="EDGE used: "+count+(count===1?" time":" times");
-    if(document.visibilityState==="visible")showEdgeCelebration(count);
+    if(document.visibilityState==="visible"){guestHaptic("edge");showEdgeCelebration(count)}
   }catch{}
 }
 function guestChannelSubscribed(){return guestReady&&channel?.state==="joined"&&(typeof client?.realtime?.isConnected!=="function"||client.realtime.isConnected())}
@@ -113,6 +151,10 @@ async function receiveHostState(payload){
       if(["random","max-hold"].includes(next.command)&&holding?.id!==next.id){status("Host is running a hold from another controller.");return}
       const button=commandButtons.find(b=>b.dataset.command===next.command);
       if(button)button.classList.add("active");
+      const ownCommand=pendingId===next.id||holding?.id===next.id;
+      if(ownCommand&&!hapticAcknowledgements.has(next.id)){
+        hapticAcknowledgements.add(next.id);guestHaptic(["random","max-hold"].includes(next.command)?"hold":"fixed");
+      }
       progressUntil=performance.now()+(next.remaining||0);
       const label=button?.querySelector(".level")?.textContent||"vibration";
       status(["random","max-hold"].includes(next.command)?label+" active — release to stop":"Running — "+label,"#f0c98c");
@@ -134,7 +176,7 @@ function releaseHold(){
 function scheduleGuestRecovery(){clearTimeout(guestRecoveryTimer);if(document.visibilityState==="visible")guestRecoveryTimer=setTimeout(recoverGuestSession,1500)}
 async function subscribeGuestChannel(recovering=false){
   clearTimeout(guestRecoveryTimer);releaseHold();
-  edgeCountBaselinePending=true;
+  edgeCountBaselinePending=true;teaseBaselinePending=true;
   const previousChannel=channel;guestReady=false;channel=null;unavailable(recovering?"Restoring controller session…":"Waiting for your host…");
   if(previousChannel)try{await client.removeChannel(previousChannel)}catch{}
   if(!session)return;
@@ -145,11 +187,15 @@ async function subscribeGuestChannel(recovering=false){
   activeChannel
     .on("broadcast",{event:"edge-count"},payload=>{if(channel===activeChannel)receiveEdgeCount(payload?.payload)})
     .on("broadcast",{event:"host-state"},payload=>{if(channel===activeChannel)receiveHostState(payload?.payload)})
+    .on("broadcast",{event:"tease-state"},payload=>{if(channel===activeChannel)receiveTeaseState(payload?.payload)})
     .subscribe(async(state)=>{
       if(channel!==activeChannel)return;
       if(state==="SUBSCRIBED"){
         guestReady=true;
-        await activeChannel.send({type:"broadcast",event:"edge-count-request",payload:{}});
+        await Promise.all([
+          activeChannel.send({type:"broadcast",event:"edge-count-request",payload:{}}),
+          activeChannel.send({type:"broadcast",event:"tease-state-request",payload:{}})
+        ]);
       }else if(["CHANNEL_ERROR","TIMED_OUT","CLOSED"].includes(state)){
         guestReady=false;unavailable();scheduleGuestRecovery();
       }
@@ -166,11 +212,12 @@ async function resolveSession(){
     if(result.valid===false&&shortInvitation){saveToken("");showPairing()}
     if(!result.available){
       if(guestToken)unavailable("Control is currently unavailable. Your invitation will work when your host starts a session.");
-      session=null;guestReady=false;const previous=channel;channel=null;if(previous)await client.removeChannel(previous);return;
+      session=null;guestReady=false;resetGuestTeaseState();const previous=channel;channel=null;if(previous)await client.removeChannel(previous);return;
     }
     if(!/^[a-f0-9]{48}$/.test(result.session)||typeof result.edgeKey!=="string")throw new Error("Invalid session");
     if(session!==result.session){
-      releaseHold();session=result.session;edgeKeyText=result.edgeKey;edgeVerificationKey=null;edgeCount=0;edgeCountBaselinePending=true;lastSequence=0;released.clear();edgeCountEl.textContent="EDGE used: 0 times";
+      releaseHold();session=result.session;edgeKeyText=result.edgeKey;edgeVerificationKey=null;edgeCount=0;edgeCountBaselinePending=true;lastSequence=0;
+      resetGuestTeaseState();released.clear();edgeCountEl.textContent="EDGE used: 0 times";
       await subscribeGuestChannel();
     }else if(!guestChannelSubscribed()&&!guestChannelConnecting())await subscribeGuestChannel(true);
   })().catch(()=>{unavailable();scheduleGuestRecovery()}).finally(()=>{resolving=null});
@@ -193,18 +240,23 @@ function updatePreviewFixed(){
 }
 function startPreviewFixed(button){
   stopPreview();previewFixedButton=button;previewStartedAt=performance.now();button.classList.add("active");
+  guestHaptic("fixed");
   status("Previewing — "+button.querySelector(".level").textContent,"#f0c98c");
   previewTimer=setInterval(updatePreviewFixed,50);updatePreviewFixed();
 }
 function releasePreviewHold(){if(previewHolding)stopPreview("Released — preview stopped")}
 function beginPreviewHold(button){
   stopPreview();previewHolding=button;button.classList.add("active");
+  guestHaptic("hold");
   status(button.querySelector(".level").textContent+" active — release to stop","#f0c98c");
 }
 function enablePreviewInteractions(){
-  document.querySelector("#preview-badge").hidden=false;previewToolsEl.hidden=false;document.body.dataset.controlState="ready";edgeCountEl.textContent="EDGE used: 0 times · preview";setControls(true);stopPreview();
-  document.querySelector("#preview-edge-first").addEventListener("click",()=>showEdgeCelebration(1));
-  document.querySelector("#preview-edge-later").addEventListener("click",()=>showEdgeCelebration(2));
+  document.querySelector("#preview-badge").hidden=false;previewToolsEl.hidden=false;hapticStateEl.hidden=false;document.body.dataset.controlState="ready";edgeCountEl.textContent="EDGE used: 0 times · preview";setControls(true);stopPreview();renderTeaseState();
+  document.querySelectorAll("[data-preview-stage]").forEach(button=>button.addEventListener("click",()=>{teaseStage=Number(button.dataset.previewStage);renderTeaseState();guestHaptic("tease")}));
+  document.querySelector("#preview-timer").addEventListener("click",()=>{teaseHostClockOffset=0;teaseStartedAt=Date.now()-1122000;renderTeaseState()});
+  document.querySelector("#preview-haptic").addEventListener("click",()=>guestHaptic("tease"));
+  document.querySelector("#preview-edge-first").addEventListener("click",()=>{guestHaptic("edge");showEdgeCelebration(1)});
+  document.querySelector("#preview-edge-later").addEventListener("click",()=>{guestHaptic("edge");showEdgeCelebration(2)});
   commandButtons.filter(button=>!holdButtons.includes(button)).forEach(button=>button.addEventListener("click",()=>startPreviewFixed(button)));
   for(const button of holdButtons){
     let pointerId=null;
@@ -281,3 +333,4 @@ else{
     if(progressUntil){const remaining=Math.max(0,progressUntil-performance.now());const active=document.querySelector("button.fixed.active");if(active)active.style.setProperty("--progress",((5000-remaining)/5000*100)+"%")}
   },100);
 }
+renderTeaseState();setInterval(renderTeaseState,1000);
