@@ -89,7 +89,7 @@ const SERVICES=LOVENSE_GATT.map(profile=>profile.service);
 const SUPABASE_URL="https://hqciviafxtfescteyvnn.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
 
-let server, tx, device, stopTimer, patternTimer, patternGeneration=0, remoteClient, remoteChannel, remoteSessionId, remoteReady=false, edgeLockUntil=0, edgeCountdownTimer;
+let server, tx, device, stopTimer, patternTimer, patternGeneration=0, remoteClient, remoteChannel, remoteSessionId, remoteReady=false, edgeLockUntil=0, edgeCountdownTimer, edgeUseCount=0, edgeSigningKey;
 const encoder=new TextEncoder();
 
 function status(text,colour="#ffca65"){
@@ -111,6 +111,25 @@ function rawSessionId(){
   const bytes=new Uint8Array(24);
   crypto.getRandomValues(bytes);
   return Array.from(bytes,byte=>byte.toString(16).padStart(2,"0")).join("");
+}
+function base64Url(bytes){
+  let binary="";
+  new Uint8Array(bytes).forEach(byte=>binary+=String.fromCharCode(byte));
+  return btoa(binary).replaceAll("+","-").replaceAll("/","_").replace(/=+$/g,"");
+}
+async function signedEdgeCount(){
+  const count=edgeUseCount;
+  const message=encoder.encode("edge-count:"+remoteSessionId+":"+count);
+  const signature=await crypto.subtle.sign({name:"ECDSA",hash:"SHA-256"},edgeSigningKey,message);
+  return {count,signature:base64Url(signature)};
+}
+async function publishEdgeCount(){
+  if(!remoteReady||!remoteChannel||!remoteSessionId||!edgeSigningKey) return;
+  try{
+    await remoteChannel.send({type:"broadcast",event:"edge-count",payload:await signedEdgeCount()});
+  }catch(error){
+    console.error("Could not publish EDGE count",error);
+  }
 }
 async function endRemoteSession(message="No remote session is active."){
   remoteReady=false;
@@ -154,8 +173,11 @@ async function activateEdgeLockout(){
   clearInterval(edgeCountdownTimer);
   updateEdgeCountdown();
   edgeCountdownTimer=setInterval(updateEdgeCountdown,250);
+  edgeUseCount+=1;
+  const stopWrite=write("Vibrate:0;");
+  publishEdgeCount();
   try{
-    await write("Vibrate:0;");
+    await stopWrite;
     status("Connected — stopped for EDGE lockout","#7ee787");
   }catch(error){
     status("EDGE stop failed: "+errorText(error));
@@ -281,8 +303,13 @@ async function createRemoteSession(){
   setupRemoteClient();
   await endRemoteSession("Creating temporary controller link…");
   remoteSessionId=rawSessionId();
+  edgeUseCount=0;
+  const signingKeys=await crypto.subtle.generateKey({name:"ECDSA",namedCurve:"P-256"},false,["sign","verify"]);
+  edgeSigningKey=signingKeys.privateKey;
+  const edgePublicKey=base64Url(await crypto.subtle.exportKey("raw",signingKeys.publicKey));
   const url=new URL("controller.html",location.href);
   url.searchParams.set("session",remoteSessionId);
+  url.searchParams.set("edgeKey",edgePublicKey);
   controllerLinkEl.value=url.toString();
   remoteChannel=remoteClient.channel("lushcon:"+remoteSessionId);
   remoteChannel
@@ -293,6 +320,7 @@ async function createRemoteSession(){
       try{await triggerRemoteCommand(command)}
       catch(error){console.error("Remote command failed",error);status("Remote command failed: "+rawError(error))}
     })
+    .on("broadcast",{event:"edge-count-request"},()=>publishEdgeCount())
     .subscribe((state,error)=>{
       if(state==="SUBSCRIBED"){
         remoteReady=true;

@@ -11,6 +11,7 @@ main{width:min(92vw,420px);box-sizing:border-box;padding:28px;border-radius:20px
 h1{font-size:1.35rem;margin:0 0 10px}
 p{color:#c7c0d0;line-height:1.45}
 .status{margin:18px 0;padding:12px;border-radius:10px;background:#191720;color:#ffca65;line-height:1.35;overflow-wrap:anywhere}
+.edge-count{margin:12px 0;padding:12px;border-radius:10px;background:#1d1926;color:#ff9ca7;font-weight:700;text-align:center}
 button{width:100%;padding:18px;margin:7px 0;border:0;border-radius:12px;font-size:1rem;font-weight:700;color:#fff;background:#7157d9}
 button:disabled{opacity:.45}
 small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
@@ -21,6 +22,7 @@ small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
 <h1>Lushcon controller</h1>
 <p>Choose a vibration pattern for the connected host phone.</p>
 <p id="status" class="status">Opening private control session…</p>
+<p id="edge-count" class="edge-count" aria-live="polite">EDGE used: 0 times</p>
 <button data-command="20" disabled>20% — 5 seconds</button>
 <button data-command="40" disabled>40% — 5 seconds</button>
 <button data-command="60" disabled>60% — 5 seconds</button>
@@ -33,8 +35,11 @@ small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
 const SUPABASE_URL="https://hqciviafxtfescteyvnn.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
 const statusEl=document.querySelector("#status");
+const edgeCountEl=document.querySelector("#edge-count");
 const commandButtons=[...document.querySelectorAll("[data-command]")];
 const session=new URLSearchParams(location.search).get("session");
+const edgeKeyText=new URLSearchParams(location.search).get("edgeKey");
+let edgeVerificationKey,edgeCount=0;
 
 function status(text,colour="#ffca65"){
   statusEl.textContent=text;
@@ -45,7 +50,29 @@ function rawError(error){
   const message=error?.message||String(error)||"No error message supplied";
   return name+": "+message;
 }
-if(!/^[a-f0-9]{48}$/.test(session||"")){
+function fromBase64Url(text){
+  const binary=atob(text.replaceAll("-","+").replaceAll("_","/").padEnd(Math.ceil(text.length/4)*4,"="));
+  return Uint8Array.from(binary,character=>character.charCodeAt(0));
+}
+async function receiveEdgeCount(payload){
+  const count=payload?.count;
+  if(!edgeVerificationKey||!Number.isSafeInteger(count)||count<edgeCount||typeof payload?.signature!=="string") return;
+  try{
+    const message=new TextEncoder().encode("edge-count:"+session+":"+count);
+    const valid=await crypto.subtle.verify(
+      {name:"ECDSA",hash:"SHA-256"},
+      edgeVerificationKey,
+      fromBase64Url(payload.signature),
+      message
+    );
+    if(!valid||count<edgeCount) return;
+    edgeCount=count;
+    edgeCountEl.textContent="EDGE used: "+edgeCount+(edgeCount===1 ? " time" : " times");
+  }catch(error){
+    console.warn("Ignored invalid EDGE count update",error);
+  }
+}
+if(!/^[a-f0-9]{48}$/.test(session||"")||!/^[A-Za-z0-9_-]+$/.test(edgeKeyText||"")){
   status("This controller link is missing or invalid.");
 }else if(!window.supabase){
   status("The realtime library did not load. Check your internet connection and reload.");
@@ -55,16 +82,28 @@ if(!/^[a-f0-9]{48}$/.test(session||"")){
   });
   const channel=client.channel("lushcon:"+session);
 
-  channel.subscribe((state,error)=>{
+  channel
+    .on("broadcast",{event:"edge-count"},payload=>receiveEdgeCount(payload?.payload))
+    .subscribe(async(state,error)=>{
     if(state==="SUBSCRIBED"){
-      commandButtons.forEach(button=>button.disabled=false);
-      status("Connected — ready to send a command.","#7ee787");
+      try{
+        edgeVerificationKey=await crypto.subtle.importKey(
+          "raw",fromBase64Url(edgeKeyText),{name:"ECDSA",namedCurve:"P-256"},false,["verify"]
+        );
+        commandButtons.forEach(button=>button.disabled=false);
+        status("Connected — ready to send a command.","#7ee787");
+        await channel.send({type:"broadcast",event:"edge-count-request",payload:{}});
+      }catch(keyError){
+        commandButtons.forEach(button=>button.disabled=true);
+        status("This controller link has an invalid EDGE counter key.");
+        console.error(keyError);
+      }
     }else if(state==="CHANNEL_ERROR"||state==="TIMED_OUT"||state==="CLOSED"){
       commandButtons.forEach(button=>button.disabled=true);
       status("Remote session unavailable: "+rawError(error));
       console.error("Supabase channel status:",state,error);
     }
-  });
+    });
 
   commandButtons.forEach(button=>button.addEventListener("click",async()=>{
     const command=button.dataset.command;
