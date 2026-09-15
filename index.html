@@ -14,6 +14,11 @@ button:disabled{opacity:.45}
 #stop{background:#b33d55}
 .status{margin:0 0 18px;padding:12px;border-radius:10px;background:#191720;color:#ffca65;line-height:1.35;overflow-wrap:anywhere}
 small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
+.remote{margin:18px 0;padding:14px;border-radius:12px;background:#1d1926}
+.remote h2{font-size:1rem;margin:0 0 8px}
+.remote p{margin:0 0 10px;color:#c7c0d0;line-height:1.4}
+.remote button{padding:12px;font-size:.95rem}
+#controller-link{width:100%;box-sizing:border-box;margin:8px 0;padding:11px;border:1px solid #5a5368;border-radius:9px;background:#121018;color:#e9e3f2;font:12px ui-monospace,SFMono-Regular,Consolas,monospace}
 .diagnostics{margin:16px 0 0;padding:12px;max-height:250px;overflow:auto;border-radius:10px;background:#191720;color:#d8d1e8;font:12px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
 </style>
 </head>
@@ -24,15 +29,27 @@ small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
 <button id="connect">Connect Device</button>
 <button id="vibrate" disabled>20% vibration (max 5 seconds)</button>
 <button id="stop" disabled>Stop</button>
+<section class="remote" aria-labelledby="remote-heading">
+<h2 id="remote-heading">Remote test</h2>
+<p id="remote-status">Connect the Lush Mini first.</p>
+<button id="create-controller" disabled>Create Controller Link</button>
+<input id="controller-link" aria-label="Controller link" readonly placeholder="Your temporary controller link will appear here">
+<button id="copy-controller" disabled>Copy Controller Link</button>
+</section>
 <pre id="diagnostics" class="diagnostics" aria-live="polite">Diagnostics will appear here after a device connects.</pre>
 <small>Use Chrome on Android over HTTPS. Turn the Lush Mini on and keep it nearby. No Intiface Central or backend is required for this local test.</small>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 <script>
 const statusEl=document.querySelector("#status");
 const connectBtn=document.querySelector("#connect");
 const vibrateBtn=document.querySelector("#vibrate");
 const stopBtn=document.querySelector("#stop");
 const diagnosticsEl=document.querySelector("#diagnostics");
+const remoteStatusEl=document.querySelector("#remote-status");
+const createControllerBtn=document.querySelector("#create-controller");
+const copyControllerBtn=document.querySelector("#copy-controller");
+const controllerLinkEl=document.querySelector("#controller-link");
 
 const STATIC_LOVENSE_GATT=[
   {
@@ -62,7 +79,10 @@ const THIRD_GENERATION_LOVENSE_GATT=[..."0123456789abcdef"].flatMap(y=>
 const LOVENSE_GATT=[...STATIC_LOVENSE_GATT,...THIRD_GENERATION_LOVENSE_GATT];
 const SERVICES=LOVENSE_GATT.map(profile=>profile.service);
 
-let server, tx, device, stopTimer;
+const SUPABASE_URL="https://hqciviafxtfescteyvnn.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
+
+let server, tx, device, stopTimer, remoteClient, remoteChannel, remoteSessionId, remoteReady=false, lastRemotePulseAt=0;
 const encoder=new TextEncoder();
 
 function status(text,colour="#ffca65"){
@@ -72,6 +92,47 @@ function status(text,colour="#ffca65"){
 function ready(yes){
   vibrateBtn.disabled=!yes;
   stopBtn.disabled=!yes;
+  createControllerBtn.disabled=!yes;
+  if(!yes) endRemoteSession("Connect the Lush Mini first.");
+}
+function remoteStatus(text,colour="#c7c0d0"){
+  remoteStatusEl.textContent=text;
+  remoteStatusEl.style.color=colour;
+}
+function rawSessionId(){
+  const bytes=new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes,byte=>byte.toString(16).padStart(2,"0")).join("");
+}
+async function endRemoteSession(message="No remote session is active."){
+  remoteReady=false;
+  remoteSessionId=null;
+  copyControllerBtn.disabled=true;
+  controllerLinkEl.value="";
+  if(remoteChannel&&remoteClient){
+    const channel=remoteChannel;
+    remoteChannel=null;
+    try{await remoteClient.removeChannel(channel)}catch(error){console.warn("Could not close remote channel",error)}
+  }
+  remoteStatus(message);
+}
+async function triggerRemoteTestPulse(){
+  const now=Date.now();
+  if(now-lastRemotePulseAt<1500) return;
+  lastRemotePulseAt=now;
+  if(!tx) return;
+  await write("Vibrate:4;");
+  clearTimeout(stopTimer);
+  stopTimer=setTimeout(()=>write("Vibrate:0;").catch(()=>{}),2000);
+  status("Remote test pulse: 20% vibration","#7ee787");
+}
+function setupRemoteClient(){
+  if(!window.supabase) throw new Error("The Supabase realtime library did not load.");
+  if(!remoteClient){
+    remoteClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{
+      auth:{persistSession:false,autoRefreshToken:false}
+    });
+  }
 }
 function diagnostics(text,append=true){
   console.log(text);
@@ -122,6 +183,45 @@ async function write(command){
   const data=encoder.encode(command);
   if(tx.properties.writeWithoutResponse) await tx.writeValueWithoutResponse(data);
   else await tx.writeValue(data);
+}
+async function createRemoteSession(){
+  if(!tx) throw new Error("Connect the Lush Mini before creating a controller link.");
+  setupRemoteClient();
+  await endRemoteSession("Creating temporary controller link…");
+  remoteSessionId=rawSessionId();
+  const url=new URL("controller.html",location.href);
+  url.searchParams.set("session",remoteSessionId);
+  controllerLinkEl.value=url.toString();
+  remoteChannel=remoteClient.channel("lushcon:"+remoteSessionId);
+  remoteChannel
+    .on("broadcast",{event:"test-pulse"},async payload=>{
+      if(payload?.payload?.command!=="test-pulse") return;
+      try{await triggerRemoteTestPulse()}
+      catch(error){console.error("Remote pulse failed",error);status("Remote test pulse failed: "+rawError(error))}
+    })
+    .subscribe((state,error)=>{
+      if(state==="SUBSCRIBED"){
+        remoteReady=true;
+        copyControllerBtn.disabled=false;
+        remoteStatus("Controller link is live. Share it only with the person you want to control this test.","#7ee787");
+      }else if(state==="CHANNEL_ERROR"||state==="TIMED_OUT"||state==="CLOSED"){
+        remoteReady=false;
+        copyControllerBtn.disabled=true;
+        remoteStatus("Remote session unavailable: "+rawError(error));
+        console.error("Supabase host channel status:",state,error);
+      }
+    });
+}
+async function copyControllerLink(){
+  if(!remoteReady||!controllerLinkEl.value) return;
+  try{
+    await navigator.clipboard.writeText(controllerLinkEl.value);
+    remoteStatus("Controller link copied — send it privately.","#7ee787");
+  }catch(error){
+    controllerLinkEl.focus();
+    controllerLinkEl.select();
+    remoteStatus("Copy was blocked. The link is selected; use Chrome’s Copy command.");
+  }
 }
 async function findCharacteristic(){
   for(const profile of LOVENSE_GATT){
@@ -184,6 +284,15 @@ stopBtn.addEventListener("click",async()=>{
   try{await write("Vibrate:0;");status("Connected — stopped","#7ee787")}
   catch(error){status("Stop failed: "+errorText(error))}
 });
+
+createControllerBtn.addEventListener("click",async()=>{
+  createControllerBtn.disabled=true;
+  try{await createRemoteSession()}
+  catch(error){console.error(error);remoteStatus("Could not create controller link: "+rawError(error))}
+  finally{createControllerBtn.disabled=!tx}
+});
+copyControllerBtn.addEventListener("click",copyControllerLink);
+addEventListener("pagehide",()=>{if(remoteChannel&&remoteClient) remoteClient.removeChannel(remoteChannel)});
 </script>
 </body>
 </html>
