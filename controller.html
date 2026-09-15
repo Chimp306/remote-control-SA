@@ -62,19 +62,34 @@ button{font:inherit;color:inherit}
 .control.hold.active{animation:hold-glow 1.15s ease-in-out infinite;background:linear-gradient(165deg,#764529,#452416)}
 .control:focus-visible,#request-access:focus-visible{outline:3px solid #f6d59d;outline-offset:3px}
 .control:disabled{cursor:not-allowed;filter:saturate(.35) brightness(.58);border-color:#55464b;box-shadow:0 5px 0 #0b0809,0 8px 16px #0006}
+.manual-toggle{width:100%;margin-top:17px;padding:11px 14px;border:1px solid #9d65776b;border-radius:12px;background:linear-gradient(165deg,#321923,#1b1116);color:#eadbe0;font-size:.78rem;font-weight:850;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 4px 0 #0b0709,0 8px 16px #0005,0 1px 0 #ffffff12 inset;transition:transform .1s ease,box-shadow .1s ease,border-color .15s ease}
+.manual-toggle::after{content:"＋";float:right;color:#d8b06f;font-size:1rem;line-height:.8}.manual-toggle[aria-expanded="true"]::after{content:"−"}
+.manual-toggle:active:not(:disabled){transform:translateY(3px);box-shadow:0 1px 0 #0b0709,0 4px 10px #0006}
+.manual-toggle:focus-visible,.manual-slider:focus-visible{outline:3px solid #f6d59d;outline-offset:3px}
+.manual-toggle:disabled{cursor:not-allowed;filter:saturate(.3) brightness(.58)}
+.manual-panel{margin-top:9px;padding:14px;border:1px solid #8f53686b;border-radius:16px;background:radial-gradient(circle at 50% 0,#3c1725 0,#190f14 55%,#0d090c 100%);box-shadow:0 14px 30px #0008,0 1px 0 #ffffff0c inset}
+.manual-title{margin:0;color:#f0dce3;font-family:Georgia,"Times New Roman",serif;font-size:1.05rem;text-align:center}.manual-instruction{margin:4px 0 13px;color:#c8aeb7;font-size:.72rem;font-weight:700;text-align:center}
+.manual-control{display:grid;grid-template-columns:44px 112px 72px;justify-content:center;align-items:stretch;gap:10px}
+.manual-scale{display:flex;flex-direction:column;justify-content:space-between;padding:5px 0;color:#9e858e;font-size:.57rem;font-weight:850;letter-spacing:.08em;text-align:right}.manual-scale span:first-child{color:#e8c486}.manual-scale span:last-child{color:#baaeb2}
+.manual-slider{--manual-fill:0%;position:relative;width:112px;height:238px;overflow:hidden;border:1px solid #b8798d85;border-bottom-color:#47202d;border-radius:28px;background:linear-gradient(90deg,#130c10,#25121a 50%,#130c10);box-shadow:0 8px 0 #090608,0 14px 28px #0008,0 0 0 5px #08060880 inset;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;cursor:ns-resize}
+.manual-slider::after{content:"";position:absolute;inset:11px 45px;border-radius:999px;background:#070507;box-shadow:0 0 0 1px #ffffff0d}
+.manual-fill{position:absolute;z-index:1;inset:auto 11px 0;height:var(--manual-fill);border-radius:17px 17px 22px 22px;background:linear-gradient(0deg,#6d213e 0,#a43b5e 55%,#e3a85e 100%);box-shadow:0 0 26px #b947706e;transition:height .18s cubic-bezier(.2,.85,.3,1)}
+.manual-knob{position:absolute;z-index:2;left:16px;bottom:0;width:78px;height:42px;border:1px solid #f0c989a6;border-radius:18px;background:linear-gradient(165deg,#ead09f,#9b5e45 48%,#512335);box-shadow:0 5px 0 #16090e,0 9px 18px #000a,0 1px 0 #fff9 inset;transition:bottom .18s cubic-bezier(.2,.85,.3,1)}
+.manual-panel.holding .manual-fill,.manual-panel.holding .manual-knob{transition:none}.manual-panel.holding .manual-slider{border-color:#d9a46f;box-shadow:0 6px 0 #090608,0 12px 25px #0009,0 0 22px #a83c6247,0 0 0 5px #08060880 inset}.manual-panel.confirmed .manual-slider{border-color:#f0ca8b;box-shadow:0 6px 0 #090608,0 12px 25px #0009,0 0 30px #d06b6261,0 0 0 5px #08060880 inset}
+.manual-readout{align-self:center;color:#f0c98c;font-size:.69rem;font-weight:900;line-height:1.25;letter-spacing:.04em;text-align:left;overflow-wrap:anywhere}
 .privacy{display:block;margin-top:12px;color:#897a7f;font-size:.68rem;line-height:1.35;text-align:center}
 .preview-tools{margin-top:12px;padding:10px;border:1px solid #d6ad6838;border-radius:12px;background:#0b080aa6}
 .preview-tools p{margin:0 0 8px;color:#aa979d;font-size:.68rem;line-height:1.3;text-align:center}
 .preview-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .preview-actions button{padding:9px 7px;border:1px solid #8f617066;border-radius:9px;background:#291820;color:#e4d2d8;font-size:.7rem;font-weight:750;box-shadow:0 3px 0 #090607}
-body[data-control-state="locked"] .controls{opacity:.68}
+body[data-control-state="locked"] .controls,body[data-control-state="locked"] .manual-shell{opacity:.68}
 body[data-control-state="locked"] .status{border-color:#a2415d;background:#2a111a;color:#ffc1d2}
-body[data-control-state="unavailable"] .controls{opacity:.58}
+body[data-control-state="unavailable"] .controls,body[data-control-state="unavailable"] .manual-shell{opacity:.58}
 @keyframes hold-glow{50%{border-color:#f1cd91;box-shadow:0 5px 0 #16080d,0 0 30px #d3845073,0 0 0 2px #f1c8877d inset}}
 @keyframes tease-breathe{50%{opacity:1;transform:scale(1.08)}}
 @keyframes celebration-veil{0%,100%{opacity:0}10%,82%{opacity:1}}
 @keyframes celebration-pop{0%{opacity:0;transform:scale(.72) translateY(18px)}58%{opacity:1;transform:scale(1.045) translateY(-3px)}100%{opacity:1;transform:scale(1) translateY(0)}}
-@media(max-height:760px){main{padding:15px}.control{min-height:75px;padding:9px}.status{min-height:34px;padding:7px 10px}.privacy{display:none}.subtitle{margin-bottom:7px}.tease-panel{padding:7px 10px}.tease-message{font-size:.96rem}.tease-copy{font-size:.72rem}.controls{gap:8px}}
+@media(max-height:760px){main{padding:15px}.control{min-height:75px;padding:9px}.status{min-height:34px;padding:7px 10px}.privacy{display:none}.subtitle{margin-bottom:7px}.tease-panel{padding:7px 10px}.tease-message{font-size:.96rem}.tease-copy{font-size:.72rem}.controls{gap:8px}.manual-slider{height:210px}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.edge-celebration.show{opacity:1}}
 </style>
 </head>
@@ -107,6 +122,20 @@ body[data-control-state="unavailable"] .controls{opacity:.58}
 <button id="random" class="control hold" data-command="random" disabled><span class="level">RANDOM</span><span class="duration">HOLD</span><span class="release">Release to stop</span></button>
 <button id="max-hold" class="control hold" data-command="max-hold" disabled><span class="level">MAX</span><span class="duration">HOLD</span><span class="release">Release to stop</span></button>
 </section>
+<div class="manual-shell">
+<button id="manual-toggle" class="manual-toggle" type="button" aria-expanded="false" aria-controls="manual-panel" disabled>Manual Control</button>
+<section id="manual-panel" class="manual-panel" aria-label="Manual vibration control" hidden>
+<h2 class="manual-title">Manual Control</h2>
+<p class="manual-instruction">Hold and slide — release to stop</p>
+<div class="manual-control">
+<div class="manual-scale" aria-hidden="true"><span>MAX</span><span>HIGH</span><span>LOW</span><span>OFF</span></div>
+<div id="manual-slider" class="manual-slider" role="slider" tabindex="0" aria-label="Manual vibration intensity" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="70" aria-valuenow="0" aria-valuetext="OFF" aria-disabled="true">
+<div class="manual-fill"></div><div class="manual-knob"></div>
+</div>
+<output id="manual-readout" class="manual-readout" for="manual-slider">OFF</output>
+</div>
+</section>
+</div>
 <section id="preview-tools" class="preview-tools" aria-label="Local preview controls" hidden>
 <p>Local UI preview · no commands sent</p>
 <div class="preview-actions">

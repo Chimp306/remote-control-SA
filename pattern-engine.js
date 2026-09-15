@@ -1,4 +1,4 @@
-/* Host-owned levels, clock and cancellation. No guest-supplied intensity. */
+/* Host-owned levels, clock and cancellation. Guest intensity requests are clamped before use. */
 (function(root){
   class PatternEngine {
     constructor({write,allowed=()=>true,onState=()=>{},now=()=>performance.now(),random=()=>crypto.getRandomValues(new Uint32Array(1))[0]/4294967296}){
@@ -69,7 +69,59 @@
       };
       await advance();
     }
-    heartbeat(id,expires){if(["random","max-hold"].includes(this.active?.command)&&this.active.id===id&&this.active.expires>this.now())this.active.expires=Math.max(this.active.expires,expires)}
+    async manual(id,expires,level){
+      if(!this.allowed()||!Number.isInteger(level))return;
+      const generation=this.cancel();
+      const safeLevel=Math.max(0,Math.min(14,level));
+      this.active={id,command:"manual",expires,level:null,pendingLevel:safeLevel,manualReady:false,manualBusy:false,manualTimer:null,lastWriteAt:-Infinity};
+      const valid=()=>generation===this.generation&&this.allowed()&&this.active?.id===id&&this.active.expires>this.now();
+      const watchdog=()=>{
+        if(generation!==this.generation)return;
+        if(!valid()){this.stop("Manual control released or connection lost").catch(()=>{});return}
+        this.later(watchdog,100);
+      };
+      watchdog();
+      await this.write(0,()=>generation===this.generation);
+      if(!valid())return;
+      this.active.manualReady=true;
+      this.queueManualWrite(generation);
+    }
+    manualLevel(id,level){
+      const active=this.active;
+      if(active?.command!=="manual"||active.id!==id||!Number.isInteger(level)||active.expires<=this.now())return false;
+      active.pendingLevel=Math.max(0,Math.min(14,level));
+      this.queueManualWrite(this.generation);
+      return true;
+    }
+    queueManualWrite(generation){
+      const active=this.active;
+      if(generation!==this.generation||active?.command!=="manual"||!active.manualReady||active.manualBusy||active.manualTimer!==null)return;
+      const delay=Math.max(0,80-(this.now()-active.lastWriteAt));
+      active.manualTimer=this.later(()=>{
+        if(generation!==this.generation||this.active!==active)return;
+        active.manualTimer=null;
+        this.flushManualWrite(generation,active).catch(()=>{});
+      },delay);
+    }
+    async flushManualWrite(generation,active){
+      const valid=()=>generation===this.generation&&this.allowed()&&this.active===active&&active.expires>this.now();
+      if(!valid())return;
+      const level=active.pendingLevel;
+      active.pendingLevel=null;
+      if(level===null||level===active.level)return;
+      active.manualBusy=true;
+      try{
+        await this.write(Math.max(0,Math.min(14,level)),valid);
+        if(!valid())return;
+        active.level=level;active.lastWriteAt=this.now();
+        this.onState({state:"running",command:"manual",id:active.id,level,remaining:0});
+      }catch(error){if(generation===this.generation)this.stop("Device write failed").catch(()=>{})}
+      finally{
+        active.manualBusy=false;
+        if(valid()&&active.pendingLevel!==null&&active.pendingLevel!==active.level)this.queueManualWrite(generation);
+      }
+    }
+    heartbeat(id,expires){if(["random","max-hold","manual"].includes(this.active?.command)&&this.active.id===id&&this.active.expires>this.now())this.active.expires=Math.max(this.active.expires,expires)}
   }
   root.PatternEngine=PatternEngine;
   if(typeof module!=="undefined")module.exports=PatternEngine;

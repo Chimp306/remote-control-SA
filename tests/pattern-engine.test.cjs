@@ -36,9 +36,27 @@ test('MAX hold stays at level 14 and uses the same dead-man stop',async t=>{
   assert.ok(f.writes.some(w=>w.level===14));assert.ok(f.writes.every(w=>[0,14].includes(w.level)));
   assert.deepEqual(f.writes.at(-1),{level:0,at:1200});assert.equal(f.engine.active,null);
 });
-test('EDGE permission gate blocks fixed and both hold modes',async t=>{
+test('manual mode coalesces writes at 80 ms and remains bounded to level 14',async t=>{
+  const f=fixture(t);await f.engine.manual('manual',1200,7);await f.advance(10);
+  assert.deepEqual(f.writes,[{level:0,at:0},{level:7,at:10}]);
+  f.engine.manualLevel('manual',8);f.engine.manualLevel('manual',13);f.engine.manualLevel('manual',99);await f.advance(79);
+  assert.equal(f.writes.at(-1).level,7);await f.advance(1);assert.equal(f.writes.at(-1).level,14);
+  assert.ok(f.writes.every(write=>write.level>=0&&write.level<=14));
+});
+test('manual mode uses the 1200 ms dead-man and stale updates cannot restart it',async t=>{
+  const f=fixture(t);await f.engine.manual('manual',1200,14);await f.advance(500);f.engine.heartbeat('manual',1700);await f.advance(1300);
+  assert.deepEqual(f.writes.at(-1),{level:0,at:1700});assert.equal(f.engine.active,null);
+  const count=f.writes.length;assert.equal(f.engine.manualLevel('manual',14),false);f.engine.heartbeat('manual',10000);await f.advance(1000);assert.equal(f.writes.length,count);
+});
+test('Stop invalidates a delayed positive manual write',async t=>{
+  const writes=[];let unblock;
+  const f=fixture(t,{write:async(level,valid)=>{if(level>0)await new Promise(resolve=>unblock=resolve);if(valid())writes.push(level)}});
+  await f.engine.manual('manual',1200,14);await f.advance(10);const stopped=f.engine.stop();unblock();await stopped;await f.advance(500);
+  assert.ok(writes.every(level=>level===0));assert.equal(f.engine.active,null);
+});
+test('EDGE permission gate blocks fixed, hold and manual modes',async t=>{
   const f=fixture(t);await f.engine.hold('hold',10000);f.setAllowed(false);await f.advance(100);assert.equal(f.writes.at(-1).level,0);const count=f.writes.length;await f.engine.fixed('70','blocked');await f.engine.hold('blocked',20000);await f.advance(500);assert.equal(f.writes.length,count);
-  await f.engine.hold('blocked-max',20000,'max-hold');await f.advance(500);assert.equal(f.writes.length,count);
+  await f.engine.hold('blocked-max',20000,'max-hold');await f.engine.manual('blocked-manual',20000,14);await f.advance(500);assert.equal(f.writes.length,count);
 });
 test('random includes zero and fresh host random values while bounded',async t=>{
   let calls=0;const values=[0,0,.99999,0,.5,0];const f=fixture(t,{random:()=>values[calls++%values.length]});await f.engine.hold('hold',1200);await f.advance(1000);

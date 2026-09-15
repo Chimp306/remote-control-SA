@@ -3,6 +3,7 @@ const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
 const statusEl=document.querySelector("#status"),edgeCountEl=document.querySelector("#edge-count"),guestWelcomeEl=document.querySelector("#guest-welcome"),commandButtons=[...document.querySelectorAll("[data-command]")],holdButtons=[...document.querySelectorAll(".control.hold")];
 const celebrationEl=document.querySelector("#edge-celebration"),celebrationEmojiEl=document.querySelector("#celebration-emoji"),celebrationMessageEl=document.querySelector("#celebration-message"),previewToolsEl=document.querySelector("#preview-tools");
 const teasePanelEl=document.querySelector("#tease-panel"),teaseMessageEl=document.querySelector("#tease-message"),teaseCopyEl=document.querySelector("#tease-copy"),teaseTimerEl=document.querySelector("#tease-timer"),hapticStateEl=document.querySelector("#haptic-state");
+const manualToggleEl=document.querySelector("#manual-toggle"),manualPanelEl=document.querySelector("#manual-panel"),manualSliderEl=document.querySelector("#manual-slider"),manualKnobEl=document.querySelector(".manual-knob"),manualReadoutEl=document.querySelector("#manual-readout");
 const previewRequested=new URLSearchParams(location.search).get("preview")==="1";
 function cleanGuestName(value){return typeof value==="string"?value.normalize("NFKC").replace(/[\u0000-\u001f\u007f-\u009f]/g,"").replace(/\s+/g," ").trim().slice(0,40):""}
 function showGuestName(value){const name=cleanGuestName(value);guestWelcomeEl.textContent="WELCOME, "+(name||"GUEST").toLocaleUpperCase()}
@@ -44,6 +45,7 @@ requestAccess.addEventListener("click",()=>{
 setInterval(()=>{if(document.visibilityState==="visible")pollPairing()},2500);
 let session,edgeKeyText,edgeVerificationKey,edgeCount=0,edgeCountBaselinePending=true,client,channel,guestReady=false,guestRecoveryTimer,guestRecoveryPromise;
 let resolving,lastStateAt=0,lastSequence=0,hostState,challenge,holding,holdTimer,progressUntil=0,pendingId;
+let manualHolding=null,manualHeartbeatTimer=null,manualSendTimer=null,manualQueuedValue=null,manualLastSentLevel=null,manualPointerId=null;
 let teaseStage=1,teaseStartedAt=null,teaseHostClockOffset=0,lastTeaseSequence=0,teaseBaselinePending=true,hapticFlashTimer;
 const released=new Set(),hapticAcknowledgements=new Set();
 function status(text,colour="#ffca65"){statusEl.textContent=text;statusEl.style.color=colour}
@@ -132,10 +134,10 @@ async function receiveEdgeCount(payload){
 }
 function guestChannelSubscribed(){return guestReady&&channel?.state==="joined"&&(typeof client?.realtime?.isConnected!=="function"||client.realtime.isConnected())}
 function guestChannelConnecting(){return channel?.state==="joining"}
-function setControls(enabled){commandButtons.forEach(button=>button.disabled=!enabled)}
-function clearActive(){commandButtons.forEach(b=>{b.classList.remove("active");b.style.setProperty("--progress","0%")});progressUntil=0}
+function setControls(enabled){commandButtons.forEach(button=>button.disabled=!enabled);manualToggleEl.disabled=!enabled;manualSliderEl.setAttribute("aria-disabled",String(!enabled))}
+function clearActive(){commandButtons.forEach(b=>{b.classList.remove("active");b.style.setProperty("--progress","0%")});manualPanelEl.classList.remove("confirmed");progressUntil=0}
 function unavailable(message="Connection unavailable — recovering…"){
-  releaseHold();hostState=null;lastStateAt=0;challenge=null;setControls(false);clearActive();document.body.dataset.controlState="unavailable";status(message);
+  releaseHold();releaseManual();hostState=null;lastStateAt=0;challenge=null;setControls(false);clearActive();document.body.dataset.controlState="unavailable";status(message);
 }
 async function receiveHostState(payload){
   const key=edgeVerificationKey,currentSession=session,receivedAt=performance.now();
@@ -147,12 +149,19 @@ async function receiveHostState(payload){
     if(!Number.isSafeInteger(next.seq)||next.seq<=lastSequence||typeof next.challenge!=="string")return;
     lastSequence=next.seq;lastStateAt=receivedAt;challenge=next.challenge;hostState=next;
     const blocked=next.state==="locked"||next.state==="unavailable";
-    if(blocked)releaseHold();
+    if(blocked){releaseHold();releaseManual()}
     setControls(!blocked&&guestChannelSubscribed()&&document.visibilityState==="visible");clearActive();
     document.body.dataset.controlState=next.state==="locked"?"locked":next.state==="unavailable"?"unavailable":"ready";
     if(next.state==="locked"){status("Remote control paused — "+Math.ceil(next.pauseMs/1000)+"s");return}
     if(next.state==="unavailable"){status("Host connection unavailable — recovering…");return}
+    if(next.state==="stopped"&&manualHolding)releaseManual();
     if(next.state==="running"&&!released.has(next.id)){
+      if(next.command==="manual"){
+        if(manualHolding?.id!==next.id){status("Host is running Manual Control from another controller.");return}
+        manualPanelEl.classList.add("confirmed");
+        if(!hapticAcknowledgements.has(next.id)){hapticAcknowledgements.add(next.id);guestHaptic("hold")}
+        status("Manual Control active — release to stop","#f0c98c");return;
+      }
       if(["random","max-hold"].includes(next.command)&&holding?.id!==next.id){status("Host is running a hold from another controller.");return}
       const button=commandButtons.find(b=>b.dataset.command===next.command);
       if(button)button.classList.add("active");
@@ -166,17 +175,68 @@ async function receiveHostState(payload){
     }else{status(next.state==="stopped"?"Stopped — ready":"Ready — choose a control","#7ee787")}
   }catch{}
 }
-async function send(command,id){
+async function send(command,id,extra={}){
   if(!channel)throw new Error("No session");
-  const result=await channel.send({type:"broadcast",event:"control-command",payload:{command,id,challenge}});
+  const result=await channel.send({type:"broadcast",event:"control-command",payload:{command,id,challenge,...extra}});
   if(result!=="ok")throw new Error("Command unavailable");
 }
-function releaseHold(){
+function releaseHold(sendStop=true){
   const id=holding?.id;
   holding=null;clearInterval(holdTimer);holdTimer=null;
   if(!id)return;
   released.add(id);clearActive();status("Released — stopping");
-  send("hold-stop",id).catch(()=>{});
+  if(sendStop)send("hold-stop",id).catch(()=>{});
+}
+function setManualVisual(value){
+  const safe=Math.max(0,Math.min(70,Number.isFinite(value)?value:0)),ratio=safe/70,rounded=Math.round(safe);
+  manualSliderEl.style.setProperty("--manual-fill",ratio*100+"%");
+  manualKnobEl.style.bottom="calc("+(ratio*100)+"% - "+(ratio*42)+"px)";
+  manualSliderEl.setAttribute("aria-valuenow",String(rounded));manualSliderEl.setAttribute("aria-valuetext",rounded?rounded+"%":"OFF");
+  manualReadoutEl.value=rounded?rounded+"%":"OFF";manualReadoutEl.textContent=rounded?rounded+"%":"OFF";
+}
+function manualValueFromPointer(event){
+  const rect=manualSliderEl.getBoundingClientRect();
+  if(!rect.height)return 0;
+  return Math.max(0,Math.min(70,(rect.bottom-event.clientY)/rect.height*70));
+}
+function queueManualUpdate(value){
+  setManualVisual(value);
+  if(!manualHolding||previewRequested)return;
+  const level=Math.max(0,Math.min(14,Math.round(value/5)));
+  if(level===manualLastSentLevel){manualQueuedValue=null;return}
+  manualQueuedValue=value;
+  if(manualSendTimer)return;
+  const flush=()=>{
+    manualSendTimer=null;
+    if(!manualHolding||manualQueuedValue===null)return;
+    const next=manualQueuedValue;manualQueuedValue=null;manualLastSentLevel=Math.max(0,Math.min(14,Math.round(next/5)));
+    send("manual-update",manualHolding.id,{value:next}).catch(()=>{if(manualHolding)unavailable()});
+    if(manualQueuedValue!==null)manualSendTimer=setTimeout(flush,80);
+  };
+  manualSendTimer=setTimeout(flush,80);
+}
+function beginManual(value){
+  if(manualHolding||manualToggleEl.disabled)return;
+  releaseHold(false);clearActive();
+  if(previewRequested)stopPreview();
+  const id=crypto.randomUUID();manualHolding={id};manualLastSentLevel=Math.max(0,Math.min(14,Math.round(value/5)));manualQueuedValue=null;
+  manualPanelEl.classList.add("holding");setManualVisual(value);status(previewRequested?"Manual Control preview active — release to stop":"Waiting for host acknowledgement…","#f0c98c");
+  if(previewRequested){manualPanelEl.classList.add("confirmed");guestHaptic("hold");return}
+  if(!guestChannelSubscribed()||!challenge){releaseManual();return}
+  send("manual-start",id,{value}).catch(()=>{if(manualHolding?.id===id)unavailable()});
+  manualHeartbeatTimer=setInterval(()=>{
+    if(manualHolding?.id!==id)return;
+    if(!guestChannelSubscribed()||document.visibilityState!=="visible"||performance.now()-lastStateAt>1000){releaseManual();return}
+    send("manual-heartbeat",id).catch(()=>{if(manualHolding?.id===id)unavailable()});
+  },250);
+}
+function releaseManual(sendStop=true){
+  const id=manualHolding?.id;
+  manualHolding=null;manualPointerId=null;clearInterval(manualHeartbeatTimer);manualHeartbeatTimer=null;clearTimeout(manualSendTimer);manualSendTimer=null;manualQueuedValue=null;manualLastSentLevel=null;
+  manualPanelEl.classList.remove("holding","confirmed");setManualVisual(0);
+  if(!id)return;
+  released.add(id);status(previewRequested?"Released — Manual Control preview stopped":"Released — stopping");
+  if(sendStop&&!previewRequested)send("manual-stop",id).catch(()=>{});
 }
 function scheduleGuestRecovery(){clearTimeout(guestRecoveryTimer);if(document.visibilityState==="visible")guestRecoveryTimer=setTimeout(recoverGuestSession,1500)}
 async function subscribeGuestChannel(recovering=false){
@@ -244,14 +304,14 @@ function updatePreviewFixed(){
   if(elapsed>=5000)stopPreview();
 }
 function startPreviewFixed(button){
-  stopPreview();previewFixedButton=button;previewStartedAt=performance.now();button.classList.add("active");
+  releaseManual();stopPreview();previewFixedButton=button;previewStartedAt=performance.now();button.classList.add("active");
   guestHaptic("fixed");
   status("Previewing — "+button.querySelector(".level").textContent,"#f0c98c");
   previewTimer=setInterval(updatePreviewFixed,50);updatePreviewFixed();
 }
 function releasePreviewHold(){if(previewHolding)stopPreview("Released — preview stopped")}
 function beginPreviewHold(button){
-  stopPreview();previewHolding=button;button.classList.add("active");
+  releaseManual();stopPreview();previewHolding=button;button.classList.add("active");
   guestHaptic("hold");
   status(button.querySelector(".level").textContent+" active — release to stop","#f0c98c");
 }
@@ -275,8 +335,8 @@ function enablePreviewInteractions(){
     button.addEventListener("keyup",event=>{if([" ","Enter"].includes(event.key)){event.preventDefault();releasePreviewHold()}});
     button.addEventListener("blur",releasePreviewHold);
   }
-  addEventListener("blur",releasePreviewHold);addEventListener("pagehide",()=>{hideEdgeCelebration();stopPreview("Preview paused")});
-  document.addEventListener("visibilitychange",()=>{if(document.visibilityState!=="visible"){hideEdgeCelebration();stopPreview("Preview paused — return to continue")}});
+  addEventListener("blur",()=>{releasePreviewHold();releaseManual()});addEventListener("pagehide",()=>{hideEdgeCelebration();releaseManual();stopPreview("Preview paused")});
+  document.addEventListener("visibilitychange",()=>{if(document.visibilityState!=="visible"){hideEdgeCelebration();releaseManual();stopPreview("Preview paused — return to continue")}});
 }
 async function startPreview(){
   pairingEl.hidden=true;setControls(false);document.body.dataset.controlState="unavailable";status("Authorising host preview…");
@@ -292,6 +352,36 @@ async function startPreview(){
     enablePreviewInteractions();
   }catch(error){setControls(false);status("Preview unavailable — "+error.message)}
 }
+function setupManualControl(){
+  manualToggleEl.addEventListener("click",()=>{
+    const opening=manualPanelEl.hidden;
+    if(!opening)releaseManual();
+    manualPanelEl.hidden=!opening;manualToggleEl.setAttribute("aria-expanded",String(opening));
+  });
+  manualSliderEl.addEventListener("pointerdown",event=>{
+    if(!event.isPrimary||event.button!==0||manualHolding||manualToggleEl.disabled)return;
+    event.preventDefault();manualPointerId=event.pointerId;manualSliderEl.setPointerCapture(manualPointerId);
+    beginManual(manualValueFromPointer(event));
+  });
+  manualSliderEl.addEventListener("pointermove",event=>{
+    if(event.pointerId!==manualPointerId||!manualHolding)return;
+    event.preventDefault();queueManualUpdate(manualValueFromPointer(event));
+  });
+  for(const eventName of ["pointerup","pointercancel","lostpointercapture"]){
+    manualSliderEl.addEventListener(eventName,event=>{if(event.pointerId===manualPointerId)releaseManual()});
+  }
+  manualSliderEl.addEventListener("contextmenu",event=>event.preventDefault());
+  manualSliderEl.addEventListener("keydown",event=>{
+    if(!["ArrowUp","ArrowDown","Home","End"].includes(event.key)||manualToggleEl.disabled)return;
+    event.preventDefault();
+    const current=Number(manualSliderEl.getAttribute("aria-valuenow"))||0;
+    const value=event.key==="Home"?0:event.key==="End"?70:Math.max(0,Math.min(70,current+(event.key==="ArrowUp"?5:-5)));
+    if(!manualHolding)beginManual(value);else queueManualUpdate(value);
+  });
+  manualSliderEl.addEventListener("keyup",event=>{if(["ArrowUp","ArrowDown","Home","End"].includes(event.key))releaseManual()});
+  manualSliderEl.addEventListener("blur",releaseManual);
+}
+setupManualControl();
 if(previewRequested)startPreview();
 else if(!shortInvitation&&!/^[2-9A-HJ-NP-Z]{16}$/.test(guestToken))status("This private invitation is missing or invalid. Ask your host for a current link.");
 else if(!window.supabase)status("The connection library did not load. Please reload.");
@@ -300,12 +390,13 @@ else{
   recoverGuestSession();setInterval(()=>{if(document.visibilityState==="visible")resolveSession()},5000);
   commandButtons.filter(button=>!holdButtons.includes(button)).forEach(button=>button.addEventListener("click",async()=>{
     if(!guestChannelSubscribed()||!challenge)return;
-    releaseHold();const id=crypto.randomUUID();pendingId=id;status("Waiting for host acknowledgement…");
+    releaseHold(false);releaseManual(false);const id=crypto.randomUUID();pendingId=id;status("Waiting for host acknowledgement…");
     try{await send(button.dataset.command,id)}catch{unavailable()}
     setTimeout(()=>{if(pendingId===id&&hostState?.id!==id&&hostState?.state!=="locked")status("No running acknowledgement received — try again when ready.")},1600);
   }));
   function beginHold(button){
     if(holding||button.disabled||!guestChannelSubscribed()||!challenge)return;
+    releaseManual(false);
     const id=crypto.randomUUID(),command=button.dataset.command;
     holding={id,command};
     status("Waiting for host acknowledgement…");
@@ -328,8 +419,8 @@ else{
     button.addEventListener("keyup",event=>{if([" ","Enter"].includes(event.key)){event.preventDefault();releaseHold()}});
     button.addEventListener("blur",releaseHold);
   }
-  addEventListener("blur",releaseHold);
-  addEventListener("pagehide",()=>{hideEdgeCelebration();releaseHold()});
+  addEventListener("blur",()=>{releaseHold();releaseManual()});
+  addEventListener("pagehide",()=>{hideEdgeCelebration();releaseHold();releaseManual()});
   addEventListener("offline",()=>unavailable("Connection lost — control stopped"));
   document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")recoverGuestSession();else{hideEdgeCelebration();unavailable("Controller paused — return to reconnect")}});
   addEventListener("pageshow",recoverGuestSession);addEventListener("online",recoverGuestSession);

@@ -300,7 +300,7 @@ const challenges=new Map(),seenCommands=new Set();
 const engine=new PatternEngine({
   write:(level,guard)=>write("Vibrate:"+level+";",guard),
   allowed:()=>hostAuthorized&&!!tx&&!!device?.gatt?.connected&&!edgeLocked()&&document.visibilityState==="visible"&&(!remoteSessionId||performance.now()<leaseDeadline),
-  onState:value=>{const changed=hostState.state!==value.state||hostState.id!==value.id;hostState=value;if(changed)publishHostState()}
+  onState:value=>{const changed=hostState.state!==value.state||hostState.id!==value.id||hostState.level!==value.level;hostState=value;if(changed)publishHostState()}
 });
 function cancelTimedPattern(){return engine.cancel()}
 function stopNow(reason="stopped"){challenges.clear();if(!tx){engine.cancel();hostState={state:"stopped",reason};return Promise.resolve()}return engine.stop(reason).catch(error=>status("Stop failed: "+rawError(error)))}
@@ -324,23 +324,38 @@ setInterval(publishHostState,500);
 async function receiveControl(payload){
   const p=payload||{};
   if(typeof p.id!=="string"||!/^[-a-zA-Z0-9]{16,64}$/.test(p.id))return;
-  // Release is valid even during EDGE/recovery, but only for that hold.
-  if(p.command==="hold-stop"){
+  // Release is valid even during EDGE/recovery, but only for its active momentary control.
+  if(p.command==="hold-stop"||p.command==="manual-stop"){
     if(seenCommands.size<10000)seenCommands.add(p.id);
-    if(engine.active?.id===p.id&&["random","max-hold"].includes(engine.active.command))await stopNow();
+    const matching=p.command==="manual-stop"?["manual"]:["random","max-hold"];
+    if(engine.active?.id===p.id&&matching.includes(engine.active.command))await stopNow();
     return;
   }
   const issued=challenges.get(p.challenge),now=performance.now();
   if(issued===undefined||now-issued>=1200||!remoteReady||!engine.allowed())return;
-  if(p.command==="hold-heartbeat"){
+  if(p.command==="hold-heartbeat"||p.command==="manual-heartbeat"){
+    const activeCommands=p.command==="manual-heartbeat"?["manual"]:["random","max-hold"];
+    if(!activeCommands.includes(engine.active?.command))return;
     engine.heartbeat(p.id,issued+1200);return;
   }
+  if(p.command==="manual-update"){
+    const level=manualRequestLevel(p.value);
+    if(level===null||engine.active?.command!=="manual"||engine.active.id!==p.id)return;
+    engine.heartbeat(p.id,issued+1200);engine.manualLevel(p.id,level);return;
+  }
   if(seenCommands.has(p.id)||seenCommands.size>=10000)return;
-  if(!["20","40","60","70","hold-start","max-hold-start"].includes(p.command))return;
+  if(!["20","40","60","70","hold-start","max-hold-start","manual-start"].includes(p.command))return;
+  const manualLevel=p.command==="manual-start"?manualRequestLevel(p.value):null;
+  if(p.command==="manual-start"&&manualLevel===null)return;
   seenCommands.add(p.id);
   if(p.command==="hold-start")await engine.hold(p.id,issued+1200,"random");
   else if(p.command==="max-hold-start")await engine.hold(p.id,issued+1200,"max-hold");
+  else if(p.command==="manual-start")await engine.manual(p.id,issued+1200,manualLevel);
   else await engine.fixed(p.command,p.id);
+}
+function manualRequestLevel(value){
+  if(typeof value!=="number"||!Number.isFinite(value))return null;
+  return Math.max(0,Math.min(14,Math.round(Math.max(0,Math.min(70,value))/5)));
 }
 function edgeLocked(){
   return Date.now()<edgeLockUntil;
