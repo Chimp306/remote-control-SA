@@ -12,6 +12,9 @@ h1{font-size:1.35rem;margin:0 0 22px}
 button{width:100%;padding:15px;margin:7px 0;border:0;border-radius:12px;font-size:1rem;font-weight:700;color:#fff;background:#7157d9}
 button:disabled{opacity:.45}
 #stop{background:#b33d55}
+#edge{background:#e05666;font-size:1.12rem;padding:18px;box-shadow:0 0 0 2px #ff8b98 inset}
+.edge-status{margin:7px 0 14px;padding:12px;border-radius:10px;background:#191720;color:#ff9ca7;font-weight:700;line-height:1.35}
+.edge-status[hidden]{display:none}
 .status{margin:0 0 18px;padding:12px;border-radius:10px;background:#191720;color:#ffca65;line-height:1.35;overflow-wrap:anywhere}
 small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
 .remote{margin:18px 0;padding:14px;border-radius:12px;background:#1d1926}
@@ -29,6 +32,8 @@ small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
 <button id="connect">Connect Device</button>
 <button id="vibrate" disabled>20% vibration (max 5 seconds)</button>
 <button id="stop" disabled>Stop</button>
+<button id="edge" disabled>EDGE — pause remote control</button>
+<p id="edge-status" class="edge-status" role="status" aria-live="polite" hidden></p>
 <section class="remote" aria-labelledby="remote-heading">
 <h2 id="remote-heading">Remote test</h2>
 <p id="remote-status">Connect the Lush Mini first.</p>
@@ -45,6 +50,8 @@ const statusEl=document.querySelector("#status");
 const connectBtn=document.querySelector("#connect");
 const vibrateBtn=document.querySelector("#vibrate");
 const stopBtn=document.querySelector("#stop");
+const edgeBtn=document.querySelector("#edge");
+const edgeStatusEl=document.querySelector("#edge-status");
 const diagnosticsEl=document.querySelector("#diagnostics");
 const remoteStatusEl=document.querySelector("#remote-status");
 const createControllerBtn=document.querySelector("#create-controller");
@@ -82,7 +89,7 @@ const SERVICES=LOVENSE_GATT.map(profile=>profile.service);
 const SUPABASE_URL="https://hqciviafxtfescteyvnn.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
 
-let server, tx, device, stopTimer, patternTimer, patternGeneration=0, remoteClient, remoteChannel, remoteSessionId, remoteReady=false;
+let server, tx, device, stopTimer, patternTimer, patternGeneration=0, remoteClient, remoteChannel, remoteSessionId, remoteReady=false, edgeLockUntil=0, edgeCountdownTimer;
 const encoder=new TextEncoder();
 
 function status(text,colour="#ffca65"){
@@ -92,6 +99,7 @@ function status(text,colour="#ffca65"){
 function ready(yes){
   vibrateBtn.disabled=!yes;
   stopBtn.disabled=!yes;
+  edgeBtn.disabled=!yes;
   createControllerBtn.disabled=!yes;
   if(!yes) endRemoteSession("Connect the Lush Mini first.");
 }
@@ -123,6 +131,35 @@ function cancelTimedPattern(){
   stopTimer=undefined;
   patternTimer=undefined;
   return patternGeneration;
+}
+function edgeLocked(){
+  return Date.now()<edgeLockUntil;
+}
+function updateEdgeCountdown(){
+  const seconds=Math.ceil((edgeLockUntil-Date.now())/1000);
+  if(seconds>0){
+    edgeStatusEl.hidden=false;
+    edgeStatusEl.textContent="Remote control paused — "+seconds+"s";
+    return;
+  }
+  edgeLockUntil=0;
+  clearInterval(edgeCountdownTimer);
+  edgeCountdownTimer=undefined;
+  edgeStatusEl.hidden=true;
+  edgeStatusEl.textContent="";
+}
+async function activateEdgeLockout(){
+  edgeLockUntil=Date.now()+30000;
+  cancelTimedPattern();
+  clearInterval(edgeCountdownTimer);
+  updateEdgeCountdown();
+  edgeCountdownTimer=setInterval(updateEdgeCountdown,250);
+  try{
+    await write("Vibrate:0;");
+    status("Connected — stopped for EDGE lockout","#7ee787");
+  }catch(error){
+    status("EDGE stop failed: "+errorText(error));
+  }
 }
 async function finishPattern(token){
   if(token!==patternGeneration) return;
@@ -170,7 +207,7 @@ async function startWavePattern(){
   await advance();
 }
 async function triggerRemoteCommand(command){
-  if(!tx) return;
+  if(!tx||edgeLocked()) return;
   const fixed={
     "20":{level:4,label:"Remote: 20% vibration"},
     "40":{level:8,label:"Remote: 40% vibration"},
@@ -252,6 +289,7 @@ async function createRemoteSession(){
     .on("broadcast",{event:"control-command"},async payload=>{
       const command=payload?.payload?.command;
       if(!["20","40","60","70","wave"].includes(command)) return;
+      if(edgeLocked()) return;
       try{await triggerRemoteCommand(command)}
       catch(error){console.error("Remote command failed",error);status("Remote command failed: "+rawError(error))}
     })
@@ -337,6 +375,8 @@ stopBtn.addEventListener("click",async()=>{
   try{await write("Vibrate:0;");status("Connected — stopped","#7ee787")}
   catch(error){status("Stop failed: "+errorText(error))}
 });
+
+edgeBtn.addEventListener("click",activateEdgeLockout);
 
 createControllerBtn.addEventListener("click",async()=>{
   createControllerBtn.disabled=true;
