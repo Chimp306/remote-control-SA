@@ -1,6 +1,7 @@
 const SUPABASE_URL="https://hqciviafxtfescteyvnn.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
 const statusEl=document.querySelector("#status"),edgeCountEl=document.querySelector("#edge-count"),commandButtons=[...document.querySelectorAll("[data-command]")],holdButtons=[...document.querySelectorAll(".control.hold")];
+const previewRequested=new URLSearchParams(location.search).get("preview")==="1";
 const invitationCode=location.hash.slice(1).toUpperCase();
 const shortInvitation=/^[2-9A-HJ-NP-Z]{4}$/.test(invitationCode);
 const storageKey="lushcon-invitation:"+invitationCode;
@@ -143,7 +144,59 @@ async function recoverGuestSession(){
   if(guestRecoveryPromise)return guestRecoveryPromise;
   guestRecoveryPromise=resolveSession().finally(()=>{guestRecoveryPromise=null});return guestRecoveryPromise;
 }
-if(!shortInvitation&&!/^[2-9A-HJ-NP-Z]{16}$/.test(guestToken))status("This private invitation is missing or invalid. Ask your host for a current link.");
+let previewTimer=null,previewStartedAt=0,previewFixedButton=null,previewHolding=null;
+function stopPreview(message="Preview ready — controls are visual only"){
+  clearInterval(previewTimer);previewTimer=null;previewStartedAt=0;previewFixedButton=null;previewHolding=null;clearActive();status(message,"#f0c98c");
+}
+function updatePreviewFixed(){
+  if(!previewFixedButton)return;
+  const elapsed=Math.max(0,performance.now()-previewStartedAt);
+  previewFixedButton.style.setProperty("--progress",Math.min(100,elapsed/5000*100)+"%");
+  if(elapsed>=5000)stopPreview();
+}
+function startPreviewFixed(button){
+  stopPreview();previewFixedButton=button;previewStartedAt=performance.now();button.classList.add("active");
+  status("Previewing — "+button.querySelector(".level").textContent,"#f0c98c");
+  previewTimer=setInterval(updatePreviewFixed,50);updatePreviewFixed();
+}
+function releasePreviewHold(){if(previewHolding)stopPreview("Released — preview stopped")}
+function beginPreviewHold(button){
+  stopPreview();previewHolding=button;button.classList.add("active");
+  status(button.querySelector(".duration").textContent+" active — release to stop","#f0c98c");
+}
+function enablePreviewInteractions(){
+  document.querySelector("#preview-badge").hidden=false;document.body.dataset.controlState="ready";edgeCountEl.textContent="EDGE used: 0 times · preview";setControls(true);stopPreview();
+  commandButtons.filter(button=>!holdButtons.includes(button)).forEach(button=>button.addEventListener("click",()=>startPreviewFixed(button)));
+  for(const button of holdButtons){
+    let pointerId=null;
+    button.addEventListener("pointerdown",event=>{
+      if(!event.isPrimary||event.button!==0||previewHolding)return;
+      event.preventDefault();pointerId=event.pointerId;button.setPointerCapture(pointerId);beginPreviewHold(button);
+    });
+    for(const eventName of ["pointerup","pointercancel","lostpointercapture"]){button.addEventListener(eventName,event=>{if(event.pointerId===pointerId){pointerId=null;releasePreviewHold()}})}
+    button.addEventListener("contextmenu",event=>event.preventDefault());
+    button.addEventListener("keydown",event=>{if([" ","Enter"].includes(event.key)){event.preventDefault();if(!event.repeat)beginPreviewHold(button)}});
+    button.addEventListener("keyup",event=>{if([" ","Enter"].includes(event.key)){event.preventDefault();releasePreviewHold()}});
+    button.addEventListener("blur",releasePreviewHold);
+  }
+  addEventListener("blur",releasePreviewHold);addEventListener("pagehide",()=>stopPreview("Preview paused"));
+  document.addEventListener("visibilitychange",()=>{if(document.visibilityState!=="visible")stopPreview("Preview paused — return to continue")});
+}
+async function startPreview(){
+  pairingEl.hidden=true;setControls(false);document.body.dataset.controlState="unavailable";status("Authorising host preview…");
+  try{
+    if(!window.supabase)throw new Error("The connection library did not load.");
+    const previewClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,storageKey:"lushcon-host-auth"}});
+    const {data:{session:hostSession}}=await previewClient.auth.getSession();
+    if(!hostSession)throw new Error("Sign in on the host page first.");
+    const response=await fetch(SUPABASE_URL+"/functions/v1/guest-access",{method:"POST",headers:{"Content-Type":"application/json",apikey:SUPABASE_PUBLISHABLE_KEY,Authorization:"Bearer "+hostSession.access_token},body:JSON.stringify({action:"preview"}),signal:AbortSignal.timeout(6000)});
+    if(!response.ok)throw new Error("This account is not authorised for host preview.");
+    const result=await response.json();if(!result.ok)throw new Error("Host preview unavailable.");
+    enablePreviewInteractions();
+  }catch(error){setControls(false);status("Preview unavailable — "+error.message)}
+}
+if(previewRequested)startPreview();
+else if(!shortInvitation&&!/^[2-9A-HJ-NP-Z]{16}$/.test(guestToken))status("This private invitation is missing or invalid. Ask your host for a current link.");
 else if(!window.supabase)status("The connection library did not load. Please reload.");
 else{
   client=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});

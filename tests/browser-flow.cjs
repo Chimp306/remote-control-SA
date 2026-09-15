@@ -47,6 +47,12 @@ const server=http.createServer((req,res)=>{
     await host.goto(origin);await host.locator('#host-controls').waitFor({state:'visible'});
     assert.equal(await host.locator('#guest-name').count(),0);assert.equal(await host.locator('#guest-select').count(),0);assert.equal(await host.locator('#rotate-guest').count(),0);
     assert.equal(await host.locator('#controller-link').inputValue(),'');
+    assert.equal(await host.locator('#preview-controller').isEnabled(),true);
+    const previewPromise=context.waitForEvent('page');await host.locator('#preview-controller').click();const preview=await previewPromise;pages.push(preview);preview.on('pageerror',e=>errors.push(e.message));
+    await preview.locator('#preview-badge').waitFor({state:'visible'});assert.equal(await preview.locator('[data-command]:enabled').count(),6);assert.equal(await preview.evaluate(()=>window.channels.length),0);
+    await preview.locator('[data-command="20"]').click();await preview.waitForFunction(()=>parseFloat(document.querySelector('[data-command="20"]').style.getPropertyValue('--progress'))>0);
+    await preview.evaluate(()=>{previewStartedAt-=5000;updatePreviewFixed()});assert.equal(await preview.locator('[data-command="20"]').evaluate(button=>button.classList.contains('active')),false);
+    const previewHold=await preview.locator('#max-hold').boundingBox();await preview.mouse.move(previewHold.x+20,previewHold.y+20);await preview.mouse.down();assert.equal(await preview.locator('#max-hold').evaluate(button=>button.classList.contains('active')),true);await preview.mouse.up();assert.equal(await preview.locator('#max-hold').evaluate(button=>button.classList.contains('active')),false);assert.equal(await preview.evaluate(()=>window.channels.length),0);await preview.close();
     await host.locator('#connect').click();await host.locator('#create-controller').waitFor({state:'visible'});await host.locator('#create-controller').click();
     await host.waitForFunction(()=>remoteReady);
     assert.equal(await host.locator('#controller-link').inputValue(),'https://ctmp.uk/#ABCD');

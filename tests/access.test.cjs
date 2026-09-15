@@ -27,9 +27,13 @@ async function fixture(){
   return {request,profile,db};
 }
 test('all host actions require a verified user and allowlist membership',async()=>{
-  const f=await fixture();for(const action of ['list','create','activate','renew','end','rotate','pair-list','pair-approve','pair-deny']){
+  const f=await fixture();for(const action of ['preview','list','create','activate','renew','end','rotate','pair-list','pair-approve','pair-deny']){
     assert.equal((await f.request({action})).status,401);assert.equal((await f.request({action},'outsider')).status,403);
   }
+});
+test('authorised preview check creates no session, pairing or guest record',async()=>{
+  const f=await fixture(),before=JSON.stringify(f.db);const result=await f.request({action:'preview'},'host');
+  assert.equal(result.status,200);assert.equal(result.body.ok,true);assert.equal(JSON.stringify(f.db),before);
 });
 test('four-character code alone cannot resolve a control session or reveal name',async()=>{
   const f=await fixture();const r=await f.request({action:'resolve',token:'ABCD'});assert.equal(r.body.available,false);assert.ok(!JSON.stringify(r.body).includes(f.profile.name));

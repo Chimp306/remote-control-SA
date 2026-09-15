@@ -65,6 +65,11 @@ async function renewLease(){
 setInterval(()=>{if(document.visibilityState==="visible")renewLease()},10000);
 setInterval(()=>{if(remoteSessionId&&performance.now()>=leaseDeadline&&engine.active)stopNow("Session verification expired")},100);
 document.querySelector("#end-session").addEventListener("click",()=>endRemoteSession());
+document.querySelector("#preview-controller").addEventListener("click",()=>{
+  const preview=window.open("/controller.html?preview=1","_blank");
+  if(preview)preview.opener=null;
+  else remoteStatus("Preview was blocked. Allow pop-ups for this site and try again.");
+});
 remoteClient.auth.getSession().then(({data:{session}})=>{if(session)unlockHost()});
 
 document.querySelector("#guest-code-form").addEventListener("submit",event=>{

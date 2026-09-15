@@ -48,6 +48,7 @@ Deno.serve(async req=>{
     if(error||!user||user.is_anonymous||!user.email_confirmed_at)return answer({error:"Sign in required"},401);
     const {data:host}=check(await admin.from("control_hosts").select("user_id").eq("user_id",user.id).maybeSingle());
     if(!host)return answer({error:"This account has not been authorised as a host"},403);
+    if(body.action==="preview")return answer({ok:true});
     if(body.action==="list"){
       const {data}=check(await admin.from("control_guests").select("id,name,token,pair_code").eq("host_id",user.id).order("created_at"));
       return answer({profiles:data});
