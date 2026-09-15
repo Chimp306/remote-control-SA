@@ -3,7 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Lushcon Controller</title>
+<title>Chastity Vibrator</title>
+<meta name="robots" content="noindex,nofollow,noarchive">
+<meta name="referrer" content="no-referrer">
 <style>
 :root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:#17151d;color:#fff}
@@ -15,160 +17,42 @@ p{color:#c7c0d0;line-height:1.45}
 button{width:100%;padding:18px;margin:7px 0;border:0;border-radius:12px;font-size:1rem;font-weight:700;color:#fff;background:#7157d9}
 button:disabled{opacity:.45}
 small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
+
+[hidden]{display:none!important}
+.eyebrow{font-size:.7rem;letter-spacing:.18em;color:#b1a3d9;margin-bottom:12px}
+h1{font-size:1.75rem;letter-spacing:-.04em}main{margin:24px 0;padding:26px;background:linear-gradient(150deg,#292532,#201d29);border:1px solid #ffffff0d}
+button{position:relative;overflow:hidden;text-align:left;background:#3b324f;border:1px solid #ffffff0c;touch-action:manipulation;transition:background .15s,box-shadow .15s}
+button:nth-of-type(2){background:#4d3b6a}button:nth-of-type(3){background:#5b427f}button:nth-of-type(4){background:#71529b}
+button::after{content:"";position:absolute;bottom:0;left:0;height:3px;width:var(--progress,0%);background:#dcc7ff}
+button.active{background:#8a62bf;box-shadow:0 0 0 2px #dcc7ff inset}
+button:focus-visible{outline:3px solid #fff;outline-offset:3px}
+#random{margin-top:17px;text-align:center;border:1px solid #a385d4;background:#272031;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+#random span{display:block;font-size:.75rem;font-weight:400;color:#cbbdde;margin-top:5px}
+#random.active{animation:pulse 1.2s ease-in-out infinite}
+.status{min-height:43px;display:flex;align-items:center}.edge-count{font-size:.85rem;background:transparent;padding:0;margin-bottom:18px}
+@keyframes pulse{50%{box-shadow:0 0 0 3px #c09aea88 inset;background:#604279}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
 <main>
-<h1>Lushcon controller</h1>
-<p>Choose a vibration pattern for the connected host phone.</p>
-<p id="status" class="status">Opening private control session…</p>
+<div class="eyebrow">PRIVATE CONTROL</div>
+<h1>Chastity Vibrator</h1>
+<p>Choose a vibration level for the connected toy</p>
+<p id="status" class="status" role="status" aria-live="polite">Opening private control session…</p>
+<section id="pairing" hidden>
+<p id="pairing-message"></p>
+<button id="request-access">Request access</button>
+</section>
 <p id="edge-count" class="edge-count" aria-live="polite">EDGE used: 0 times</p>
-<button data-command="20" disabled>20% — 5 seconds</button>
-<button data-command="40" disabled>40% — 5 seconds</button>
-<button data-command="60" disabled>60% — 5 seconds</button>
-<button data-command="70" disabled>70% — 5 seconds</button>
-<button data-command="wave" disabled>Wave — 8 seconds</button>
-<small>This link works only while the host phone’s session is open. Anyone with this link can send a control command.</small>
+<button data-command="20" disabled>5 seconds low</button>
+<button data-command="40" disabled>5 seconds medium</button>
+<button data-command="60" disabled>5 seconds high</button>
+<button data-command="70" disabled>5 seconds max</button>
+<button id="random" data-command="random" disabled>Hold for random<span>Release to stop</span></button>
+<small>Your private invitation. Control is available only while your host has an active session. Keep this link to yourself.</small>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
-<script>
-const SUPABASE_URL="https://hqciviafxtfescteyvnn.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
-const statusEl=document.querySelector("#status");
-const edgeCountEl=document.querySelector("#edge-count");
-const commandButtons=[...document.querySelectorAll("[data-command]")];
-const session=new URLSearchParams(location.search).get("session");
-const edgeKeyText=new URLSearchParams(location.search).get("edgeKey");
-let edgeVerificationKey,edgeCount=0,client,channel,guestReady=false,guestRecoveryTimer,guestRecoveryPromise;
-
-function status(text,colour="#ffca65"){
-  statusEl.textContent=text;
-  statusEl.style.color=colour;
-}
-function rawError(error){
-  const name=error?.name||"Error";
-  const message=error?.message||String(error)||"No error message supplied";
-  return name+": "+message;
-}
-function fromBase64Url(text){
-  const binary=atob(text.replaceAll("-","+").replaceAll("_","/").padEnd(Math.ceil(text.length/4)*4,"="));
-  return Uint8Array.from(binary,character=>character.charCodeAt(0));
-}
-async function receiveEdgeCount(payload){
-  const count=payload?.count;
-  if(!edgeVerificationKey||!Number.isSafeInteger(count)||count<edgeCount||typeof payload?.signature!=="string") return;
-  try{
-    const message=new TextEncoder().encode("edge-count:"+session+":"+count);
-    const valid=await crypto.subtle.verify(
-      {name:"ECDSA",hash:"SHA-256"},
-      edgeVerificationKey,
-      fromBase64Url(payload.signature),
-      message
-    );
-    if(!valid||count<edgeCount) return;
-    edgeCount=count;
-    edgeCountEl.textContent="EDGE used: "+edgeCount+(edgeCount===1 ? " time" : " times");
-  }catch(error){
-    console.warn("Ignored invalid EDGE count update",error);
-  }
-}
-function guestChannelSubscribed(){
-  const socketConnected=typeof client?.realtime?.isConnected!=="function"||client.realtime.isConnected();
-  return guestReady&&channel?.state==="joined"&&socketConnected;
-}
-function guestChannelConnecting(){
-  return channel?.state==="joining";
-}
-function scheduleGuestRecovery(){
-  clearTimeout(guestRecoveryTimer);
-  if(document.visibilityState!=="visible") return;
-  guestRecoveryTimer=setTimeout(()=>recoverGuestSession(),1500);
-}
-async function subscribeGuestChannel(recovering=false){
-  clearTimeout(guestRecoveryTimer);
-  const previousChannel=channel;
-  guestReady=false;
-  channel=null;
-  commandButtons.forEach(button=>button.disabled=true);
-  if(previousChannel){
-    try{await client.removeChannel(previousChannel)}catch(error){console.warn("Could not replace guest channel",error)}
-  }
-  if(recovering) status("Restoring controller session…");
-  const activeChannel=client.channel("lushcon:"+session);
-  channel=activeChannel;
-  activeChannel
-    .on("broadcast",{event:"edge-count"},payload=>receiveEdgeCount(payload?.payload))
-    .subscribe(async(state,error)=>{
-      if(channel!==activeChannel) return;
-      if(state==="SUBSCRIBED"){
-        try{
-          if(!edgeVerificationKey){
-            edgeVerificationKey=await crypto.subtle.importKey(
-              "raw",fromBase64Url(edgeKeyText),{name:"ECDSA",namedCurve:"P-256"},false,["verify"]
-            );
-          }
-          if(channel!==activeChannel) return;
-          guestReady=true;
-          commandButtons.forEach(button=>button.disabled=false);
-          status(recovering ? "Controller session restored." : "Connected — ready to send a command.","#7ee787");
-          await activeChannel.send({type:"broadcast",event:"edge-count-request",payload:{}});
-        }catch(keyError){
-          guestReady=false;
-          commandButtons.forEach(button=>button.disabled=true);
-          status("This controller link has an invalid EDGE counter key.");
-          console.error(keyError);
-        }
-      }else if(state==="CHANNEL_ERROR"||state==="TIMED_OUT"||state==="CLOSED"){
-        guestReady=false;
-        commandButtons.forEach(button=>button.disabled=true);
-        status("Controller session disconnected — reconnecting…");
-        console.error("Supabase channel status:",state,error);
-        scheduleGuestRecovery();
-      }
-    });
-}
-async function recoverGuestSession(){
-  if(guestChannelSubscribed()||guestChannelConnecting()) return;
-  if(guestRecoveryPromise) return guestRecoveryPromise;
-  guestRecoveryPromise=subscribeGuestChannel(true).finally(()=>{guestRecoveryPromise=null});
-  return guestRecoveryPromise;
-}
-if(!/^[a-f0-9]{48}$/.test(session||"")||!/^[A-Za-z0-9_-]+$/.test(edgeKeyText||"")){
-  status("This controller link is missing or invalid.");
-}else if(!window.supabase){
-  status("The realtime library did not load. Check your internet connection and reload.");
-}else{
-  client=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{
-    auth:{persistSession:false,autoRefreshToken:false}
-  });
-  subscribeGuestChannel(false);
-
-  commandButtons.forEach(button=>button.addEventListener("click",async()=>{
-    const command=button.dataset.command;
-    commandButtons.forEach(item=>item.disabled=true);
-    status("Sending "+(command==="wave" ? "wave" : command+"%")+" command…");
-    try{
-      const result=await channel.send({
-        type:"broadcast",
-        event:"control-command",
-        payload:{command}
-      });
-      if(result!=="ok") throw new Error("Broadcast result: "+String(result));
-      status("Command sent.","#7ee787");
-    }catch(error){
-      console.error(error);
-      status("Could not send command: "+rawError(error));
-    }finally{
-      commandButtons.forEach(item=>item.disabled=!guestReady);
-    }
-  }));
-
-  document.addEventListener("visibilitychange",()=>{
-    if(document.visibilityState==="visible"&&!guestChannelSubscribed()&&!guestChannelConnecting()) recoverGuestSession();
-  });
-  addEventListener("pageshow",()=>{if(!guestChannelSubscribed()&&!guestChannelConnecting()) recoverGuestSession()});
-  addEventListener("online",()=>{if(document.visibilityState==="visible"&&!guestChannelSubscribed()&&!guestChannelConnecting()) recoverGuestSession()});
-}
-</script>
+<script src="controller.js"></script>
 </body>
 </html>

@@ -1,0 +1,4 @@
+[functions.guest-access]
+# The resolver accepts a private guest token without a Supabase login.
+# All other actions explicitly verify the user JWT and host allowlist.
+verify_jwt = false

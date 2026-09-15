@@ -1,0 +1,85 @@
+// Local integration: real Chromium/WebCrypto + simulated Bluetooth and backend.
+const fs=require('node:fs'),http=require('node:http'),path=require('node:path'),assert=require('node:assert/strict');
+const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES+'/playwright');
+const root=path.resolve(__dirname,'..');
+const server=http.createServer((req,res)=>{
+  const file=path.join(root,req.url.split('?')[0]==='/'?'index.html':req.url.split('?')[0]);
+  if(!file.startsWith(root)){res.writeHead(403).end();return}
+  try{res.setHeader('Content-Type',file.endsWith('.html')?'text/html':'text/javascript');res.end(fs.readFileSync(file))}catch{res.writeHead(404).end()}
+});
+(async()=>{
+  await new Promise(r=>server.listen(0,'127.0.0.1',r));const origin='http://127.0.0.1:'+server.address().port;
+  const browser=await chromium.launch({headless:true});
+  const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+  let active,approved=false;const profile={id:'11111111-1111-4111-8111-111111111111',name:'Test guest',token:'ABCDEFGHJKLMNPQR',pair_code:'ABCD'};
+  const pages=[],errors=[];
+  await context.exposeBinding('relay',async({page},topic,message)=>{
+    for(const peer of pages)if(peer!==page&&!peer.isClosed())await peer.evaluate(({topic,message})=>{for(const ch of window.channels||[])if(ch.topic===topic&&ch.state==='joined')ch.handlers[message.event]?.({payload:message.payload})},{topic,message});
+    return 'ok';
+  });
+  await context.addInitScript(()=>{
+    window.channels=[];window.__writes=[];
+    window.supabase={createClient:()=>({
+      auth:{getSession:async()=>({data:{session:{access_token:'test-only'}}}),onAuthStateChange:()=>{},signOut:async()=>{},signInWithPassword:async()=>({error:null})},
+      realtime:{isConnected:()=>true},
+      channel:topic=>{const ch={topic,state:'joining',handlers:{},on(type,{event},handler){this.handlers[event]=handler;return this},subscribe(callback){this.callback=callback;setTimeout(()=>{this.state='joined';callback('SUBSCRIBED')},0);return this},send(message){return window.relay(topic,message)}};window.channels.push(ch);return ch},
+      removeChannel:async ch=>{ch.state='closed'}
+    })};
+    const characteristic={properties:{writeWithoutResponse:true},writeValueWithoutResponse:async bytes=>window.__writes.push({command:new TextDecoder().decode(bytes),time:performance.now()})};
+    const service={uuid:'test',getCharacteristic:async()=>characteristic,getCharacteristics:async()=>[characteristic]};
+    const device={name:'LVS-test',addEventListener(type,handler){this[type]=handler},gatt:{connected:false,async connect(){this.connected=true;return this},disconnect(){this.connected=false;device.gattserverdisconnected?.()},getPrimaryService:async()=>service,getPrimaryServices:async()=>[service]}};
+    Object.defineProperty(navigator,'bluetooth',{value:{requestDevice:async()=>device},configurable:true});
+  });
+  await context.route('https://cdn.jsdelivr.net/**',route=>route.fulfill({body:'/* Supabase simulated by test harness */',contentType:'text/javascript'}));
+  await context.route('https://hqciviafxtfescteyvnn.supabase.co/functions/v1/guest-access',async route=>{
+    const body=route.request().postDataJSON();let result={ok:true};
+    if(body.action==='list')result={profiles:[profile]};
+    if(body.action==='activate'){active={session:body.session,edgeKey:body.edgeKey};}
+    if(body.action==='end'&&active?.session===body.session)active=null;
+    if(body.action==='resolve')result=active?{valid:true,available:true,...active}:{valid:true,available:false};
+    if(body.action==='pair-list')result={requests:[]};
+    if(body.action==='pair-request'||body.action==='pair-poll')result=approved?{state:'approved',token:profile.token}:{state:'pending',checkNumber:'7261'};
+    await route.fulfill({contentType:'application/json',body:JSON.stringify(result),headers:{'Access-Control-Allow-Origin':'*'}});
+  });
+  try{
+    const host=await context.newPage();pages.push(host);host.on('pageerror',e=>errors.push(e.message));
+    await host.goto(origin);await host.locator('#host-controls').waitFor({state:'visible'});
+    assert.equal(await host.locator('#controller-link').inputValue(),'https://ctmp.uk/#ABCD');
+    await host.locator('#connect').click();await host.locator('#create-controller').waitFor({state:'visible'});await host.locator('#create-controller').click();
+    await host.waitForFunction(()=>remoteReady);
+    const guest=await context.newPage();pages.push(guest);guest.on('pageerror',e=>errors.push(e.message));
+    await guest.goto(origin+'/controller.html#ABCD');await guest.locator('#request-access').click();await guest.waitForFunction(()=>document.querySelector('#pairing-message').textContent.includes('7261'));
+    assert.equal(await guest.locator('[data-command="20"]').isDisabled(),true);
+    approved=true;await guest.evaluate(()=>pollPairing());await guest.waitForFunction(()=>guestReady&&lastStateAt>0);
+    await guest.screenshot({path:'/tmp/lushcon-guest-ready.png',fullPage:true});
+    await guest.locator('[data-command="70"]').click();await guest.waitForFunction(()=>document.querySelector('[data-command="70"]').classList.contains('active'));
+    await host.waitForFunction(()=>window.__writes.some(w=>w.command==='Vibrate:14;'));
+    await host.locator('#edge').click();await guest.waitForFunction(()=>document.querySelector('#status').textContent.includes('paused'));
+    const edgeCount=await guest.locator('#edge-count').textContent();assert.equal(edgeCount,'EDGE used: 1 time');
+    // Forged count and host acknowledgement must fail signature verification.
+    await guest.evaluate(()=>{receiveEdgeCount({count:999,signature:'AAAA'});receiveHostState({message:JSON.stringify({seq:9999,state:'ready'}),signature:'AAAA'})});
+    assert.equal(await guest.locator('#edge-count').textContent(),edgeCount);
+    await host.evaluate(()=>{edgeLockUntil=Date.now()-1;updateEdgeCountdown()});await guest.waitForFunction(()=>!document.querySelector('#random').disabled);
+    // Real pointer capture requires an active pointer; mouse exercises Chromium's pointer pipeline.
+    const box=await guest.locator('#random').boundingBox();await guest.mouse.move(box.x+20,box.y+20);await guest.mouse.down();
+    await host.waitForFunction(()=>engine.active?.command==='random');await guest.mouse.up();await host.waitForFunction(()=>engine.active===null);
+    assert.equal(await host.evaluate(()=>window.__writes.at(-1).command),'Vibrate:0;');
+    await guest.mouse.down();await host.waitForFunction(()=>engine.active?.command==='random');
+    // Simulate dropped release + all heartbeats: host must stop by its own clock.
+    await guest.evaluate(()=>{clearInterval(holdTimer);holding=null});await host.waitForFunction(()=>engine.active===null,{},{timeout:2500});await guest.mouse.up();
+    const before=await host.evaluate(()=>window.__writes.length);
+    await host.evaluate(()=>receiveControl({id:'late-start-123456789',command:'hold-start',challenge:'expired-challenge'}));
+    assert.equal(await host.evaluate(()=>window.__writes.length),before);
+    await guest.reload();await guest.waitForFunction(()=>guestReady&&lastStateAt>0);assert.equal(await guest.locator('#pairing').isHidden(),true);assert.equal(await guest.locator('#edge-count').textContent(),'EDGE used: 1 time');
+    await host.locator('#stop').click();assert.equal(await host.evaluate(()=>window.__writes.at(-1).command),'Vibrate:0;');
+    // Existing GATT recovery path must only write a stop, never start a pattern.
+    const start=await host.evaluate(()=>window.__writes.length);
+    await host.evaluate(async()=>{device.gatt.connected=false;await reconnectBluetooth(false)});
+    const recovered=await host.evaluate(start=>window.__writes.slice(start),start);assert.ok(recovered.every(w=>w.command==='Vibrate:0;'));
+    assert.ok((await host.evaluate(()=>window.__writes)).every(w=>!w.command.startsWith('Vibrate:')||Number(w.command.match(/\d+/)[0])<=14));
+    // A plain visitor sees login + code entry, never controls.
+    await context.route('**/functions/v1/guest-access',route=>route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({error:'Sign in required'}),headers:{'Access-Control-Allow-Origin':'*'}}));
+    const visitor=await context.newPage();await visitor.goto(origin);await visitor.locator('#login').waitFor({state:'visible'});assert.equal(await visitor.locator('#host-controls').isHidden(),true);await visitor.screenshot({path:'/tmp/lushcon-host-login.png',fullPage:true});
+    assert.deepEqual(errors,[]);console.log('PASS: pairing, remembered access, signed running/EDGE feedback, forged-message rejection, pointer release, dead-man expiry, stale starts, refresh count, GATT recovery, max level and unauthenticated UI.');
+  }finally{await browser.close();server.close()}
+})().catch(error=>{console.error(error);server.close();process.exitCode=1});
