@@ -20,7 +20,7 @@ async function unlockHost(){
     const data=await backend("list");
     currentProfile=data.profiles.at(-1)||null;
     controllerLinkEl.value="";copyControllerBtn.disabled=true;hostAuthorized=true;
-    loginEl.hidden=true;hostEl.hidden=false;
+    loginEl.hidden=true;hostEl.hidden=false;window.dispatchEvent(new Event("host-unlocked"));
   }catch(error){hostAuthorized=false;hostEl.hidden=true;loginEl.hidden=false;loginStatus.textContent=error.message}
 }
 document.querySelector("#login-form").addEventListener("submit",async event=>{

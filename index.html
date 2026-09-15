@@ -98,10 +98,14 @@ body.host-live{padding:0}body.host-live .shell{width:100%;max-width:none;padding
 .live-session{position:fixed;inset:0;z-index:30;isolation:isolate;overflow:auto;display:grid;grid-template-rows:auto minmax(285px,1fr) auto;gap:12px;background:#160c13;padding:0 max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
 .live-backdrop{position:fixed;inset:0;z-index:-2;background-position:58% center;background-size:cover;pointer-events:none}
 .live-session::before{content:"";position:fixed;inset:0;z-index:-1;background:linear-gradient(180deg,#09060bc9 0%,#210c1c38 35%,#210c1c40 55%,#09060bed 100%);pointer-events:none}
+.live-invite{position:fixed;z-index:8;top:max(72px,calc(env(safe-area-inset-top) + 60px));right:12px;left:12px;width:min(calc(100% - 24px),420px);max-height:min(72svh,620px);margin:auto;overflow:auto;padding:14px;border:1px solid #e6c09266;border-radius:19px;background:linear-gradient(145deg,#24131deF,#100a10f7);box-shadow:0 20px 55px #000b;backdrop-filter:blur(18px)}
+.live-invite[hidden]{display:none}.live-invite-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}.live-invite-head h2{margin:0;color:#f3d6b6;font-size:.75rem;letter-spacing:.13em;text-transform:uppercase}.live-invite-close{width:auto;min-height:36px;padding:7px 10px;background:#2d1b22;border-color:#87606b;color:#e5d4d9;box-shadow:none;font-size:.72rem}.live-invite .remote{margin:0;padding:0;border:0;background:none;box-shadow:none}.live-invite .card-heading h2{font-size:.67rem}.live-invite .secondary-actions{margin-bottom:2px}.live-invite .guest-contact{margin-bottom:10px}
+.live-invite-toggle{width:auto;min-height:38px;padding:9px 11px;border-color:#e6c09270;background:#260f1bab;box-shadow:0 3px 14px #0008;color:#f3d7af;font-size:.72rem;backdrop-filter:blur(10px)}.live-guest{margin:0;color:#edd3b5;font-size:.68rem;line-height:1.25;text-align:center;overflow-wrap:anywhere}
+
 .live-top{position:sticky;top:0;z-index:5;display:flex;align-items:start;justify-content:space-between;gap:12px;padding:max(16px,env(safe-area-inset-top)) 0 8px;background:linear-gradient(#100a118c,#100a1100)}
 .live-device{display:grid;gap:4px;font-size:.72rem}.live-device #live-connection{padding:9px 11px;border:1px solid #e6c39640;border-radius:999px;background:#100a11bb;backdrop-filter:blur(12px);color:#b9e1bf}
 .live-quiet{width:auto;min-height:44px;padding:8px 2px;border:0;background:none;box-shadow:none;text-align:left;color:#f2dce5;font-size:.75rem;text-decoration:underline;text-underline-offset:4px}
-#live-stop-slot #stop{width:auto;min-width:82px;min-height:46px;margin:0;padding:11px 17px;border:1px solid #ff9bac;background:#8c1736;color:white;box-shadow:0 3px 16px #0007}
+.live-top-actions{display:flex;align-items:flex-start;gap:8px}#live-stop-slot #stop{width:auto;min-width:82px;min-height:46px;margin:0;padding:11px 17px;border:1px solid #ff9bac;background:#8c1736;color:white;box-shadow:0 3px 16px #0007}
 .live-main{position:relative;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:30px 0 0}
 .live-title{position:absolute;inset:0 0 auto;text-align:center;color:#f6dcb0;font-size:.63rem;letter-spacing:.28em}
 .live-rail{width:clamp(104px,29vw,155px);align-self:center;padding:10px 5px 5px;border:1px solid #e1b88b40;border-radius:17px;background:linear-gradient(140deg,#1b0c17d9,#1b0c17a8);backdrop-filter:blur(14px);box-shadow:0 10px 35px #0004}
@@ -238,8 +242,8 @@ body.host-live{padding:0}body.host-live .shell{width:100%;max-width:none;padding
 <section id="live-session" class="live-session" aria-label="Live Session" hidden>
 <div id="live-backdrop" class="live-backdrop" aria-hidden="true"></div>
 <header class="live-top">
-<div class="live-device"><span id="live-connection" role="status">Toy disconnected</span><button id="leave-live" class="live-quiet" type="button">Back to setup</button></div>
-<div id="live-stop-slot"></div>
+<div class="live-device"><span id="live-connection" role="status">Toy disconnected</span><button id="leave-live" class="live-quiet" type="button">Setup</button></div>
+<div class="live-top-actions"><button id="live-invite-toggle" class="live-invite-toggle" type="button" aria-expanded="false" aria-controls="live-invite">Invite Guest</button><div id="live-stop-slot"></div></div>
 </header>
 <div class="live-main">
 <p class="eyebrow live-title">LIVE SESSION</p>
@@ -247,7 +251,7 @@ body.host-live{padding:0}body.host-live .shell{width:100%;max-width:none;padding
 <section class="live-rail" aria-labelledby="live-rating-title"><h2 id="live-rating-title">Tease rating</h2><div id="live-rating-slot"></div></section>
 </div>
 <footer class="live-footer">
-<p id="live-session-state" class="live-session-state" role="status">Guest browser approved</p>
+<p id="live-guest" class="live-guest" hidden></p><p id="live-session-state" class="live-session-state" role="status">Toy disconnected · No guest connected</p>
 <button id="live-reconnect" class="live-quiet" type="button" hidden>Reconnect Device</button>
 <div class="live-output">
 <div class="live-output-label"><span>TOY OUTPUT</span><strong id="live-output-number">0<span>%</span></strong></div>
@@ -255,6 +259,7 @@ body.host-live{padding:0}body.host-live .shell{width:100%;max-width:none;padding
 <div class="live-output-meta"><p id="live-pattern" class="live-pattern">Stopped</p><p class="live-cap">70% maximum</p></div>
 </div>
 <p id="live-edge-count">EDGE used: 0 times</p><div id="live-edge-slot"></div><div id="live-edge-status-slot"></div>
+<aside id="live-invite" class="live-invite" aria-label="Invite guest" hidden><header class="live-invite-head"><h2>Invite Guest</h2><button id="live-invite-close" class="live-invite-close" type="button">Done</button></header><div id="live-invite-content"></div></aside>
 </footer>
 </section>
 </section>
@@ -858,7 +863,7 @@ addEventListener("offline",()=>stopNow("Network unavailable"));
 addEventListener("pageshow",recoverActiveConnections);
 addEventListener("online",recoverActiveConnections);
 </script>
-<script src="host-access.js?v=2"></script>
-<script src="live-session.js?v=2"></script>
+<script src="host-access.js?v=3"></script>
+<script src="live-session.js?v=3"></script>
 </body>
 </html>

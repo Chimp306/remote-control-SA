@@ -10,7 +10,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
 async function until(fn,label){for(let i=0;i<100;i++){if(fn())return;await pause(30)}throw new Error('Timed out: '+label)}
 function page(file,hash='',storage={}){
   let html=fs.readFileSync(path.join(root,file),'utf8');
-  html=html.replace(/<script src="([^"]+)"><\/script>/g,(_,src)=>src.startsWith('https:')?'':`<script>${fs.readFileSync(path.join(root,src),'utf8')}</script>`);
+  html=html.replace(/<script src="([^"]+)"><\/script>/g,(_,src)=>src.startsWith('https:')?'':`<script>${fs.readFileSync(path.join(root,src.split('?')[0]),'utf8')}</script>`);
   const virtualConsole=new VirtualConsole();virtualConsole.on('jsdomError',error=>errors.push(error.message));
   const dom=new JSDOM(html,{url:'https://ctmp.uk/'+(file==='index.html'?'':file)+hash,runScripts:'dangerously',pretendToBeVisual:true,virtualConsole,beforeParse(window){
     window.TextEncoder=TextEncoder;window.TextDecoder=TextDecoder;window.AbortSignal=AbortSignal;
