@@ -9,7 +9,7 @@
 <title>Lush Mini Bluetooth Test</title>
 <style>
 [hidden]{display:none!important}
-input,select{width:100%;box-sizing:border-box;padding:12px;margin:8px 0 14px;border:1px solid #5a5368;border-radius:9px;background:#121018;color:#fff;font-size:16px}
+input{width:100%;box-sizing:border-box;padding:12px;margin:8px 0 14px;border:1px solid #5a5368;border-radius:9px;background:#121018;color:#fff;font-size:16px}
 :root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:#17151d;color:#fff}
 main{width:min(92vw,420px);box-sizing:border-box;padding:28px;border-radius:20px;background:#27232f;box-shadow:0 12px 40px #0006}
@@ -57,20 +57,15 @@ small{display:block;margin-top:14px;color:#bdb7c9;line-height:1.4}
 <button id="edge" disabled>EDGE — pause remote control</button>
 <p id="edge-status" class="edge-status" role="status" aria-live="polite" hidden></p>
 <section class="remote" aria-labelledby="remote-heading">
-<h2 id="remote-heading">Remote test</h2>
+<h2 id="remote-heading">Guest control</h2>
 <p id="remote-status">Connect the Lush Mini first.</p>
-<label for="guest-name">New guest name</label>
-<input id="guest-name" maxlength="80" placeholder="Name or username">
-<button id="add-guest">Save guest</button>
-<label for="guest-select">Guest</label><select id="guest-select"></select>
-<button id="rotate-guest" disabled>Revoke &amp; replace guest link</button>
 <section class="pairing"><h3>Browser approvals</h3>
 <p>Confirm the check number with your guest in your private conversation before approving.</p>
 <div id="pair-requests">No pending requests.</div></section>
 <button id="end-session">End control session</button>
-<button id="create-controller" disabled>Create Controller Link</button>
-<input id="controller-link" aria-label="Controller link" readonly placeholder="Your temporary controller link will appear here">
-<button id="copy-controller" disabled>Copy Controller Link</button>
+<button id="create-controller" disabled>Create Fresh Guest Link</button>
+<input id="controller-link" aria-label="Guest link" readonly placeholder="Your fresh four-character guest link will appear here">
+<button id="copy-controller" disabled>Copy Guest Link</button>
 </section>
 <pre id="diagnostics" class="diagnostics" aria-live="polite">Diagnostics will appear here after a device connects.</pre>
 <small>Use Chrome on Android over HTTPS. Turn the Lush Mini on and keep it nearby. Keep this page visible while controlling the device.</small>
@@ -172,8 +167,8 @@ async function endRemoteSession(message="No remote session is active."){
   const endingSession=remoteSessionId,channel=remoteChannel;
   remoteReady=false;remoteSessionId=null;remoteChannel=null;leaseDeadline=0;
   seenCommands.clear();challenges.clear();
-  controllerLinkEl.value=hostAuthorized&&typeof selectedProfile==="function"&&selectedProfile()?"https://ctmp.uk/#"+selectedProfile().pair_code:"";
-  copyControllerBtn.disabled=!controllerLinkEl.value;
+  controllerLinkEl.value="";
+  copyControllerBtn.disabled=true;
   const stopped=stopNow();
   if(endingSession)backend("end",{session:endingSession}).catch(()=>{});
   if(channel&&remoteClient)remoteClient.removeChannel(channel).catch(()=>{});
@@ -212,7 +207,7 @@ async function receiveControl(payload){
   // Release is valid even during EDGE/recovery, but only for that hold.
   if(p.command==="hold-stop"){
     if(seenCommands.size<10000)seenCommands.add(p.id);
-    if(engine.active?.id===p.id&&engine.active.command==="random")await stopNow();
+    if(engine.active?.id===p.id&&["random","max-hold"].includes(engine.active.command))await stopNow();
     return;
   }
   const issued=challenges.get(p.challenge),now=performance.now();
@@ -221,9 +216,10 @@ async function receiveControl(payload){
     engine.heartbeat(p.id,issued+1200);return;
   }
   if(seenCommands.has(p.id)||seenCommands.size>=10000)return;
-  if(!["20","40","60","70","hold-start"].includes(p.command))return;
+  if(!["20","40","60","70","hold-start","max-hold-start"].includes(p.command))return;
   seenCommands.add(p.id);
-  if(p.command==="hold-start")await engine.hold(p.id,issued+1200);
+  if(p.command==="hold-start")await engine.hold(p.id,issued+1200,"random");
+  else if(p.command==="max-hold-start")await engine.hold(p.id,issued+1200,"max-hold");
   else await engine.fixed(p.command,p.id);
 }
 function edgeLocked(){
@@ -436,12 +432,10 @@ async function recoverActiveConnections(){
   if(device&&(!device.gatt.connected||!tx)) recoveries.push(reconnectBluetooth(false));
   await Promise.allSettled(recoveries);
 }
-async function createRemoteSession(){
+async function createRemoteSession(profile){
   if(!hostAuthorized||!tx)throw new Error("Sign in and connect the device first.");
-  const profile=selectedProfile();
-  if(!profile)throw new Error("Create or choose a named guest first.");
+  if(!profile)throw new Error("Create a fresh guest link first.");
   setupRemoteClient();
-  await endRemoteSession("Creating controller link…");
   const generation=sessionGeneration,session=rawSessionId();
   const signingKeys=await crypto.subtle.generateKey({name:"ECDSA",namedCurve:"P-256"},false,["sign","verify"]);
   const edgePublicKey=base64Url(await crypto.subtle.exportKey("raw",signingKeys.publicKey));
@@ -537,8 +531,15 @@ edgeBtn.addEventListener("click",activateEdgeLockout);
 
 createControllerBtn.addEventListener("click",async()=>{
   createControllerBtn.disabled=true;
-  try{await createRemoteSession()}
-  catch(error){console.error(error);remoteStatus("Could not create controller link: "+rawError(error))}
+  try{
+    await endRemoteSession("Creating a fresh guest link…");
+    const result=currentProfile
+      ? await backend("rotate",{profile:currentProfile.id})
+      : await backend("create",{name:"Guest access"});
+    currentProfile=result.profile;
+    await createRemoteSession(currentProfile);
+  }
+  catch(error){console.error(error);remoteStatus("Could not create guest link: "+rawError(error))}
   finally{createControllerBtn.disabled=!tx}
 });
 copyControllerBtn.addEventListener("click",copyControllerLink);

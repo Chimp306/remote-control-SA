@@ -1,5 +1,5 @@
-let profiles=[],leaseRenewal,profileBusy=false;
-const loginEl=document.querySelector("#login"),hostEl=document.querySelector("#host-controls"),loginStatus=document.querySelector("#login-status"),guestSelect=document.querySelector("#guest-select");
+let currentProfile=null,leaseRenewal;
+const loginEl=document.querySelector("#login"),hostEl=document.querySelector("#host-controls"),loginStatus=document.querySelector("#login-status");
 setupRemoteClient();
 async function backend(action,values={}){
   const {data:{session}}=await remoteClient.auth.getSession();
@@ -15,19 +15,11 @@ async function backend(action,values={}){
   }
   return data;
 }
-function selectedProfile(){return profiles.find(profile=>profile.id===guestSelect.value)}
-function renderProfiles(selected=guestSelect.value){
-  guestSelect.replaceChildren();
-  for(const profile of profiles){const option=document.createElement("option");option.value=profile.id;option.textContent=profile.name;guestSelect.append(option)}
-  if(profiles.some(p=>p.id===selected))guestSelect.value=selected;
-  document.querySelector("#rotate-guest").disabled=!selectedProfile();
-  controllerLinkEl.value=selectedProfile()?"https://ctmp.uk/#"+selectedProfile().pair_code:"";
-  copyControllerBtn.disabled=!selectedProfile();
-}
 async function unlockHost(){
   try{
     const data=await backend("list");
-    profiles=data.profiles;renderProfiles();hostAuthorized=true;
+    currentProfile=data.profiles.at(-1)||null;
+    controllerLinkEl.value="";copyControllerBtn.disabled=true;hostAuthorized=true;
     loginEl.hidden=true;hostEl.hidden=false;
   }catch(error){hostAuthorized=false;hostEl.hidden=true;loginEl.hidden=false;loginStatus.textContent=error.message}
 }
@@ -42,7 +34,7 @@ document.querySelector("#login-form").addEventListener("submit",async event=>{
   }catch(error){loginStatus.textContent=error.message}finally{button.disabled=false}
 });
 async function lockHost(){
-  hostAuthorized=false;hostEl.hidden=true;loginEl.hidden=false;
+  hostAuthorized=false;currentProfile=null;hostEl.hidden=true;loginEl.hidden=false;
   await endRemoteSession();
   if(device?.gatt?.connected)device.gatt.disconnect();
   tx=null;ready(false);connectBtn.disabled=false;
@@ -72,25 +64,6 @@ async function renewLease(){
 }
 setInterval(()=>{if(document.visibilityState==="visible")renewLease()},10000);
 setInterval(()=>{if(remoteSessionId&&performance.now()>=leaseDeadline&&engine.active)stopNow("Session verification expired")},100);
-document.querySelector("#add-guest").addEventListener("click",async()=>{
-  if(profileBusy)return;profileBusy=true;
-  try{
-    const {profile}=await backend("create",{name:document.querySelector("#guest-name").value});
-    profiles.push(profile);renderProfiles(profile.id);document.querySelector("#guest-name").value="";
-    remoteStatus("Guest saved. Create a controller link when the device is connected.");
-  }catch(error){remoteStatus(error.message)}finally{profileBusy=false}
-});
-guestSelect.addEventListener("change",()=>renderProfiles());
-document.querySelector("#rotate-guest").addEventListener("click",async()=>{
-  const selected=selectedProfile();if(!selected||profileBusy)return;
-  profileBusy=true;
-  try{
-    await endRemoteSession();
-    const {profile}=await backend("rotate",{profile:selected.id});
-    profiles=profiles.map(p=>p.id===profile.id?profile:p);renderProfiles(profile.id);
-    remoteStatus("Old link revoked. Create a controller link to start a fresh session.");
-  }catch(error){remoteStatus(error.message)}finally{profileBusy=false}
-});
 document.querySelector("#end-session").addEventListener("click",()=>endRemoteSession());
 remoteClient.auth.getSession().then(({data:{session}})=>{if(session)unlockHost()});
 
@@ -105,11 +78,12 @@ async function refreshApprovals(){
   approvalBusy=true;
   try{
     const {requests}=await backend("pair-list"),container=document.querySelector("#pair-requests");
+    const currentRequests=currentProfile?requests.filter(request=>request.profile_id===currentProfile.id):[];
     container.replaceChildren();
-    if(!requests.length)container.textContent="No pending requests.";
-    for(const request of requests){
+    if(!currentRequests.length)container.textContent="No pending requests.";
+    for(const request of currentRequests){
       const row=document.createElement("div"),label=document.createElement("p"),approve=document.createElement("button"),deny=document.createElement("button");
-      label.textContent=request.control_guests.name+" — check number "+request.check_number;
+      label.textContent="Check number "+request.check_number;
       approve.textContent="Approve "+request.check_number;deny.textContent="Deny";
       for(const [button,action] of [[approve,"pair-approve"],[deny,"pair-deny"]])button.addEventListener("click",async()=>{
         approve.disabled=true;deny.disabled=true;

@@ -34,6 +34,7 @@ const server=http.createServer((req,res)=>{
   await context.route('https://hqciviafxtfescteyvnn.supabase.co/functions/v1/guest-access',async route=>{
     const body=route.request().postDataJSON();let result={ok:true};
     if(body.action==='list')result={profiles:[profile]};
+    if(['create','rotate'].includes(body.action))result={profile};
     if(body.action==='activate'){active={session:body.session,edgeKey:body.edgeKey};}
     if(body.action==='end'&&active?.session===body.session)active=null;
     if(body.action==='resolve')result=active?{valid:true,available:true,...active}:{valid:true,available:false};
@@ -44,9 +45,11 @@ const server=http.createServer((req,res)=>{
   try{
     const host=await context.newPage();pages.push(host);host.on('pageerror',e=>errors.push(e.message));
     await host.goto(origin);await host.locator('#host-controls').waitFor({state:'visible'});
-    assert.equal(await host.locator('#controller-link').inputValue(),'https://ctmp.uk/#ABCD');
+    assert.equal(await host.locator('#guest-name').count(),0);assert.equal(await host.locator('#guest-select').count(),0);assert.equal(await host.locator('#rotate-guest').count(),0);
+    assert.equal(await host.locator('#controller-link').inputValue(),'');
     await host.locator('#connect').click();await host.locator('#create-controller').waitFor({state:'visible'});await host.locator('#create-controller').click();
     await host.waitForFunction(()=>remoteReady);
+    assert.equal(await host.locator('#controller-link').inputValue(),'https://ctmp.uk/#ABCD');
     const guest=await context.newPage();pages.push(guest);guest.on('pageerror',e=>errors.push(e.message));
     await guest.goto(origin+'/controller.html#ABCD');await guest.locator('#request-access').click();await guest.waitForFunction(()=>document.querySelector('#pairing-message').textContent.includes('7261'));
     assert.equal(await guest.locator('[data-command="20"]').isDisabled(),true);
@@ -60,6 +63,8 @@ const server=http.createServer((req,res)=>{
     await guest.evaluate(()=>{receiveEdgeCount({count:999,signature:'AAAA'});receiveHostState({message:JSON.stringify({seq:9999,state:'ready'}),signature:'AAAA'})});
     assert.equal(await guest.locator('#edge-count').textContent(),edgeCount);
     await host.evaluate(()=>{edgeLockUntil=Date.now()-1;updateEdgeCountdown()});await guest.waitForFunction(()=>!document.querySelector('#random').disabled);
+    const maxHoldBox=await guest.locator('#max-hold').boundingBox();await guest.mouse.move(maxHoldBox.x+20,maxHoldBox.y+20);await guest.mouse.down();
+    await host.waitForFunction(()=>engine.active?.command==='max-hold');await host.waitForFunction(()=>window.__writes.at(-1)?.command==='Vibrate:14;');await guest.mouse.up();await host.waitForFunction(()=>engine.active===null);
     // Real pointer capture requires an active pointer; mouse exercises Chromium's pointer pipeline.
     const box=await guest.locator('#random').boundingBox();await guest.mouse.move(box.x+20,box.y+20);await guest.mouse.down();
     await host.waitForFunction(()=>engine.active?.command==='random');await guest.mouse.up();await host.waitForFunction(()=>engine.active===null);

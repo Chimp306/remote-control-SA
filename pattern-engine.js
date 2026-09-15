@@ -36,10 +36,11 @@
       this.later(()=>{if(generation===this.generation)this.stop("finished").catch(()=>{})},5000);
       await advance();
     }
-    async hold(id,expires){
+    async hold(id,expires,command="random"){
       if(!this.allowed())return;
+      if(!["random","max-hold"].includes(command))return;
       const generation=this.cancel();
-      this.active={id,command:"random",expires};
+      this.active={id,command,expires};
       const valid=()=>generation===this.generation&&this.allowed()&&this.active?.expires>this.now();
       const watchdog=()=>{
         if(generation!==this.generation)return;
@@ -48,6 +49,14 @@
       };
       watchdog();
       await this.write(0,()=>generation===this.generation);
+      if(command==="max-hold"){
+        if(!valid())return;
+        try{
+          await this.write(14,valid);
+          if(valid())this.onState({state:"running",command,id,remaining:0});
+        }catch(error){if(generation===this.generation)this.stop("Device write failed").catch(()=>{})}
+        return;
+      }
       const advance=async()=>{
         if(!valid())return;
         try{
@@ -60,7 +69,7 @@
       };
       await advance();
     }
-    heartbeat(id,expires){if(this.active?.command==="random"&&this.active.id===id&&this.active.expires>this.now())this.active.expires=Math.max(this.active.expires,expires)}
+    heartbeat(id,expires){if(["random","max-hold"].includes(this.active?.command)&&this.active.id===id&&this.active.expires>this.now())this.active.expires=Math.max(this.active.expires,expires)}
   }
   root.PatternEngine=PatternEngine;
   if(typeof module!=="undefined")module.exports=PatternEngine;

@@ -31,8 +31,14 @@ test('dead-man stops at 1200 ms without a release message',async t=>{
 test('heartbeat sustains only the current hold and cannot restart stopped hold',async t=>{
   const f=fixture(t);await f.engine.hold('hold',1200);await f.advance(900);f.engine.heartbeat('other',6000);f.engine.heartbeat('hold',2100);await f.advance(800);assert.equal(f.engine.active.id,'hold');await f.engine.stop();f.engine.heartbeat('hold',10000);const count=f.writes.length;await f.advance(4000);assert.equal(f.writes.length,count);
 });
-test('EDGE permission gate blocks fixed and random, watchdog stops active hold',async t=>{
+test('MAX hold stays at level 14 and uses the same dead-man stop',async t=>{
+  const f=fixture(t);await f.engine.hold('max-hold',1200,'max-hold');await f.advance(1500);
+  assert.ok(f.writes.some(w=>w.level===14));assert.ok(f.writes.every(w=>[0,14].includes(w.level)));
+  assert.deepEqual(f.writes.at(-1),{level:0,at:1200});assert.equal(f.engine.active,null);
+});
+test('EDGE permission gate blocks fixed and both hold modes',async t=>{
   const f=fixture(t);await f.engine.hold('hold',10000);f.setAllowed(false);await f.advance(100);assert.equal(f.writes.at(-1).level,0);const count=f.writes.length;await f.engine.fixed('70','blocked');await f.engine.hold('blocked',20000);await f.advance(500);assert.equal(f.writes.length,count);
+  await f.engine.hold('blocked-max',20000,'max-hold');await f.advance(500);assert.equal(f.writes.length,count);
 });
 test('random includes zero and fresh host random values while bounded',async t=>{
   let calls=0;const values=[0,0,.99999,0,.5,0];const f=fixture(t,{random:()=>values[calls++%values.length]});await f.engine.hold('hold',1200);await f.advance(1000);

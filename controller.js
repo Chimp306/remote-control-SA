@@ -1,6 +1,6 @@
 const SUPABASE_URL="https://hqciviafxtfescteyvnn.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
-const statusEl=document.querySelector("#status"),edgeCountEl=document.querySelector("#edge-count"),commandButtons=[...document.querySelectorAll("[data-command]")],randomButton=document.querySelector("#random");
+const statusEl=document.querySelector("#status"),edgeCountEl=document.querySelector("#edge-count"),commandButtons=[...document.querySelectorAll("[data-command]")],holdButtons=[...document.querySelectorAll(".control.hold")];
 const invitationCode=location.hash.slice(1).toUpperCase();
 const shortInvitation=/^[2-9A-HJ-NP-Z]{4}$/.test(invitationCode);
 const storageKey="lushcon-invitation:"+invitationCode;
@@ -56,7 +56,7 @@ function guestChannelConnecting(){return channel?.state==="joining"}
 function setControls(enabled){commandButtons.forEach(button=>button.disabled=!enabled)}
 function clearActive(){commandButtons.forEach(b=>{b.classList.remove("active");b.style.setProperty("--progress","0%")});progressUntil=0}
 function unavailable(message="Connection unavailable — recovering…"){
-  releaseHold();hostState=null;lastStateAt=0;challenge=null;setControls(false);clearActive();status(message);
+  releaseHold();hostState=null;lastStateAt=0;challenge=null;setControls(false);clearActive();document.body.dataset.controlState="unavailable";status(message);
 }
 async function receiveHostState(payload){
   const key=edgeVerificationKey,currentSession=session,receivedAt=performance.now();
@@ -70,14 +70,16 @@ async function receiveHostState(payload){
     const blocked=next.state==="locked"||next.state==="unavailable";
     if(blocked)releaseHold();
     setControls(!blocked&&guestChannelSubscribed()&&document.visibilityState==="visible");clearActive();
+    document.body.dataset.controlState=next.state==="locked"?"locked":next.state==="unavailable"?"unavailable":"ready";
     if(next.state==="locked"){status("Remote control paused — "+Math.ceil(next.pauseMs/1000)+"s");return}
     if(next.state==="unavailable"){status("Host connection unavailable — recovering…");return}
     if(next.state==="running"&&!released.has(next.id)){
-      if(next.command==="random"&&!holding){status("Host is running a hold from another controller.");return}
+      if(["random","max-hold"].includes(next.command)&&holding?.id!==next.id){status("Host is running a hold from another controller.");return}
       const button=commandButtons.find(b=>b.dataset.command===next.command);
       if(button)button.classList.add("active");
       progressUntil=performance.now()+(next.remaining||0);
-      status(next.command==="random"?"Random active — release to stop":"Running — "+(button?.textContent||"vibration"),"#c8aff2");
+      const label=button?.querySelector(".level")?.textContent||"vibration";
+      status(["random","max-hold"].includes(next.command)?label+" active — release to stop":"Running — "+label,"#f0c98c");
     }else{status(next.state==="stopped"?"Stopped — ready":"Ready — choose a control","#7ee787")}
   }catch{}
 }
@@ -87,7 +89,7 @@ async function send(command,id){
   if(result!=="ok")throw new Error("Command unavailable");
 }
 function releaseHold(){
-  const id=holding;
+  const id=holding?.id;
   holding=null;clearInterval(holdTimer);holdTimer=null;
   if(!id)return;
   released.add(id);clearActive();status("Released — stopping");
@@ -146,33 +148,36 @@ else if(!window.supabase)status("The connection library did not load. Please rel
 else{
   client=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});
   recoverGuestSession();setInterval(()=>{if(document.visibilityState==="visible")resolveSession()},5000);
-  commandButtons.filter(button=>button!==randomButton).forEach(button=>button.addEventListener("click",async()=>{
+  commandButtons.filter(button=>!holdButtons.includes(button)).forEach(button=>button.addEventListener("click",async()=>{
     if(!guestChannelSubscribed()||!challenge)return;
     releaseHold();const id=crypto.randomUUID();pendingId=id;status("Waiting for host acknowledgement…");
     try{await send(button.dataset.command,id)}catch{unavailable()}
     setTimeout(()=>{if(pendingId===id&&hostState?.id!==id&&hostState?.state!=="locked")status("No running acknowledgement received — try again when ready.")},1600);
   }));
-  function beginHold(){
-    if(holding||randomButton.disabled||!guestChannelSubscribed()||!challenge)return;
-    holding=crypto.randomUUID();const id=holding;
+  function beginHold(button){
+    if(holding||button.disabled||!guestChannelSubscribed()||!challenge)return;
+    const id=crypto.randomUUID(),command=button.dataset.command;
+    holding={id,command};
     status("Waiting for host acknowledgement…");
-    send("hold-start",id).catch(()=>{if(holding===id)unavailable()});
+    send(command==="max-hold"?"max-hold-start":"hold-start",id).catch(()=>{if(holding?.id===id)unavailable()});
     holdTimer=setInterval(()=>{
-      if(holding!==id)return;
+      if(holding?.id!==id)return;
       if(!guestChannelSubscribed()||document.visibilityState!=="visible"||performance.now()-lastStateAt>1000){releaseHold();return}
-      send("hold-heartbeat",id).catch(()=>{if(holding===id)unavailable()});
+      send("hold-heartbeat",id).catch(()=>{if(holding?.id===id)unavailable()});
     },250);
   }
-  let pointerId=null;
-  randomButton.addEventListener("pointerdown",event=>{
-    if(!event.isPrimary||event.button!==0||holding)return;
-    event.preventDefault();pointerId=event.pointerId;randomButton.setPointerCapture(pointerId);beginHold();
-  });
-  for(const eventName of ["pointerup","pointercancel","lostpointercapture"]){randomButton.addEventListener(eventName,event=>{if(event.pointerId===pointerId){pointerId=null;releaseHold()}})}
-  randomButton.addEventListener("contextmenu",event=>event.preventDefault());
-  randomButton.addEventListener("keydown",event=>{if([" ","Enter"].includes(event.key)){event.preventDefault();if(!event.repeat)beginHold()}});
-  randomButton.addEventListener("keyup",event=>{if([" ","Enter"].includes(event.key)){event.preventDefault();releaseHold()}});
-  randomButton.addEventListener("blur",releaseHold);
+  for(const button of holdButtons){
+    let pointerId=null;
+    button.addEventListener("pointerdown",event=>{
+      if(!event.isPrimary||event.button!==0||holding)return;
+      event.preventDefault();pointerId=event.pointerId;button.setPointerCapture(pointerId);beginHold(button);
+    });
+    for(const eventName of ["pointerup","pointercancel","lostpointercapture"]){button.addEventListener(eventName,event=>{if(event.pointerId===pointerId){pointerId=null;releaseHold()}})}
+    button.addEventListener("contextmenu",event=>event.preventDefault());
+    button.addEventListener("keydown",event=>{if([" ","Enter"].includes(event.key)){event.preventDefault();if(!event.repeat)beginHold(button)}});
+    button.addEventListener("keyup",event=>{if([" ","Enter"].includes(event.key)){event.preventDefault();releaseHold()}});
+    button.addEventListener("blur",releaseHold);
+  }
   addEventListener("blur",releaseHold);
   addEventListener("pagehide",releaseHold);
   addEventListener("offline",()=>unavailable("Connection lost — control stopped"));
@@ -180,6 +185,6 @@ else{
   addEventListener("pageshow",recoverGuestSession);addEventListener("online",recoverGuestSession);
   setInterval(()=>{
     if(lastStateAt&&performance.now()-lastStateAt>1800){unavailable("Host unavailable — waiting to reconnect…");return}
-    if(progressUntil){const remaining=Math.max(0,progressUntil-performance.now());const active=document.querySelector("button.active");if(active)active.style.setProperty("--progress",(remaining/5000*100)+"%")}
+    if(progressUntil){const remaining=Math.max(0,progressUntil-performance.now());const active=document.querySelector("button.fixed.active");if(active)active.style.setProperty("--progress",((5000-remaining)/5000*100)+"%")}
   },100);
 }

@@ -32,10 +32,11 @@ function page(file,hash='',storage={}){
     window.fetch=async(url,options)=>{
       const body=JSON.parse(options.body);let result={ok:true};
       if(body.action==='list')result={profiles:[profile]};
+      if(['create','rotate'].includes(body.action))result={profile};
       if(body.action==='activate')active={session:body.session,edgeKey:body.edgeKey};
       if(body.action==='end'&&active?.session===body.session)active=null;
       if(body.action==='resolve')result=active?{valid:true,available:true,...active}:{valid:true,available:false};
-      if(body.action==='pair-list')result={requests:[]};
+      if(body.action==='pair-list')result={requests:[{id:'request-1',profile_id:profile.id,check_number:'3814',control_guests:{name:profile.name}}]};
       if(['pair-poll','pair-request'].includes(body.action))result=approved?{state:'approved',token:profile.token}:{state:'pending',checkNumber:'7261'};
       return {ok:true,status:200,json:async()=>result};
     };
@@ -43,20 +44,30 @@ function page(file,hash='',storage={}){
   windows.push(dom.window);return dom.window;
 }
 function click(window,selector){window.document.querySelector(selector).click()}
-function pointer(window,type){const event=new window.Event(type,{bubbles:true});Object.assign(event,{isPrimary:true,button:0,pointerId:1});window.document.querySelector('#random').dispatchEvent(event)}
+function pointer(window,type,selector='#random'){const event=new window.Event(type,{bubbles:true});Object.assign(event,{isPrimary:true,button:0,pointerId:1});window.document.querySelector(selector).dispatchEvent(event)}
 (async()=>{
   try{
     const host=page('index.html');await until(()=>host.eval('hostAuthorized'),'host login');
-    assert.equal(host.document.querySelector('#controller-link').value,'https://ctmp.uk/#ABCD');
+    assert.equal(host.document.querySelector('#guest-name'),null);assert.equal(host.document.querySelector('#guest-select'),null);assert.equal(host.document.querySelector('#rotate-guest'),null);
+    assert.equal(host.document.querySelector('#controller-link').value,'');
     click(host,'#connect');await until(()=>host.eval('!!tx'),'Bluetooth connect');click(host,'#create-controller');await until(()=>host.eval('remoteReady'),'host session');
+    assert.equal(host.document.querySelector('#controller-link').value,'https://ctmp.uk/#ABCD');
+    await host.eval('refreshApprovals()');assert.ok(host.document.querySelector('#pair-requests').textContent.includes('Check number 3814'));assert.ok(!host.document.querySelector('#pair-requests').textContent.includes(profile.name));
     const guest=page('controller.html','#ABCD');await until(()=>!guest.document.querySelector('#pairing').hidden,'guest pairing');click(guest,'#request-access');await until(()=>guest.document.querySelector('#pairing-message').textContent.includes('7261'),'check number');assert.equal(guest.document.querySelector('[data-command="70"]').disabled,true);
     approved=true;await guest.eval('pollPairing()');await until(()=>guest.eval('guestReady&&lastStateAt>0'),'signed ready');
     click(guest,'[data-command="70"]');await until(()=>host.__writes.includes('Vibrate:14;'),'peak 14');assert.ok(guest.document.querySelector('[data-command="70"]').classList.contains('active'));
-    click(host,'#edge');await until(()=>guest.document.querySelector('#status').textContent.includes('paused'),'EDGE UI');await until(()=>guest.document.querySelector('#edge-count').textContent==='EDGE used: 1 time','signed count');
+    await until(()=>parseFloat(guest.document.querySelector('[data-command="70"]').style.getPropertyValue('--progress'))>0,'fixed progress fill');
+    pointer(guest,'pointerdown','#max-hold');await until(()=>host.eval('engine.active?.command==="max-hold"'),'max hold before EDGE');await until(()=>host.__writes.at(-1)==='Vibrate:14;','max hold before EDGE level');
+    click(host,'#edge');await until(()=>host.eval('engine.active===null'),'EDGE stops max hold');assert.equal(host.__writes.at(-1),'Vibrate:0;');await until(()=>guest.document.querySelector('#status').textContent.includes('paused'),'EDGE UI');await until(()=>guest.document.querySelector('#edge-count').textContent==='EDGE used: 1 time','signed count');
     const count=host.__writes.length;await host.eval('receiveControl({command:"70",id:"fake-command-123456",challenge:[...challenges.keys()][0]})');assert.equal(host.__writes.length,count);
     await guest.eval('receiveEdgeCount({count:999,signature:"AAAA"})');assert.equal(guest.document.querySelector('#edge-count').textContent,'EDGE used: 1 time');
     click(host,'#edge');await until(()=>guest.document.querySelector('#edge-count').textContent==='EDGE used: 2 times','repeat EDGE');assert.ok(host.eval('edgeLockUntil-Date.now()>29000'));
     host.eval('edgeLockUntil=Date.now()-1;updateEdgeCountdown()');await until(()=>!guest.document.querySelector('#random').disabled,'unlock');
+    pointer(guest,'pointerdown','#max-hold');await until(()=>host.eval('engine.active?.command==="max-hold"'),'max hold start');await until(()=>host.__writes.at(-1)==='Vibrate:14;','max hold level');await until(()=>guest.document.querySelector('#max-hold').classList.contains('active'),'signed max hold active state');
+    pointer(guest,'pointerup','#max-hold');await until(()=>host.eval('engine.active===null'),'max hold release');assert.equal(host.__writes.at(-1),'Vibrate:0;');await until(()=>!guest.document.querySelector('#max-hold').classList.contains('active'),'max hold active state clears');
+    await pause(550);
+    pointer(guest,'pointerdown','#max-hold');await until(()=>host.eval('engine.active?.command==="max-hold"'),'max hold before host Stop');await until(()=>host.__writes.at(-1)==='Vibrate:14;','max hold before host Stop level');click(host,'#stop');await until(()=>host.eval('engine.active===null'),'host Stop ends max hold');assert.equal(host.__writes.at(-1),'Vibrate:0;');pointer(guest,'pointerup','#max-hold');
+    await pause(550);
     pointer(guest,'pointerdown');await until(()=>host.eval('engine.active?.command==="random"'),'random start');pointer(guest,'pointerup');await until(()=>host.eval('engine.active===null'),'release stop');assert.equal(host.__writes.at(-1),'Vibrate:0;');
     await pause(550);pointer(guest,'pointerdown');await until(()=>host.eval('engine.active?.command==="random"'),'second hold');guest.eval('clearInterval(holdTimer);holding=null');await until(()=>host.eval('engine.active===null'),'dead-man');assert.equal(host.__writes.at(-1),'Vibrate:0;');
     const staleCount=host.__writes.length;await host.eval('receiveControl({id:"stale-start-123456",command:"hold-start",challenge:"expired"})');assert.equal(host.__writes.length,staleCount);
@@ -67,6 +78,6 @@ function pointer(window,type){const event=new window.Event(type,{bubbles:true});
     await pause(550);pointer(refreshed,'pointerdown');await until(()=>host.eval('engine.active?.command==="random"'),'background test hold');host.__visibility='hidden';host.document.dispatchEvent(new host.Event('visibilitychange'));await until(()=>host.eval('engine.active===null'),'host background stop');host.__visibility='visible';host.document.dispatchEvent(new host.Event('visibilitychange'));await pause(100);assert.equal(host.eval('engine.active'),null);
     assert.ok(host.__writes.every(command=>!command.startsWith('Vibrate:')||Number(command.match(/\d+/)[0])<=14));
     authorised=false;const visitor=page('index.html');await pause(100);assert.equal(visitor.document.querySelector('#host-controls').hidden,true);assert.equal(visitor.document.querySelector('#login').hidden,false);
-    assert.deepEqual(errors,[]);console.log('PASS: full page-script integration: pairing and storage; signed state/count and forgery; EDGE/repeat; hold release/dead-man; stale command; refresh; GATT/realtime recovery; host background stop; max14; visitor login gate.');
+    assert.deepEqual(errors,[]);console.log('PASS: compact host workflow; pairing and storage; signed state/count and forgery; EDGE/repeat; random/MAX hold release and dead-man; stale command; refresh; GATT/realtime recovery; host background stop; max14; visitor login gate.');
   }finally{for(const window of windows)window.close()}
 })().catch(error=>{console.error(error);process.exitCode=1});
