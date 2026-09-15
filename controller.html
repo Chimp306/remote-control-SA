@@ -87,6 +87,13 @@ button{font:inherit;color:inherit}
 .manual-knob{position:absolute;z-index:2;left:16px;bottom:0;width:78px;height:42px;border:1px solid #f0c989a6;border-radius:18px;background:linear-gradient(165deg,#ead09f,#9b5e45 48%,#512335);box-shadow:0 5px 0 #16090e,0 9px 18px #000a,0 1px 0 #fff9 inset;transition:bottom .18s cubic-bezier(.2,.85,.3,1)}
 .manual-panel.holding .manual-fill,.manual-panel.holding .manual-knob{transition:none}.manual-panel.holding .manual-slider{border-color:#d9a46f;box-shadow:0 6px 0 #090608,0 12px 25px #0009,0 0 22px #a83c6247,0 0 0 5px #08060880 inset}.manual-panel.confirmed .manual-slider{border-color:#f0ca8b;box-shadow:0 6px 0 #090608,0 12px 25px #0009,0 0 30px #d06b6261,0 0 0 5px #08060880 inset}
 .manual-readout{align-self:center;color:#f0c98c;font-size:.69rem;font-weight:900;line-height:1.25;letter-spacing:.04em;text-align:left;overflow-wrap:anywhere}
+.guest-info-shell{margin-top:10px}
+.info-toggle{margin-top:8px;text-transform:none;letter-spacing:.04em;text-align:left}
+.info-toggle::after{float:right}
+.info-panel{margin-top:8px;padding:14px;border:1px solid #8f53686b;border-radius:16px;background:radial-gradient(circle at 50% 0,#321723 0,#190f14 55%,#0d090c 100%);box-shadow:0 12px 25px #0007,0 1px 0 #ffffff0c inset}
+.info-title{margin:0;color:#f0dce3;font-family:Georgia,"Times New Roman",serif;font-size:1.04rem}.info-intro{margin:5px 0 11px;color:#c8aeb7;font-size:.76rem;line-height:1.35}
+.wild-list{display:grid;gap:8px;margin:0;padding:0;list-style:none}.wild-list li{padding:9px 10px;border:1px solid #ffffff0b;border-radius:10px;background:#0c080ba8;color:#d9c7cd;font-size:.75rem;line-height:1.38}.wild-list strong{color:#f1d7c2}
+.contact-label{display:block;margin:0 0 6px;color:#e8d4db;font-size:.75rem;font-weight:750}.contact-input{width:100%;padding:11px 12px;border:1px solid #8b5a6966;border-radius:11px;background:#080709bd;color:var(--text);font:inherit;font-size:16px;box-shadow:0 1px 0 #ffffff0a inset}.contact-input:focus{outline:3px solid #d6ad684d;border-color:#d6ad68}.contact-send{width:100%;margin-top:9px;padding:11px;border:1px solid #c398607a;border-radius:11px;background:linear-gradient(165deg,#5d3921,#352013);color:#ffe1ad;font-weight:850;box-shadow:0 4px 0 #0b0709,0 8px 16px #0005}.contact-send:disabled{cursor:not-allowed;filter:saturate(.3) brightness(.58)}.contact-status{min-height:1.25em;margin:8px 0 0;color:#cdb9bf;font-size:.72rem;line-height:1.35}
 .privacy{display:block;margin-top:12px;color:#897a7f;font-size:.68rem;line-height:1.35;text-align:center}
 .preview-tools{margin-top:12px;padding:10px;border:1px solid #d6ad6838;border-radius:12px;background:#0b080aa6}
 .preview-tools p{margin:0 0 8px;color:#aa979d;font-size:.68rem;line-height:1.3;text-align:center}
@@ -151,6 +158,30 @@ body[data-control-state="unavailable"] .controls,body[data-control-state="unavai
 </div>
 <output id="manual-readout" class="manual-readout" for="manual-slider">OFF</output>
 </div>
+</section>
+</div>
+<div class="guest-info-shell">
+<button id="wild-toggle" class="manual-toggle info-toggle" type="button" aria-expanded="false" aria-controls="wild-panel">How to drive me wild</button>
+<section id="wild-panel" class="info-panel" aria-label="How to drive me wild" hidden>
+<h2 class="info-title">How to drive me wild</h2>
+<p class="info-intro">Things that tend to make this much hotter for me.</p>
+<ul class="wild-list">
+<li><strong>“No” works ridiculously well on me.</strong> Being denied is a huge part of the fun.</li>
+<li><strong>I’m not looking for a Domme.</strong> Flirty, playful and friendly works much better for me than strict or commanding.</li>
+<li><strong>You can make me ask.</strong> I don’t mind begging — especially if you then refuse me anyway.</li>
+<li><strong>Enjoy my frustration.</strong> Laugh at me, tease me, gloat a little. If my frustration turns you on too, even better.</li>
+<li><strong>Make me believe you don’t want me to finish.</strong> That feeling is incredibly effective on me.</li>
+<li><strong>Any buzz can be torture — and that’s a good thing.</strong> Even the lower levels can be very effective if you drag the tease out.</li>
+</ul>
+</section>
+<button id="contact-toggle" class="manual-toggle info-toggle" type="button" aria-expanded="false" aria-controls="contact-panel">Want to do this lots more?</button>
+<section id="contact-panel" class="info-panel" aria-label="Private contact details" hidden>
+<h2 class="info-title">Want to do this lots more?</h2>
+<p class="info-intro">If you’d like to keep in touch outside this session, you can leave an email address or WhatsApp number below. Totally optional.</p>
+<label class="contact-label" for="contact-value">Email address or WhatsApp number</label>
+<input id="contact-value" class="contact-input" type="text" inputmode="email" autocomplete="email" maxlength="160" placeholder="name@example.com or +44…" disabled>
+<button id="contact-send" class="contact-send" type="button" disabled>Send privately</button>
+<p id="contact-status" class="contact-status" role="status" aria-live="polite"></p>
 </section>
 </div>
 <section id="preview-tools" class="preview-tools" aria-label="Local preview controls" hidden>

@@ -40,8 +40,8 @@ Deno.serve(async req=>{
       if(!/^[2-9A-HJ-NP-Z]{16}$/.test(secret))return answer({available:false});
       const {data:profile}=check(await admin.from("control_guests").select("id,host_id,name").eq("token_hash",await hash(secret)).maybeSingle());
       if(!profile)return answer({available:false,valid:false});
-      const {data:session}=check(await admin.from("control_sessions").select("session,edge_key").eq("profile_id",profile.id).eq("host_id",profile.host_id).gt("lease_until",new Date().toISOString()).maybeSingle());
-      return answer(session?{valid:true,available:true,name:profile.name,session:session.session,edgeKey:session.edge_key}:{valid:true,available:false,name:profile.name});
+      const {data:session}=check(await admin.from("control_sessions").select("session,edge_key,contact_key").eq("profile_id",profile.id).eq("host_id",profile.host_id).gt("lease_until",new Date().toISOString()).maybeSingle());
+      return answer(session?{valid:true,available:true,name:profile.name,session:session.session,edgeKey:session.edge_key,contactKey:session.contact_key}:{valid:true,available:false,name:profile.name});
     }
     const jwt=req.headers.get("authorization")?.replace(/^Bearer /i,"");
     if(!jwt)return answer({error:"Sign in required"},401);
@@ -93,8 +93,8 @@ Deno.serve(async req=>{
       return answer({profile:data});
     }
     if(body.action==="activate"){
-      if(!/^[a-f0-9]{48}$/.test(body.session)||!/^B[A-Za-z0-9_-]{86}$/.test(body.edgeKey))return answer({error:"Invalid session"},400);
-      check(await admin.from("control_sessions").upsert({host_id:user.id,profile_id:profile.id,session:body.session,edge_key:body.edgeKey,lease_until:new Date(Date.now()+45000).toISOString()},{onConflict:"host_id"}));
+      if(!/^[a-f0-9]{48}$/.test(body.session)||!/^B[A-Za-z0-9_-]{86}$/.test(body.edgeKey)||!/^B[A-Za-z0-9_-]{86}$/.test(body.contactKey))return answer({error:"Invalid session"},400);
+      check(await admin.from("control_sessions").upsert({host_id:user.id,profile_id:profile.id,session:body.session,edge_key:body.edgeKey,contact_key:body.contactKey,lease_until:new Date(Date.now()+45000).toISOString()},{onConflict:"host_id"}));
       return answer({ok:true});
     }
     return answer({error:"Unknown action"},400);

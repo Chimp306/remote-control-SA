@@ -5,6 +5,7 @@ const celebrationEl=document.querySelector("#edge-celebration"),celebrationEmoji
 const teasePanelEl=document.querySelector("#tease-panel"),teaseMessageEl=document.querySelector("#tease-message"),teaseCopyEl=document.querySelector("#tease-copy"),teaseTimerEl=document.querySelector("#tease-timer"),hapticStateEl=document.querySelector("#haptic-state");
 const ratingPanelEl=document.querySelector("#rating-panel"),ratingMessageEl=document.querySelector("#rating-message"),ratingCopyEl=document.querySelector("#rating-copy");
 const manualToggleEl=document.querySelector("#manual-toggle"),manualPanelEl=document.querySelector("#manual-panel"),manualSliderEl=document.querySelector("#manual-slider"),manualKnobEl=document.querySelector(".manual-knob"),manualReadoutEl=document.querySelector("#manual-readout");
+const wildToggleEl=document.querySelector("#wild-toggle"),wildPanelEl=document.querySelector("#wild-panel"),contactToggleEl=document.querySelector("#contact-toggle"),contactPanelEl=document.querySelector("#contact-panel"),contactInputEl=document.querySelector("#contact-value"),contactSendEl=document.querySelector("#contact-send"),contactStatusEl=document.querySelector("#contact-status");
 const previewRequested=new URLSearchParams(location.search).get("preview")==="1";
 function cleanGuestName(value){return typeof value==="string"?value.normalize("NFKC").replace(/[\u0000-\u001f\u007f-\u009f]/g,"").replace(/\s+/g," ").trim().slice(0,40):""}
 function showGuestName(value){const name=cleanGuestName(value);guestWelcomeEl.textContent="WELCOME, "+(name||"GUEST").toLocaleUpperCase()}
@@ -44,7 +45,7 @@ requestAccess.addEventListener("click",()=>{
   requestAccess.disabled=true;pollPairing("pair-request");
 });
 setInterval(()=>{if(document.visibilityState==="visible")pollPairing()},2500);
-let session,edgeKeyText,edgeVerificationKey,edgeCount=0,edgeCountBaselinePending=true,client,channel,guestReady=false,guestRecoveryTimer,guestRecoveryPromise;
+let session,edgeKeyText,contactKeyText,edgeVerificationKey,contactEncryptionKey,edgeCount=0,edgeCountBaselinePending=true,client,channel,guestReady=false,guestRecoveryTimer,guestRecoveryPromise,contactSent=false;
 let resolving,lastStateAt=0,lastSequence=0,hostState,challenge,holding,holdTimer,progressUntil=0,pendingId;
 let manualHolding=null,manualHeartbeatTimer=null,manualSendTimer=null,manualQueuedValue=null,manualLastSentLevel=null,manualPointerId=null;
 let teaseStage=1,teaseStartedAt=null,teaseHostClockOffset=0,lastTeaseSequence=0,teaseBaselinePending=true,hapticFlashTimer;
@@ -52,6 +53,31 @@ let teaseRating=1,lastRatingSequence=0,ratingBaselinePending=true;
 const released=new Set(),hapticAcknowledgements=new Set();
 function status(text,colour="#ffca65"){statusEl.textContent=text;statusEl.style.color=colour}
 function fromBase64Url(text){const binary=atob(text.replaceAll("-","+").replaceAll("_","/").padEnd(Math.ceil(text.length/4)*4,"="));return Uint8Array.from(binary,c=>c.charCodeAt(0))}
+function base64Url(bytes){let binary="";new Uint8Array(bytes).forEach(byte=>binary+=String.fromCharCode(byte));return btoa(binary).replaceAll("+","-").replaceAll("/","_").replace(/=+$/g,"")}
+function cleanContact(value){return typeof value==="string"?value.normalize("NFKC").replace(/[\u0000-\u001f\u007f-\u009f]/g,"").replace(/\s+/g," ").trim().slice(0,160):""}
+function updateContactAvailability(){
+  const ready=!previewRequested&&!!contactEncryptionKey&&guestChannelSubscribed()&&document.visibilityState==="visible"&&!contactSent;
+  contactInputEl.disabled=!ready;contactSendEl.disabled=!ready;
+  if(previewRequested)contactStatusEl.textContent="Contact sharing is unavailable in preview mode.";
+  else if(!ready&&!contactSent&&!contactPanelEl.hidden)contactStatusEl.textContent="Private contact sharing is available while this session is connected.";
+}
+async function sendGuestContact(){
+  const contact=cleanContact(contactInputEl.value),key=contactEncryptionKey,currentSession=session;
+  if(previewRequested){contactStatusEl.textContent="Contact sharing is unavailable in preview mode.";return}
+  if(!contact||contact.length<3){contactStatusEl.textContent="Enter an email address or WhatsApp number first.";return}
+  if(!key||!currentSession||!guestChannelSubscribed()||document.visibilityState!=="visible"){contactStatusEl.textContent="Private contact sharing is not connected yet.";return}
+  contactSendEl.disabled=true;contactStatusEl.textContent="Sending privately…";
+  try{
+    const sender=await crypto.subtle.generateKey({name:"ECDH",namedCurve:"P-256"},false,["deriveKey"]);
+    const aesKey=await crypto.subtle.deriveKey({name:"ECDH",public:key},sender.privateKey,{name:"AES-GCM",length:256},false,["encrypt"]);
+    const iv=crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext=await crypto.subtle.encrypt({name:"AES-GCM",iv,additionalData:new TextEncoder().encode("contact:"+currentSession)},aesKey,new TextEncoder().encode(contact));
+    if(currentSession!==session||!guestChannelSubscribed())throw new Error("Session changed");
+    const payload={v:1,epk:base64Url(await crypto.subtle.exportKey("raw",sender.publicKey)),iv:base64Url(iv),ciphertext:base64Url(ciphertext)};
+    const result=await channel.send({type:"broadcast",event:"guest-contact",payload});if(result!=="ok")throw new Error("Delivery unavailable");
+    contactInputEl.value="";contactSent=true;contactStatusEl.textContent="Sent privately.";updateContactAvailability();
+  }catch{contactStatusEl.textContent="Couldn’t send privately. Please try again.";updateContactAvailability()}
+}
 const firstEdgeCelebrations=[
   {message:"Edged me! ❤️",emoji:"❤️",weight:1},
   {message:"EDGED! ❤️",emoji:"❤️",weight:1}
@@ -161,7 +187,7 @@ function guestChannelConnecting(){return channel?.state==="joining"}
 function setControls(enabled){commandButtons.forEach(button=>button.disabled=!enabled);manualToggleEl.disabled=!enabled;manualSliderEl.setAttribute("aria-disabled",String(!enabled))}
 function clearActive(){commandButtons.forEach(b=>{b.classList.remove("active");b.style.setProperty("--progress","0%")});manualPanelEl.classList.remove("confirmed");progressUntil=0}
 function unavailable(message="Connection unavailable — recovering…"){
-  releaseHold();releaseManual();hostState=null;lastStateAt=0;challenge=null;setControls(false);clearActive();document.body.dataset.controlState="unavailable";status(message);
+  releaseHold();releaseManual();hostState=null;lastStateAt=0;challenge=null;setControls(false);clearActive();document.body.dataset.controlState="unavailable";status(message);updateContactAvailability();
 }
 async function receiveHostState(payload){
   const key=edgeVerificationKey,currentSession=session,receivedAt=performance.now();
@@ -271,6 +297,7 @@ async function subscribeGuestChannel(recovering=false){
   if(!session)return;
   const currentSession=session;
   edgeVerificationKey=await crypto.subtle.importKey("raw",fromBase64Url(edgeKeyText),{name:"ECDSA",namedCurve:"P-256"},false,["verify"]);
+  contactEncryptionKey=contactKeyText&&/^B[A-Za-z0-9_-]{86}$/.test(contactKeyText)?await crypto.subtle.importKey("raw",fromBase64Url(contactKeyText),{name:"ECDH",namedCurve:"P-256"},false,[]):null;
   if(session!==currentSession)return;
   const activeChannel=client.channel("lushcon:"+session);channel=activeChannel;
   activeChannel
@@ -282,6 +309,7 @@ async function subscribeGuestChannel(recovering=false){
       if(channel!==activeChannel)return;
       if(state==="SUBSCRIBED"){
         guestReady=true;
+        updateContactAvailability();
         await Promise.all([
           activeChannel.send({type:"broadcast",event:"edge-count-request",payload:{}}),
           activeChannel.send({type:"broadcast",event:"tease-state-request",payload:{}}),
@@ -303,11 +331,11 @@ async function resolveSession(){
     if(result.valid===false&&shortInvitation){saveToken("");showPairing()}
     if(!result.available){
       if(guestToken)unavailable("Control is currently unavailable. Your invitation will work when your host starts a session.");
-      session=null;guestReady=false;resetGuestTeaseState();const previous=channel;channel=null;if(previous)await client.removeChannel(previous);return;
+      session=null;guestReady=false;contactKeyText="";contactEncryptionKey=null;contactSent=false;contactInputEl.value="";contactStatusEl.textContent="";resetGuestTeaseState();const previous=channel;channel=null;if(previous)await client.removeChannel(previous);return;
     }
     if(!/^[a-f0-9]{48}$/.test(result.session)||typeof result.edgeKey!=="string")throw new Error("Invalid session");
     if(session!==result.session){
-      releaseHold();session=result.session;edgeKeyText=result.edgeKey;edgeVerificationKey=null;edgeCount=0;edgeCountBaselinePending=true;lastSequence=0;
+      releaseHold();session=result.session;edgeKeyText=result.edgeKey;contactKeyText=typeof result.contactKey==="string"?result.contactKey:"";contactEncryptionKey=null;contactSent=false;contactInputEl.value="";contactStatusEl.textContent="";edgeVerificationKey=null;edgeCount=0;edgeCountBaselinePending=true;lastSequence=0;
       resetGuestTeaseState();released.clear();edgeCountEl.textContent="EDGE used: 0 times";
       await subscribeGuestChannel();
     }else if(!guestChannelSubscribed()&&!guestChannelConnecting())await subscribeGuestChannel(true);
@@ -342,7 +370,7 @@ function beginPreviewHold(button){
   status(button.querySelector(".level").textContent+" active — release to stop","#f0c98c");
 }
 function enablePreviewInteractions(){
-  document.querySelector("#preview-badge").hidden=false;previewToolsEl.hidden=false;hapticStateEl.hidden=false;document.body.dataset.controlState="ready";edgeCountEl.textContent="EDGE used: 0 times · preview";setControls(true);stopPreview();teaseHostClockOffset=0;teaseStartedAt=Date.now();renderTeaseState();renderTeaseRating();
+  document.querySelector("#preview-badge").hidden=false;previewToolsEl.hidden=false;hapticStateEl.hidden=false;document.body.dataset.controlState="ready";edgeCountEl.textContent="EDGE used: 0 times · preview";setControls(true);stopPreview();teaseHostClockOffset=0;teaseStartedAt=Date.now();renderTeaseState();renderTeaseRating();updateContactAvailability();
   document.querySelectorAll("[data-preview-stage]").forEach(button=>button.addEventListener("click",()=>{teaseStage=Number(button.dataset.previewStage);renderTeaseState();guestHaptic("tease")}));
   document.querySelectorAll("[data-preview-rating]").forEach(button=>button.addEventListener("click",()=>{teaseRating=Number(button.dataset.previewRating);renderTeaseRating();guestHaptic("rating")}));
   document.querySelector("#preview-timer").addEventListener("click",()=>{teaseHostClockOffset=0;teaseStartedAt=Date.now();renderTeaseState()});
@@ -379,6 +407,12 @@ async function startPreview(){
     enablePreviewInteractions();
   }catch(error){setControls(false);status("Preview unavailable — "+error.message)}
 }
+function setupGuestInfo(){
+  const toggle=(button,panel)=>button.addEventListener("click",()=>{const opening=panel.hidden;panel.hidden=!opening;button.setAttribute("aria-expanded",String(opening));if(panel===contactPanelEl)updateContactAvailability()});
+  toggle(wildToggleEl,wildPanelEl);toggle(contactToggleEl,contactPanelEl);
+  contactSendEl.addEventListener("click",sendGuestContact);
+  contactInputEl.addEventListener("keydown",event=>{if(event.key==="Enter"){event.preventDefault();sendGuestContact()}});
+}
 function setupManualControl(){
   manualToggleEl.addEventListener("click",()=>{
     const opening=manualPanelEl.hidden;
@@ -408,7 +442,7 @@ function setupManualControl(){
   manualSliderEl.addEventListener("keyup",event=>{if(["ArrowUp","ArrowDown","Home","End"].includes(event.key))releaseManual()});
   manualSliderEl.addEventListener("blur",releaseManual);
 }
-setupManualControl();
+setupGuestInfo();setupManualControl();
 if(previewRequested)startPreview();
 else if(!shortInvitation&&!/^[2-9A-HJ-NP-Z]{16}$/.test(guestToken))status("This private invitation is missing or invalid. Ask your host for a current link.");
 else if(!window.supabase)status("The connection library did not load. Please reload.");

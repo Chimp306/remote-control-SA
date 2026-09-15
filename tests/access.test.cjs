@@ -52,8 +52,8 @@ test('pairing requires explicit host approval and possession of request secret',
   assert.equal((await f.request({action:'pair-poll',code:'ABCD',secret:other})).body.token,undefined);
 });
 test('approved capability resolves the display name with session data',async()=>{
-  const f=await fixture();f.db.control_sessions.push({host_id:'host-1',profile_id:'guest-1',session:'a'.repeat(48),edge_key:'test-public-key',lease_until:new Date(Date.now()+10000).toISOString()});
-  const result=await f.request({action:'resolve',token:f.profile.token});assert.equal(result.body.session,'a'.repeat(48));assert.equal(result.body.edgeKey,'test-public-key');assert.equal(result.body.name,f.profile.name);assert.equal(result.body.token,undefined);
+  const f=await fixture();f.db.control_sessions.push({host_id:'host-1',profile_id:'guest-1',session:'a'.repeat(48),edge_key:'test-public-key',contact_key:'test-contact-public-key',lease_until:new Date(Date.now()+10000).toISOString()});
+  const result=await f.request({action:'resolve',token:f.profile.token});assert.equal(result.body.session,'a'.repeat(48));assert.equal(result.body.edgeKey,'test-public-key');assert.equal(result.body.contactKey,'test-contact-public-key');assert.equal(result.body.name,f.profile.name);assert.equal(result.body.token,undefined);
   f.db.control_sessions[0].lease_until=new Date(Date.now()-1).toISOString();const idle=await f.request({action:'resolve',token:f.profile.token});assert.equal(idle.body.available,false);assert.equal(idle.body.name,f.profile.name);
 });
 test('rotation invalidates remembered secret and old approved pairing cannot acquire replacement',async()=>{

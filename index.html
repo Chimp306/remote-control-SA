@@ -74,6 +74,8 @@ button:disabled{cursor:not-allowed;filter:saturate(.25) brightness(.62);opacity:
 .approval-row p{margin:0 0 8px;color:#f2dce3;line-height:1.35}
 .approval-actions{display:grid;grid-template-columns:1fr auto;gap:8px}
 .approval-actions .deny{width:auto;min-width:70px;background:#241a1e;border-color:#57434a;color:#cbbbc0;box-shadow:0 4px 0 #090708,0 7px 13px #0005}
+.guest-contact{margin-top:12px;padding:11px;border:1px solid #d6ad6842;border-radius:13px;background:#130c0f}
+.guest-contact p{margin:0;color:#f4d9c0;font-size:.84rem;line-height:1.4;overflow-wrap:anywhere}
 .secondary-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:13px}
 .secondary-actions button,#logout{background:#20171c;border-color:#684955;color:#d6c7cc;box-shadow:0 4px 0 #0b0809,0 7px 14px #0005;font-size:.8rem}
 .advanced{margin-top:12px;border:1px solid #ffffff12;border-radius:13px;background:#0d0a0c80;color:#a9999e}
@@ -165,6 +167,10 @@ button:disabled{cursor:not-allowed;filter:saturate(.25) brightness(.62);opacity:
 <p class="help">Match the check number with your guest before approving their browser.</p>
 <div id="pair-requests">No pending requests.</div>
 </section>
+<section id="guest-contact-card" class="guest-contact" aria-labelledby="guest-contact-heading" hidden>
+<div class="card-heading"><h3 id="guest-contact-heading">Guest contact</h3></div>
+<p id="guest-contact-value"></p>
+</section>
 <div class="secondary-actions"><button id="preview-controller">Preview Guest Controller</button><button id="end-session">End Control Session</button></div>
 </section>
 <details class="advanced">
@@ -198,6 +204,7 @@ const createControllerBtn=document.querySelector("#create-controller");
 const copyControllerBtn=document.querySelector("#copy-controller");
 const controllerLinkEl=document.querySelector("#controller-link");
 const guestNameEl=document.querySelector("#guest-name");
+const guestContactCardEl=document.querySelector("#guest-contact-card"),guestContactValueEl=document.querySelector("#guest-contact-value");
 const teaseStageButtons=[...document.querySelectorAll("[data-tease-stage]")];
 const teaseRatingButtons=[...document.querySelectorAll("[data-tease-rating]")];
 
@@ -232,7 +239,7 @@ const SERVICES=LOVENSE_GATT.map(profile=>profile.service);
 const SUPABASE_URL="https://hqciviafxtfescteyvnn.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
 
-let server, tx, device, stopTimer, patternTimer, patternGeneration=0, remoteClient, remoteChannel, remoteSessionId, remoteReady=false, edgeLockUntil=0, edgeCountdownTimer, edgeUseCount=0, edgeSigningKey, remoteRecoveryTimer, remoteRecoveryPromise, bluetoothRecoveryPromise, wakeLock;
+let server, tx, device, stopTimer, patternTimer, patternGeneration=0, remoteClient, remoteChannel, remoteSessionId, remoteReady=false, edgeLockUntil=0, edgeCountdownTimer, edgeUseCount=0, edgeSigningKey, contactDecryptionKey, remoteRecoveryTimer, remoteRecoveryPromise, bluetoothRecoveryPromise, wakeLock;
 let teaseStage=1,teaseStartedAt=null,teaseSequence=0,teaseBusy=false,teasePublishQueued=false;
 let teaseRating=1,ratingSequence=0,ratingBusy=false,ratingPublishQueued=false;
 const encoder=new TextEncoder();
@@ -276,6 +283,21 @@ function base64Url(bytes){
   let binary="";
   new Uint8Array(bytes).forEach(byte=>binary+=String.fromCharCode(byte));
   return btoa(binary).replaceAll("+","-").replaceAll("/","_").replace(/=+$/g,"");
+}
+function fromBase64Url(text){const binary=atob(text.replaceAll("-","+").replaceAll("_","/").padEnd(Math.ceil(text.length/4)*4,"="));return Uint8Array.from(binary,c=>c.charCodeAt(0))}
+function clearGuestContact(){guestContactValueEl.textContent="";guestContactCardEl.hidden=true}
+function cleanGuestContact(value){return typeof value==="string"?value.normalize("NFKC").replace(/[\u0000-\u001f\u007f-\u009f]/g,"").replace(/\s+/g," ").trim().slice(0,160):""}
+async function receiveGuestContact(payload){
+  const currentSession=remoteSessionId,key=contactDecryptionKey;
+  if(!hostAuthorized||!remoteReady||!currentSession||!key||typeof payload?.epk!=="string"||typeof payload?.iv!=="string"||typeof payload?.ciphertext!=="string"||payload.epk.length>128||payload.iv.length>32||payload.ciphertext.length>512)return;
+  try{
+    const publicKey=await crypto.subtle.importKey("raw",fromBase64Url(payload.epk),{name:"ECDH",namedCurve:"P-256"},false,[]);
+    const aesKey=await crypto.subtle.deriveKey({name:"ECDH",public:publicKey},key,{name:"AES-GCM",length:256},false,["decrypt"]);
+    const plain=await crypto.subtle.decrypt({name:"AES-GCM",iv:fromBase64Url(payload.iv),additionalData:encoder.encode("contact:"+currentSession)},aesKey,fromBase64Url(payload.ciphertext));
+    if(currentSession!==remoteSessionId)return;
+    const contact=cleanGuestContact(new TextDecoder().decode(plain));if(!contact)return;
+    guestContactValueEl.textContent=contact;guestContactCardEl.hidden=false;
+  }catch{}
 }
 async function signedEdgeCount(){
   const count=edgeUseCount;
@@ -333,6 +355,7 @@ async function endRemoteSession(message="No remote session is active."){
   remoteReady=false;remoteSessionId=null;remoteChannel=null;leaseDeadline=0;
   teaseStage=1;teaseStartedAt=null;teaseSequence=0;teasePublishQueued=false;renderHostTeaseState();
   teaseRating=1;ratingSequence=0;ratingPublishQueued=false;renderHostTeaseRating();
+  contactDecryptionKey=null;clearGuestContact();
   seenCommands.clear();challenges.clear();
   controllerLinkEl.value="";
   copyControllerBtn.disabled=true;
@@ -486,6 +509,7 @@ async function subscribeRemoteChannel(recovering=false){
     .on("broadcast",{event:"edge-count-request"},()=>{publishEdgeCount();publishHostState()})
     .on("broadcast",{event:"tease-state-request"},()=>publishTeaseState())
     .on("broadcast",{event:"tease-rating-request"},()=>publishTeaseRating())
+    .on("broadcast",{event:"guest-contact"},payload=>{if(remoteChannel===channel&&remoteSessionId===sessionId)receiveGuestContact(payload?.payload)})
     .subscribe((state,error)=>{
       if(remoteChannel!==channel) return;
       if(state==="SUBSCRIBED"){
@@ -625,12 +649,14 @@ async function createRemoteSession(profile){
   setupRemoteClient();
   const generation=sessionGeneration,session=rawSessionId();
   const signingKeys=await crypto.subtle.generateKey({name:"ECDSA",namedCurve:"P-256"},false,["sign","verify"]);
+  const contactKeys=await crypto.subtle.generateKey({name:"ECDH",namedCurve:"P-256"},false,["deriveKey"]);
   const edgePublicKey=base64Url(await crypto.subtle.exportKey("raw",signingKeys.publicKey));
+  const contactPublicKey=base64Url(await crypto.subtle.exportKey("raw",contactKeys.publicKey));
   if(generation!==sessionGeneration||!hostAuthorized||!tx)return;
   const started=performance.now();
-  await backend("activate",{profile:profile.id,session,edgeKey:edgePublicKey});
+  await backend("activate",{profile:profile.id,session,edgeKey:edgePublicKey,contactKey:contactPublicKey});
   if(generation!==sessionGeneration||!hostAuthorized||!tx){backend("end",{session}).catch(()=>{});return}
-  remoteSessionId=session;edgeSigningKey=signingKeys.privateKey;edgeUseCount=0;
+  remoteSessionId=session;edgeSigningKey=signingKeys.privateKey;contactDecryptionKey=contactKeys.privateKey;edgeUseCount=0;clearGuestContact();
   teaseStage=1;teaseStartedAt=null;teaseSequence=0;teasePublishQueued=false;renderHostTeaseState();
   teaseRating=1;ratingSequence=0;ratingPublishQueued=false;renderHostTeaseRating();
   leaseDeadline=started+30000;hostState={state:"ready"};stateSequence=0;
