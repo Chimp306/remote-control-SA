@@ -2,7 +2,7 @@ const SUPABASE_URL="https://hqciviafxtfescteyvnn.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_bvCxSUvRCzVTnpZfiHYshg_DTuRilpp";
 const statusEl=document.querySelector("#status"),edgeCountEl=document.querySelector("#edge-count"),guestWelcomeEl=document.querySelector("#guest-welcome"),commandButtons=[...document.querySelectorAll("[data-command]")],holdButtons=[...document.querySelectorAll(".control.hold")];
 const celebrationEl=document.querySelector("#edge-celebration"),celebrationEmojiEl=document.querySelector("#celebration-emoji"),celebrationMessageEl=document.querySelector("#celebration-message"),previewToolsEl=document.querySelector("#preview-tools");
-const teasePanelEl=document.querySelector("#tease-panel"),teaseMessageEl=document.querySelector("#tease-message"),teaseTimerEl=document.querySelector("#tease-timer"),hapticStateEl=document.querySelector("#haptic-state");
+const teasePanelEl=document.querySelector("#tease-panel"),teaseMessageEl=document.querySelector("#tease-message"),teaseCopyEl=document.querySelector("#tease-copy"),teaseTimerEl=document.querySelector("#tease-timer"),hapticStateEl=document.querySelector("#haptic-state");
 const previewRequested=new URLSearchParams(location.search).get("preview")==="1";
 function cleanGuestName(value){return typeof value==="string"?value.normalize("NFKC").replace(/[\u0000-\u001f\u007f-\u009f]/g,"").replace(/\s+/g," ").trim().slice(0,40):""}
 function showGuestName(value){const name=cleanGuestName(value);guestWelcomeEl.textContent="WELCOME, "+(name||"GUEST").toLocaleUpperCase()}
@@ -77,9 +77,14 @@ function showEdgeCelebration(count){
   celebrationEl.hidden=false;celebrationEl.classList.remove("show");void celebrationEl.offsetWidth;celebrationEl.classList.add("show");
   celebrationTimer=setTimeout(hideEdgeCelebration,1800);
 }
-const guestTeaseMessages={1:"He can take more. 😈",2:"You’re really getting to him… 😏",3:"He’s ready — your move. ❤️"};
+const guestTeaseMessages={
+  1:{name:"😈 RELAXED",copy:"I can handle this."},
+  2:{name:"😏 BUILDING",copy:"The frustration is building… and this is good."},
+  3:{name:"🔥 DESPERATE",copy:"You’re an epic tease. You’ve really got me now."},
+  4:{name:"❤️ PLEASE",copy:"Okay… really. PLEASE."}
+};
 function renderTeaseState(){
-  teasePanelEl.dataset.stage=String(teaseStage);teaseMessageEl.textContent=guestTeaseMessages[teaseStage];
+  const content=guestTeaseMessages[teaseStage];teasePanelEl.dataset.stage=String(teaseStage);teaseMessageEl.textContent=content.name;teaseCopyEl.textContent=content.copy;
   if(teaseStartedAt===null){teaseTimerEl.textContent="Waiting for the first control…";return}
   const hostNow=Date.now()-teaseHostClockOffset,total=Math.max(0,Math.floor((hostNow-teaseStartedAt)/1000)),hours=Math.floor(total/3600),minutes=Math.floor(total%3600/60),seconds=total%60;
   teaseTimerEl.textContent="Teasing for "+(hours?hours+":"+String(minutes).padStart(2,"0"):
@@ -107,7 +112,7 @@ async function receiveTeaseState(payload){
     if(!valid||currentSession!==session)return;
     const next=JSON.parse(payload.message);
     const validStart=next.startedAt===null||(Number.isSafeInteger(next.startedAt)&&next.startedAt>0);
-    if(!Number.isSafeInteger(next.seq)||next.seq<=lastTeaseSequence||![1,2,3].includes(next.stage)||!validStart||!Number.isSafeInteger(next.sentAt)||next.sentAt<=0)return;
+    if(!Number.isSafeInteger(next.seq)||next.seq<=lastTeaseSequence||![1,2,3,4].includes(next.stage)||!validStart||!Number.isSafeInteger(next.sentAt)||next.sentAt<=0)return;
     const previousStage=teaseStage,restoring=teaseBaselinePending;
     lastTeaseSequence=next.seq;teaseStage=next.stage;teaseStartedAt=next.startedAt;teaseHostClockOffset=Date.now()-next.sentAt;teaseBaselinePending=false;renderTeaseState();
     if(!restoring&&next.stage!==previousStage)guestHaptic("tease");

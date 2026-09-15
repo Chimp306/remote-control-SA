@@ -46,10 +46,11 @@ button:disabled{cursor:not-allowed;filter:saturate(.25) brightness(.62);opacity:
 #stop{border-color:#b8546e;background:linear-gradient(165deg,#9b2948,#571629)}
 #edge{border-color:#d3a05e9e;background:linear-gradient(165deg,#684022,#382112);color:#ffe0ab;box-shadow:0 5px 0 #10070b,0 0 20px #c8893e20,0 1px 0 #ffffff18 inset}
 .edge-status{color:#ffc1d2;border-color:#a2415d;background:#2a111a;font-weight:750}
-.tease-stage-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
-.tease-stage{min-height:68px;padding:9px 7px;background:linear-gradient(165deg,#321923,#1d1116);border-color:#7e4b5d66;color:#cfbbc2;font-size:.72rem;line-height:1.25;box-shadow:0 4px 0 #0b0709,0 7px 14px #0005}
+.tease-stage-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.tease-stage{min-height:64px;padding:8px 9px;background:linear-gradient(165deg,#321923,#1d1116);border-color:#7e4b5d66;color:#cfbbc2;font-size:.78rem;line-height:1.2;box-shadow:0 4px 0 #0b0709,0 7px 14px #0005}
+.tease-stage::before{content:"STAGE " attr(data-tease-stage);display:block;margin-bottom:4px;color:#a98994;font-size:.54rem;font-weight:850;letter-spacing:.14em}
 .tease-stage[aria-pressed="true"]{border-color:#d5a66b;background:linear-gradient(165deg,#7d2c48,#482031);color:#fff6ef;box-shadow:0 4px 0 #12080c,0 0 20px #bb5e7657,0 1px 0 #ffffff1a inset}
-.tease-stage:nth-child(3)[aria-pressed="true"]{background:linear-gradient(165deg,#8e343c,#5d211f);box-shadow:0 4px 0 #150807,0 0 23px #e39a5157,0 1px 0 #ffffff1a inset}
+.tease-stage:nth-child(4)[aria-pressed="true"]{background:linear-gradient(165deg,#96383f,#61211f);box-shadow:0 4px 0 #150807,0 0 25px #e39a5166,0 1px 0 #ffffff1a inset}
 .tease-note{margin:9px 0 0;color:#9f8e94;font-size:.7rem;line-height:1.35;text-align:center}
 .field-note{margin:5px 0 11px;color:#97878c;font-size:.7rem;line-height:1.35}
 #create-controller{margin-top:10px}
@@ -120,9 +121,10 @@ button:disabled{cursor:not-allowed;filter:saturate(.25) brightness(.62);opacity:
 <section class="card" aria-labelledby="tease-heading">
 <div class="card-heading"><h2 id="tease-heading">How close?</h2></div>
 <div id="tease-stages" class="tease-stage-grid" role="group" aria-label="How close?">
-<button class="tease-stage" type="button" data-tease-stage="1" aria-pressed="true" disabled>I can take more 😈</button>
-<button class="tease-stage" type="button" data-tease-stage="2" aria-pressed="false" disabled>You’re getting to me 😏</button>
-<button class="tease-stage" type="button" data-tease-stage="3" aria-pressed="false" disabled>I’m ready ❤️</button>
+<button class="tease-stage" type="button" data-tease-stage="1" aria-pressed="true" disabled>Relaxed</button>
+<button class="tease-stage" type="button" data-tease-stage="2" aria-pressed="false" disabled>Frustration building</button>
+<button class="tease-stage" type="button" data-tease-stage="3" aria-pressed="false" disabled>OMG</button>
+<button class="tease-stage" type="button" data-tease-stage="4" aria-pressed="false" disabled>PLEASE</button>
 </div>
 <p class="tease-note">Information only — STOP remains the safety control.</p>
 </section>
@@ -276,7 +278,7 @@ async function publishTeaseState(){
   }catch(error){console.warn("Tease state unavailable",error)}finally{teaseBusy=false}
 }
 function setTeaseStage(stage){
-  if(!Number.isInteger(stage)||stage<1||stage>3||!remoteSessionId)return;
+  if(!Number.isInteger(stage)||stage<1||stage>4||!remoteSessionId)return;
   teaseStage=stage;renderHostTeaseState();publishTeaseState();
 }
 function startTeaseTimerIfAccepted(){

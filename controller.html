@@ -24,17 +24,22 @@ h1{margin:0;font-family:Georgia,"Times New Roman",serif;font-size:clamp(1.65rem,
 .subtitle{margin:5px 0 10px;color:var(--muted);font-size:.9rem;line-height:1.35}
 .tease-panel{position:relative;overflow:hidden;margin:0 0 9px;padding:10px 12px;border:1px solid #8b405867;border-radius:13px;background:linear-gradient(145deg,#30131f,#160e12);box-shadow:0 7px 18px #0004,0 1px 0 #ffffff0d inset;transition:border-color .25s ease,background .25s ease,box-shadow .25s ease}
 .tease-panel::after{content:"";position:absolute;inset:-50%;z-index:0;background:radial-gradient(circle,#d8995140 0,transparent 55%);opacity:0;pointer-events:none}
-.tease-top,.tease-message,.tease-timer{position:relative;z-index:1}
+.tease-top,.tease-message,.tease-copy,.tease-timer{position:relative;z-index:1}
 .tease-top{display:flex;justify-content:space-between;align-items:center;gap:8px;color:#b98d9b;font-size:.57rem;font-weight:850;letter-spacing:.16em;text-transform:uppercase}
-.tease-message{margin:4px 0 2px;color:#f4dce4;font-family:Georgia,"Times New Roman",serif;font-size:1rem;font-weight:600;line-height:1.2}
-.tease-timer{margin:0;color:#ad969e;font-size:.69rem;font-weight:700}
+.tease-message{margin:5px 0 1px;color:#f4dce4;font-size:1.05rem;font-weight:900;line-height:1.15;letter-spacing:.075em}
+.tease-copy{margin:0 0 5px;color:#ceb9c0;font-family:Georgia,"Times New Roman",serif;font-size:.78rem;font-style:italic;line-height:1.25}
+.tease-timer{margin:0;padding-top:5px;border-top:1px solid #ffffff0b;color:#ad969e;font-size:.69rem;font-weight:700}
 .haptic-state{padding:3px 6px;border:1px solid #d6ad6852;border-radius:999px;color:#dabe8e;font-size:.52rem;letter-spacing:.08em}
 .haptic-state.flash{background:#75422a;color:#fff1d7;box-shadow:0 0 15px #d9965680}
 .tease-panel[data-stage="2"]{border-color:#c084526e;background:linear-gradient(145deg,#4a261f,#211116);box-shadow:0 7px 18px #0005,0 0 18px #c0783e35}
-.tease-panel[data-stage="2"]::after{opacity:.45;animation:tease-breathe 2.2s ease-in-out infinite}
-.tease-panel[data-stage="3"]{border-color:#e0a15f9c;background:linear-gradient(145deg,#65252f,#321516);box-shadow:0 8px 22px #0006,0 0 28px #d15b4c52,0 0 0 1px #e9bd7552 inset}
-.tease-panel[data-stage="3"]::after{opacity:.8;animation:tease-breathe 1.6s ease-in-out infinite}
-.tease-panel[data-stage="3"] .tease-message{color:#fff3df;text-shadow:0 0 14px #f0a15e6e}
+.tease-panel[data-stage="2"]::after{opacity:.38}
+.tease-panel[data-stage="3"]{border-color:#d06b558f;background:linear-gradient(145deg,#60232b,#2d1216);box-shadow:0 8px 22px #0006,0 0 24px #d15b4c48,0 0 0 1px #db80564a inset}
+.tease-panel[data-stage="3"]::after{opacity:.65;animation:tease-breathe 1.9s ease-in-out infinite}
+.tease-panel[data-stage="3"] .tease-message{color:#ffe1c5;text-shadow:0 0 13px #e96e4961}
+.tease-panel[data-stage="4"]{border-color:#efb161b8;background:linear-gradient(145deg,#7a2934,#3a1515);box-shadow:0 8px 24px #0007,0 0 32px #df604f66,0 0 0 1px #f0c47766 inset}
+.tease-panel[data-stage="4"]::after{opacity:.9;animation:tease-breathe 1.55s ease-in-out infinite}
+.tease-panel[data-stage="4"] .tease-message{color:#fff1d2;text-shadow:0 0 16px #f0a15e85}
+.tease-panel[data-stage="4"] .tease-copy{color:#f5d9c5}
 .status{min-height:42px;margin:0 0 8px;padding:10px 12px;display:flex;align-items:center;border:1px solid #ffffff0d;border-radius:11px;background:#080709a3;color:#e4bf80;font-size:.86rem;line-height:1.3;overflow-wrap:anywhere}
 .edge-count{margin:0 0 12px;color:#cf9cac;font-size:.75rem;font-weight:700;text-align:center}
 #pairing{margin-bottom:10px;padding:12px;border:1px solid #8f405b66;border-radius:12px;background:#250f17}
@@ -69,7 +74,7 @@ body[data-control-state="unavailable"] .controls{opacity:.58}
 @keyframes tease-breathe{50%{opacity:1;transform:scale(1.08)}}
 @keyframes celebration-veil{0%,100%{opacity:0}10%,82%{opacity:1}}
 @keyframes celebration-pop{0%{opacity:0;transform:scale(.72) translateY(18px)}58%{opacity:1;transform:scale(1.045) translateY(-3px)}100%{opacity:1;transform:scale(1) translateY(0)}}
-@media(max-height:760px){main{padding:15px}.control{min-height:75px;padding:9px}.status{min-height:34px;padding:7px 10px}.privacy{display:none}.subtitle{margin-bottom:7px}.tease-panel{padding:8px 10px}.tease-message{font-size:.92rem}.controls{gap:8px}}
+@media(max-height:760px){main{padding:15px}.control{min-height:75px;padding:9px}.status{min-height:34px;padding:7px 10px}.privacy{display:none}.subtitle{margin-bottom:7px}.tease-panel{padding:7px 10px}.tease-message{font-size:.96rem}.tease-copy{font-size:.72rem}.controls{gap:8px}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.edge-celebration.show{opacity:1}}
 </style>
 </head>
@@ -84,7 +89,8 @@ body[data-control-state="unavailable"] .controls{opacity:.58}
 <p class="subtitle"><em>Mean or nice — the choice is yours.</em></p>
 <section id="tease-panel" class="tease-panel" data-stage="1" aria-label="Host tease status">
 <div class="tease-top"><span>How close?</span><span id="haptic-state" class="haptic-state" hidden>HAPTIC PREVIEW</span></div>
-<p id="tease-message" class="tease-message" aria-live="polite">He can take more. 😈</p>
+<p id="tease-message" class="tease-message" aria-live="polite">😈 RELAXED</p>
+<p id="tease-copy" class="tease-copy">I can handle this.</p>
 <p id="tease-timer" class="tease-timer">Waiting for the first control…</p>
 </section>
 <p id="status" class="status" role="status" aria-live="polite">Opening private control session…</p>
@@ -104,7 +110,7 @@ body[data-control-state="unavailable"] .controls{opacity:.58}
 <section id="preview-tools" class="preview-tools" aria-label="Local preview controls" hidden>
 <p>Local UI preview · no commands sent</p>
 <div class="preview-actions">
-<button type="button" data-preview-stage="1">Stage 1</button><button type="button" data-preview-stage="2">Stage 2</button><button type="button" data-preview-stage="3">Stage 3</button>
+<button type="button" data-preview-stage="1">Stage 1</button><button type="button" data-preview-stage="2">Stage 2</button><button type="button" data-preview-stage="3">Stage 3</button><button type="button" data-preview-stage="4">Stage 4</button>
 <button id="preview-timer" type="button">Start timer</button><button id="preview-haptic" type="button">Preview haptic</button>
 <button id="preview-edge-first" type="button">Preview EDGE #1</button><button id="preview-edge-later" type="button">Preview later EDGE</button>
 </div>
