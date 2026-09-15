@@ -46,7 +46,7 @@ requestAccess.addEventListener("click",()=>{
 });
 setInterval(()=>{if(document.visibilityState==="visible")pollPairing()},2500);
 let session,edgeKeyText,contactKeyText,edgeVerificationKey,contactEncryptionKey,edgeCount=0,edgeCountBaselinePending=true,client,channel,guestReady=false,guestRecoveryTimer,guestRecoveryPromise,contactSent=false;
-let resolving,lastStateAt=0,lastSequence=0,hostState,challenge,holding,holdTimer,progressUntil=0,pendingId;
+let resolving,lastStateAt=0,lastSequence=0,hostState,challenge,holding,holdTimer,progressUntil=0,progressId=null,progressValue=0,pendingId;
 let manualHolding=null,manualHeartbeatTimer=null,manualSendTimer=null,manualQueuedValue=null,manualLastSentLevel=null,manualPointerId=null;
 let teaseStage=1,teaseStartedAt=null,teaseHostClockOffset=0,lastTeaseSequence=0,teaseBaselinePending=true,hapticFlashTimer;
 let teaseRating=1,lastRatingSequence=0,ratingBaselinePending=true;
@@ -185,7 +185,18 @@ async function receiveEdgeCount(payload){
 function guestChannelSubscribed(){return guestReady&&channel?.state==="joined"&&(typeof client?.realtime?.isConnected!=="function"||client.realtime.isConnected())}
 function guestChannelConnecting(){return channel?.state==="joining"}
 function setControls(enabled){commandButtons.forEach(button=>button.disabled=!enabled);manualToggleEl.disabled=!enabled;manualSliderEl.setAttribute("aria-disabled",String(!enabled))}
-function clearActive(){commandButtons.forEach(b=>{b.classList.remove("active");b.style.setProperty("--progress","0%")});manualPanelEl.classList.remove("confirmed");progressUntil=0}
+function clearActive(){commandButtons.forEach(b=>{b.classList.remove("active");b.style.setProperty("--progress","0%")});manualPanelEl.classList.remove("confirmed");progressUntil=0;progressId=null;progressValue=0}
+function updateFixedProgress(id,remaining,receivedAt,button){
+  const safeRemaining=Number.isFinite(remaining)?Math.max(0,Math.min(5000,remaining)):0;
+  const reportedProgress=(5000-safeRemaining)/50;
+  if(progressId!==id){progressId=id;progressValue=reportedProgress}
+  else{
+    const locallyElapsed=progressUntil?Math.max(0,Math.min(100,(5000-Math.max(0,progressUntil-receivedAt))/50)):progressValue;
+    progressValue=Math.max(progressValue,locallyElapsed,reportedProgress);
+  }
+  progressUntil=receivedAt+(100-progressValue)*50;
+  button.style.setProperty("--progress",progressValue+"%");
+}
 function unavailable(message="Connection unavailable — recovering…"){
   releaseHold();releaseManual();hostState=null;lastStateAt=0;challenge=null;setControls(false);clearActive();document.body.dataset.controlState="unavailable";status(message);updateContactAvailability();
 }
@@ -199,8 +210,11 @@ async function receiveHostState(payload){
     if(!Number.isSafeInteger(next.seq)||next.seq<=lastSequence||typeof next.challenge!=="string")return;
     lastSequence=next.seq;lastStateAt=receivedAt;challenge=next.challenge;hostState=next;
     const blocked=next.state==="locked"||next.state==="unavailable";
+    const fixedRunning=next.state==="running"&&["20","40","60","70"].includes(next.command)&&!released.has(next.id);
+    const sameFixed=fixedRunning&&progressId===next.id;
     if(blocked){releaseHold();releaseManual()}
-    setControls(!blocked&&guestChannelSubscribed()&&document.visibilityState==="visible");clearActive();
+    setControls(!blocked&&guestChannelSubscribed()&&document.visibilityState==="visible");
+    if(!sameFixed)clearActive();
     document.body.dataset.controlState=next.state==="locked"?"locked":next.state==="unavailable"?"unavailable":"ready";
     if(next.state==="locked"){status("Remote control paused — "+Math.ceil(next.pauseMs/1000)+"s");return}
     if(next.state==="unavailable"){status("Host connection unavailable — recovering…");return}
@@ -219,7 +233,7 @@ async function receiveHostState(payload){
       if(ownCommand&&!hapticAcknowledgements.has(next.id)){
         hapticAcknowledgements.add(next.id);guestHaptic(["random","max-hold"].includes(next.command)?"hold":"fixed");
       }
-      progressUntil=performance.now()+(next.remaining||0);
+      if(fixedRunning&&button)updateFixedProgress(next.id,next.remaining,receivedAt,button);
       const label=button?.querySelector(".level")?.textContent||"vibration";
       status(["random","max-hold"].includes(next.command)?label+" active — release to stop":"Running — "+label,"#f0c98c");
     }else{status(next.state==="stopped"?"Stopped — ready":"Ready — choose a control","#7ee787")}
@@ -487,7 +501,11 @@ else{
   addEventListener("pageshow",recoverGuestSession);addEventListener("online",recoverGuestSession);
   setInterval(()=>{
     if(lastStateAt&&performance.now()-lastStateAt>1800){unavailable("Host unavailable — waiting to reconnect…");return}
-    if(progressUntil){const remaining=Math.max(0,progressUntil-performance.now());const active=document.querySelector("button.fixed.active");if(active)active.style.setProperty("--progress",((5000-remaining)/5000*100)+"%")}
+    if(progressUntil&&progressId){
+      const remaining=Math.max(0,progressUntil-performance.now()),active=document.querySelector("button.fixed.active");
+      progressValue=Math.max(progressValue,Math.min(100,(5000-remaining)/50));
+      if(active)active.style.setProperty("--progress",progressValue+"%");
+    }
   },100);
 }
 renderTeaseState();setInterval(renderTeaseState,1000);
