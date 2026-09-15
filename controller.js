@@ -64,7 +64,7 @@ function updateContactAvailability(){
 async function sendGuestContact(){
   const contact=cleanContact(contactInputEl.value),key=contactEncryptionKey,currentSession=session;
   if(previewRequested){contactStatusEl.textContent="Contact sharing is unavailable in preview mode.";return}
-  if(!contact||contact.length<3){contactStatusEl.textContent="Enter an email address or WhatsApp number first.";return}
+  if(!contact||contact.length<3){contactStatusEl.textContent="Enter an email address or Telegram username first.";return}
   if(!key||!currentSession||!guestChannelSubscribed()||document.visibilityState!=="visible"){contactStatusEl.textContent="Private contact sharing is not connected yet.";return}
   contactSendEl.disabled=true;contactStatusEl.textContent="Sending privately…";
   try{
