@@ -188,11 +188,11 @@ function releaseHold(sendStop=true){
   if(sendStop)send("hold-stop",id).catch(()=>{});
 }
 function setManualVisual(value){
-  const safe=Math.max(0,Math.min(70,Number.isFinite(value)?value:0)),ratio=safe/70,rounded=Math.round(safe);
+  const safe=Math.max(0,Math.min(70,Number.isFinite(value)?value:0)),ratio=safe/70,guestPercent=Math.round(ratio*100),display=guestPercent===0?"OFF":guestPercent===100?"MAX":guestPercent+"%";
   manualSliderEl.style.setProperty("--manual-fill",ratio*100+"%");
   manualKnobEl.style.bottom="calc("+(ratio*100)+"% - "+(ratio*42)+"px)";
-  manualSliderEl.setAttribute("aria-valuenow",String(rounded));manualSliderEl.setAttribute("aria-valuetext",rounded?rounded+"%":"OFF");
-  manualReadoutEl.value=rounded?rounded+"%":"OFF";manualReadoutEl.textContent=rounded?rounded+"%":"OFF";
+  manualSliderEl.setAttribute("aria-valuenow",String(guestPercent));manualSliderEl.setAttribute("aria-valuetext",display);
+  manualReadoutEl.value=display;manualReadoutEl.textContent=display;
 }
 function manualValueFromPointer(event){
   const rect=manualSliderEl.getBoundingClientRect();
