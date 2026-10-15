@@ -1,5 +1,21 @@
-let currentProfile=null,leaseRenewal;
-const loginEl=document.querySelector("#login"),hostEl=document.querySelector("#host-controls"),loginStatus=document.querySelector("#login-status");
+let currentProfile=null,leaseRenewal,passwordRecoveryMode=isRecoveryLink();
+const loginEl=document.querySelector("#login"),hostEl=document.querySelector("#host-controls"),loginStatus=document.querySelector("#login-status"),loginForm=document.querySelector("#login-form"),recoveryForm=document.querySelector("#recovery-form"),newPasswordForm=document.querySelector("#new-password-form");
+function isRecoveryLink(){
+  const hash=new URLSearchParams(location.hash.slice(1));
+  return hash.get("type")==="recovery"||new URLSearchParams(location.search).has("code");
+}
+function showLoginForm(){
+  passwordRecoveryMode=false;
+  loginForm.hidden=false;recoveryForm.hidden=true;newPasswordForm.hidden=true;
+}
+function showRecoveryForm(){
+  loginForm.hidden=true;recoveryForm.hidden=false;newPasswordForm.hidden=true;
+}
+function showNewPasswordForm(){
+  passwordRecoveryMode=true;
+  loginForm.hidden=true;recoveryForm.hidden=true;newPasswordForm.hidden=false;
+}
+if(passwordRecoveryMode)showNewPasswordForm();
 setupRemoteClient();
 async function backend(action,values={}){
   const {data:{session}}=await remoteClient.auth.getSession();
@@ -23,6 +39,35 @@ async function unlockHost(){
     loginEl.hidden=true;hostEl.hidden=false;window.dispatchEvent(new Event("host-unlocked"));
   }catch(error){hostAuthorized=false;hostEl.hidden=true;loginEl.hidden=false;loginStatus.textContent=error.message}
 }
+document.querySelector("#forgot-password").addEventListener("click",()=>{
+  document.querySelector("#recovery-email").value=document.querySelector("#email").value.trim();
+  showRecoveryForm();
+});
+document.querySelector("#back-to-login").addEventListener("click",showLoginForm);
+document.querySelector("#recovery-form").addEventListener("submit",async event=>{
+  event.preventDefault();
+  const button=document.querySelector("#send-recovery"),statusEl=document.querySelector("#recovery-status"),email=document.querySelector("#recovery-email").value.trim();
+  button.disabled=true;statusEl.textContent="Sending reset link…";
+  try{
+    const {error}=await remoteClient.auth.resetPasswordForEmail(email,{redirectTo:location.origin+"/"});
+    if(error)throw error;
+    statusEl.textContent="If that email is authorised, a reset link is on its way. Check junk mail too.";
+  }catch(error){statusEl.textContent=error.message}finally{button.disabled=false}
+});
+document.querySelector("#new-password-form").addEventListener("submit",async event=>{
+  event.preventDefault();
+  const button=document.querySelector("#save-password"),statusEl=document.querySelector("#new-password-status"),password=document.querySelector("#new-password").value,confirmation=document.querySelector("#confirm-password").value;
+  if(password!==confirmation){statusEl.textContent="The two passwords do not match.";return}
+  button.disabled=true;statusEl.textContent="Saving new password…";
+  try{
+    const {error}=await remoteClient.auth.updateUser({password});
+    if(error)throw error;
+    document.querySelector("#new-password").value="";document.querySelector("#confirm-password").value="";
+    await remoteClient.auth.signOut();
+    history.replaceState(null,"",location.pathname);
+    showLoginForm();loginStatus.textContent="Password changed. Sign in with your new password.";
+  }catch(error){statusEl.textContent=error.message}finally{button.disabled=false}
+});
 document.querySelector("#login-form").addEventListener("submit",async event=>{
   event.preventDefault();const button=document.querySelector("#login-button");button.disabled=true;
   loginStatus.textContent="Signing in…";
@@ -44,7 +89,11 @@ document.querySelector("#logout").addEventListener("click",async()=>{
 });
 remoteClient.auth.onAuthStateChange((event)=>{
   // Avoid invoking Auth APIs inside Supabase's auth callback lock.
-  if(event==="SIGNED_OUT")setTimeout(()=>lockHost(),0);
+  if(event==="PASSWORD_RECOVERY"){
+    passwordRecoveryMode=true;hostEl.hidden=true;loginEl.hidden=false;showNewPasswordForm();
+  }else if(event==="SIGNED_OUT"){
+    passwordRecoveryMode=false;setTimeout(()=>lockHost(),0);
+  }
 });
 async function renewLease(){
   if(!remoteSessionId||!hostAuthorized)return;
@@ -71,7 +120,7 @@ document.querySelector("#preview-controller").addEventListener("click",()=>{
   if(preview)preview.opener=null;
   else remoteStatus("Preview was blocked. Allow pop-ups for this site and try again.");
 });
-remoteClient.auth.getSession().then(({data:{session}})=>{if(session)unlockHost()});
+remoteClient.auth.getSession().then(({data:{session}})=>{if(session&&!passwordRecoveryMode)unlockHost()});
 
 document.querySelector("#guest-code-form").addEventListener("submit",event=>{
   event.preventDefault();const code=document.querySelector("#guest-code").value.trim().toUpperCase();

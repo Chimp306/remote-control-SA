@@ -87,6 +87,8 @@ button:disabled{cursor:not-allowed;filter:saturate(.25) brightness(.62);opacity:
 #logout{margin-top:12px}
 .login-card+.login-card{margin-top:12px}
 .login-card button{margin-top:10px}
+.login-card .link-button{margin-top:12px;padding:0;border:0;background:none;color:#cda8ff;text-decoration:underline;font:inherit;font-size:.83rem;box-shadow:none}
+.login-card .link-button:hover{color:#fff}
 .login-status{margin:0 0 12px;color:#d4b8c1;font-size:.83rem;line-height:1.4}
 @media(max-width:430px){.host-feedback-grid{grid-template-columns:1fr}.host-feedback-grid .card{padding:13px}.host-feedback-grid .tease-stage{font-size:.78rem}}
 @media(max-width:370px){.shell{padding:16px}.card{padding:13px}.safety-grid,.secondary-actions{gap:7px}button{padding-inline:9px}.approval-actions{grid-template-columns:1fr}}
@@ -157,6 +159,21 @@ body.host-live{padding:0}body.host-live .shell{width:100%;max-width:none;padding
 <label for="email">Email</label><input id="email" type="email" autocomplete="username" required>
 <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required>
 <button id="login-button" type="submit">Sign in</button>
+<button id="forgot-password" class="link-button" type="button">Forgot password?</button>
+</form>
+<form id="recovery-form" class="card login-card" hidden>
+<div class="card-heading"><h2>Reset password</h2></div>
+<p id="recovery-status" class="login-status" role="status">Enter the email for your host account.</p>
+<label for="recovery-email">Email</label><input id="recovery-email" type="email" autocomplete="email" required>
+<button id="send-recovery" type="submit">Email reset link</button>
+<button id="back-to-login" class="link-button" type="button">Back to sign in</button>
+</form>
+<form id="new-password-form" class="card login-card" hidden>
+<div class="card-heading"><h2>Choose a new password</h2></div>
+<p id="new-password-status" class="login-status" role="status">Set a new password for your host account.</p>
+<label for="new-password">New password</label><input id="new-password" type="password" autocomplete="new-password" minlength="12" required>
+<label for="confirm-password">Confirm new password</label><input id="confirm-password" type="password" autocomplete="new-password" minlength="12" required>
+<button id="save-password" type="submit">Save new password</button>
 </form>
 </section>
 <section id="host-controls" hidden>
