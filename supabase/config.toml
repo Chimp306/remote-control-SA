@@ -2,3 +2,9 @@
 # The resolver accepts a private guest token without a Supabase login.
 # All other actions explicitly verify the user JWT and host allowlist.
 verify_jwt = false
+
+[functions.ctmp-control]
+# Custom opaque owner/guest capabilities are verified in the function body.
+# A publishable project key is never treated as a user credential.
+verify_jwt = false
+
