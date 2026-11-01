@@ -2,7 +2,9 @@ import { hash, isToken, isClient, isCode, normalizeCode, randomToken, randomCode
 
 const API = Deno.env.get('SUPABASE_URL');
 const SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-const CORS_ORIGINS = new Set(['https://ctmp.uk', 'https://www.ctmp.uk', 'https://chimp306.github.io']);
+// The exact internal preview origin is included for pre-publication UI tests.
+// CORS does not grant access: every protected action still requires its token.
+const CORS_ORIGINS = new Set(['https://ctmp.uk', 'https://www.ctmp.uk', 'https://chimp306.github.io', 'http://terminal.local:4173']);
 
 class HttpError extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 
