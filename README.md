@@ -32,19 +32,20 @@ Owner tokens and device tokens stay in page memory. A guest's session credential
 
 Open **Debugging** and unlock with the privately configured password. Isolated simulation stops and disconnects physical devices before enabling test controls. Simulation has its own score, supports test guest links, and cannot update the real server record. The preview-record fixture changes only the displayed preview.
 
-Real hardware diagnostics require a separate explicit arm step. The low-output pulse is limited to one second and always requests a stop afterward. It is unavailable during simulation or an active session. Opossum uses one selected output channel at a time, defaulting to A.
+Real hardware diagnostics require a separate explicit arm step. The low-output pulse is limited to one second and always requests a stop afterward. It is unavailable during simulation or an active session. The Opossum diagnostic pulse deliberately tests both channels together at displayed 20%.
 
 ## Runtime behaviour
 
-- The host requests a screen wake lock while visible. Hiding the host page pauses output; returning never automatically resumes it.
+- The host requests a screen wake lock while visible. Hiding a live host page pauses output; returning never automatically resumes it. The hardware-disconnected simulator may continue during a tab switch so guest links can be tested; browser suspension can still interrupt it.
 - Fresh pressure readings are required to start or resume. A sensor gap faults the session.
 - Solo mode begins a fresh ramp after cooldown. Guest mode resumes the selected level without a ramp.
+- Opossum supports both channels simultaneously. Solo has independent A/B maxima (default displayed 100% each); the shared starting-power percentage is a fraction of each maximum, and both share the ramp time. Guest mode has independent A/B sliders, one shared pattern and one cooldown. Either channel can be kept off with zero.
 - A cooldown ends only when its timer has elapsed and a fresh reading is below the reset threshold.
-- Output caps are enforced in each physical adapter, including patterns: Lush 65%, Opossum 60%, VacuGlide 35% of the device's native maximum.
-- Host Stop has priority. Guest Stop during cooldown sets the desired output to zero without bypassing the timer.
+- Output caps are enforced in each physical adapter, including patterns: Lush 65%, Opossum 40% per channel (80 of 200 native strength), VacuGlide 35% of the device's native maximum.
+- Host Stop has priority and always stops both Opossum channels. Guest Stop during cooldown sets both desired channel levels to zero without bypassing the timer. A command with positive output on either channel is not a zero-output command.
 - Guest commands carry a sequence and state epoch. Stale or out-of-order controls are rejected; host state is authoritative.
 - Connection failures pause output where commands can still be delivered. A failed or lost connection cannot guarantee delivery of a physical stop command.
 
 ## Hardware verification still required
 
-Automated tests and simulation validate software behaviour, not physical timing or safety. Before relying on a live session, verify the actual device models, simultaneous connections, zeroing, cap mappings, Stop delivery, Opossum channel selection, VacuGlide valve release, background interruption and network-disconnect behaviour. Do not describe a pressure threshold as proof of an orgasm or a guarantee of prevention.
+Automated tests and simulation validate software behaviour, not physical timing or safety. Before relying on a live session, verify the actual device models, simultaneous connections, zeroing, cap mappings, Stop delivery on both Opossum channels, VacuGlide valve release, background interruption and network-disconnect behaviour. Do not describe a pressure threshold as proof of an orgasm or a guarantee of prevention.

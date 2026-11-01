@@ -1,8 +1,8 @@
-import { UI } from './ui.js';
-import { SessionEngine } from './engine.js';
-import { CivetDevice, LushDevice, OpossumDevice, VacuGlideDevice } from './devices.js';
-import { Backend } from './backend.js';
-import { runDiagnostics } from './diagnostics.js';
+import { UI } from './ui.js?v=20261101-dual40';
+import { SessionEngine } from './engine.js?v=20261101-dual40';
+import { CivetDevice, LushDevice, OpossumDevice, VacuGlideDevice } from './devices.js?v=20261101-dual40';
+import { Backend } from './backend.js?v=20261101-dual40';
+import { runDiagnostics } from './diagnostics.js?v=20261101-dual40';
 
 const ACTIVE = new Set(['running', 'cooldown', 'settling']);
 const TOYS = new Set(['lush', 'opossum', 'vacuglide']);
@@ -24,7 +24,6 @@ let newRecord = false;
 let hardwareArmed = false;
 let operationGeneration = 0;
 let hardwareGeneration = 0;
-let opossumChannel = 'A';
 let connectionError = '';
 let wakeStatus = 'released';
 let wakeSentinel = null;
@@ -53,7 +52,7 @@ let remoteFaulted = false;
 let bestSaveBusy = false;
 let pendingBestSave = null;
 let guest = null;
-let guestState = { phase: 'idle', mode: 'guest', outputPercent: 0, guestPercent: 0, edgeCount: 0, cooldownSeconds: 20, pattern: 'steady', epoch: 0 };
+let guestState = { phase: 'idle', mode: 'guest', outputPercent: 0, guestPercent: 0, guestPercentA: 0, guestPercentB: 0, outputPercentA: 0, outputPercentB: 0, edgeCount: 0, cooldownSeconds: 20, pattern: 'steady', epoch: 0 };
 let guestBest = 0;
 let guestNewRecord = false;
 let guestNetwork = 'connecting';
@@ -63,6 +62,7 @@ let guestCommandBusy = false;
 let guestPending = null;
 let guestCommandTimer = null;
 let guestDesired = { percent: 0, pattern: 'steady', cooldownSeconds: 20 };
+let guestDesiredUntil = 0;
 
 function emptyCalibration() { return { zeroed: false, complete: false, step: 'zero', status: 'Connect Civet, then zero it while deflated and unloaded.', values: {} }; }
 function safeError(error) {
@@ -84,18 +84,42 @@ function requireInactive() { if (ACTIVE.has(engine?.phase)) throw new Error('Pau
 function currentDriver() { return drivers?.[engine?.config.toy]; }
 function freshSnapshot() { return engine?.snapshot(); }
 function randomClient() { return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join(''); }
+function commandLevels(command = {}) {
+  // Legacy scalar requests address A only. Explicit B can never be hidden by a
+  // zero scalar: every stop/cooldown decision inspects both channel values.
+  const vector = command.percentA !== undefined || command.percentB !== undefined;
+  return vector ? { a: command.percentA === undefined ? 0 : command.percentA, b: command.percentB === undefined ? 0 : command.percentB } : { a: command.percent ?? 0, b: 0 };
+}
+function commandIsZero(command, toy) {
+  if (toy !== 'opossum') return command?.percent === 0;
+  const levels = commandLevels(command);
+  return levels.a === 0 && levels.b === 0;
+}
+function zeroGuestOutput(toy) { return toy === 'opossum' ? { percent: 0, percentA: 0, percentB: 0 } : { percent: 0 }; }
+function desiredFromState(state) {
+  const desired = { percent: Number(state.guestPercent) || 0, pattern: state.pattern || 'steady', cooldownSeconds: Number(state.cooldownSeconds) || 20 };
+  if (state.toy === 'opossum') {
+    desired.percentA = Number.isFinite(state.guestPercentA) ? state.guestPercentA : desired.percent;
+    desired.percentB = Number.isFinite(state.guestPercentB) ? state.guestPercentB : 0;
+    desired.percent = Math.max(desired.percentA, desired.percentB);
+  }
+  return desired;
+}
 
 function makeEngine(isSimulation) {
   let instance;
   instance = new SessionEngine({
     simulation: isSimulation,
-    onOutput: percent => {
+    onOutput: (percent, levels) => {
       if (instance !== engine || isSimulation) return;
       const device = drivers?.[instance.config.toy];
-      if (percent === 0) return device && (device.connected || deviceStates[instance.config.toy]?.state === 'error') ? device.stop() : undefined;
+      const dual = instance.config.toy === 'opossum';
+      if (dual && (!levels || !Number.isFinite(levels.a) || !Number.isFinite(levels.b))) return Promise.reject(new Error('Both Opossum channel levels are required. Reload the updated control page.'));
+      const stopped = dual ? levels.a === 0 && levels.b === 0 : percent === 0;
+      if (stopped) return device && (device.connected || deviceStates[instance.config.toy]?.state === 'error') ? device.stop() : undefined;
       if (document.hidden) return Promise.reject(new Error('Keep the control page visible before resuming.'));
       if (!device?.connected) return Promise.reject(new Error('The output device is disconnected.'));
-      return device.setOutput(percent);
+      return dual ? device.setLevels({ a: levels.a, b: levels.b }) : device.setOutput(percent);
     },
     onEvent: event => {
       if (instance !== engine) return;
@@ -262,7 +286,8 @@ async function hardwarePulse() {
   const generation = ++hardwareGeneration;
   log('Deliberate low-output hardware test started.');
   try {
-    await device.setOutput(20);
+    if (engine.config.toy === 'opossum') await device.setLevels({ a: 20, b: 20 });
+    else await device.setOutput(20);
     if (generation !== hardwareGeneration || document.hidden) return;
     await new Promise(resolve => setTimeout(resolve, 1000));
   } finally {
@@ -315,7 +340,7 @@ async function endRemote() {
 async function createRemote() {
   requireDev(); requireInactive();
   if (remote) await endRemote();
-  engine.configure({ mode: 'guest' }); engine.setGuestOutput({ percent: 0, pattern: 'steady' });
+  engine.configure({ mode: 'guest' }); engine.setGuestOutput({ ...zeroGuestOutput(engine.config.toy), pattern: 'steady' });
   const result = await backend.call('session-create', { toy: engine.config.toy, simulation });
   remote = { sessionId: result.sessionId, code: result.code, url: location.origin + '/' + result.code, owned: true };
   epoch += 1; lastCommandSeq = 0; lastHostSync = Date.now(); guestConnected = false; hadGuest = false; remoteFaulted = false;
@@ -359,10 +384,13 @@ async function syncHost() {
     lastCommandSeq = sequence;
     const command = result.command;
     if (!command || command.epoch !== epoch || !Number.isFinite(command.at) || Math.abs(result.serverNow - command.at) > 3000) return;
-    const zero = command.percent === 0;
+    const zero = commandIsZero(command, engine.config.toy);
     if ((!zero && engine.phase !== 'running') || !guestConnected) return;
-    if (zero && engine.phase !== 'running') engine.setGuestOutput({ percent: 0 });
-    else engine.setGuestOutput({ percent: command.percent, pattern: command.pattern, cooldownSeconds: command.cooldownSeconds });
+    if (zero && engine.phase !== 'running') engine.setGuestOutput(zeroGuestOutput(engine.config.toy));
+    else {
+      const levels = commandLevels(command);
+      engine.setGuestOutput({ percent: command.percent, ...(engine.config.toy === 'opossum' ? { percentA: levels.a, percentB: levels.b } : {}), pattern: command.pattern, cooldownSeconds: command.cooldownSeconds });
+    }
   } catch (error) {
     if (!remote || remote.sessionId !== sessionId) return;
     remoteFault('Guest connection interrupted. Output paused; check the connection before resuming.');
@@ -403,10 +431,16 @@ function applyGuestState(result) {
   guestConnected = Boolean(result.hostOnline);
   guestNetwork = result.hostOnline ? 'connected' : 'offline';
   connectionError = result.hostOnline ? '' : 'Host connection unavailable. Controls are paused.';
-  if (state.epoch !== previous.epoch || !result.hostOnline) {
+  const epochChanged = state.epoch !== previous.epoch;
+  const reportedDesired = desiredFromState(state);
+  if (epochChanged || !result.hostOnline) {
     clearTimeout(guestCommandTimer); guestPending = null;
+    guestDesired = reportedDesired; guestDesiredUntil = 0;
   }
-  if (!guestPending && !guestCommandBusy) guestDesired = { percent: Number(state.guestPercent) || 0, pattern: state.pattern || 'steady', cooldownSeconds: Number(state.cooldownSeconds) || 20 };
+  const desiredReached = Object.keys(reportedDesired).every(key => reportedDesired[key] === guestDesired[key]);
+  if (!guestPending && !guestCommandBusy && (desiredReached || Date.now() >= guestDesiredUntil)) {
+    guestDesired = reportedDesired; guestDesiredUntil = 0;
+  }
   saveGuest();
 }
 
@@ -443,14 +477,23 @@ async function pollGuest() {
 
 function queueGuestCommand(values) {
   if (!guest?.sessionId || !backend.guestToken || !guestConnected || Date.now() - lastGuestPoll > 5000) throw new Error('Wait for the host connection before changing output.');
-  const zero = values.percent === 0;
-  if (!zero && guestState.phase !== 'running') throw new Error('Controls are paused during cooldown or a host interruption.');
   const next = { ...guestDesired, ...values };
   if (guestState.toy === 'vacuglide') next.pattern = 'steady';
-  next.percent = Math.max(0, Math.min(100, Math.round(Number(next.percent))));
+  if (guestState.toy === 'opossum') {
+    if (values.percent !== undefined && values.percentA === undefined && values.percentB === undefined) { next.percentA = values.percent; next.percentB = 0; }
+    for (const key of ['percentA', 'percentB']) next[key] = Math.max(0, Math.min(100, Math.round(Number(next[key] ?? 0))));
+    if (!Number.isFinite(next.percentA) || !Number.isFinite(next.percentB)) throw new Error('Invalid Opossum channel levels.');
+    next.percent = Math.max(next.percentA, next.percentB);
+  } else {
+    delete next.percentA; delete next.percentB;
+    next.percent = Math.max(0, Math.min(100, Math.round(Number(next.percent))));
+  }
   next.cooldownSeconds = Math.max(10, Math.min(30, Math.round(Number(next.cooldownSeconds))));
   if (!Number.isFinite(next.percent) || !Number.isFinite(next.cooldownSeconds) || !['steady', 'pulse', 'wave'].includes(next.pattern)) throw new Error('Invalid guest controls.');
+  const zero = commandIsZero(next, guestState.toy);
+  if (!zero && guestState.phase !== 'running') throw new Error('Controls are paused during cooldown or a host interruption.');
   guestDesired = next;
+  guestDesiredUntil = Date.now() + 3500;
   guest.clientSeq = Math.max(0, guest.clientSeq || 0) + 1;
   guestPending = { ...next, epoch: guestState.epoch, clientSeq: guest.clientSeq };
   saveGuest();
@@ -462,7 +505,7 @@ function queueGuestCommand(values) {
 async function flushGuestCommand() {
   if (guestCommandBusy || !guestPending || !backend.guestToken) return;
   const command = guestPending; guestPending = null;
-  if (command.epoch !== guestState.epoch || (command.percent !== 0 && guestState.phase !== 'running')) return;
+  if (command.epoch !== guestState.epoch || (!commandIsZero(command, guestState.toy) && guestState.phase !== 'running')) return;
   guestCommandBusy = true;
   try { await backend.call('guest-command', { sessionId: guest.sessionId, command }, 'guest'); }
   catch (error) {
@@ -509,7 +552,7 @@ async function handleAction(name, payload = {}) {
   if (['configure', 'adjust-cutoff'].includes(name)) {
     if (name === 'configure') {
       const next = {};
-      for (const key of ['startPercent', 'rampSeconds', 'cooldownSeconds']) if (payload[key] !== undefined) next[key] = Number(payload[key]);
+      for (const key of ['startPercent', 'rampSeconds', 'cooldownSeconds', 'maxPercentA', 'maxPercentB']) if (payload[key] !== undefined) next[key] = Number(payload[key]);
       if (next.rampSeconds !== undefined && next.rampSeconds < 1) throw new Error('Ramp time must be at least 1 second.');
       engine.configure(next);
     } else engine.adjustCutoff(Number(payload.delta));
@@ -547,17 +590,13 @@ async function handleAction(name, payload = {}) {
         requireInactive(); if (!['solo', 'guest'].includes(payload.mode)) throw new Error('Unknown session mode.');
         if (remote && payload.mode !== engine.config.mode) await endRemote();
         engine.configure({ mode: payload.mode }); break;
-      case 'opossum-channel':
-        requireInactive(); if (simulation) throw new Error('Channel selection applies to real Opossum hardware only.');
-        if (!['A', 'B'].includes(payload.channel)) throw new Error('Select channel A or B.');
-        await drivers.opossum.setChannel(payload.channel); opossumChannel = payload.channel; break;
       case 'start':
         requireReady(); hardwareArmed = false; hardwareGeneration += 1; connectionError = ''; remoteFaulted = false; newRecord = false;
-        engine.setGuestOutput({ percent: 0 }); engine.start(); requestHostSync(); break;
+        engine.setGuestOutput(zeroGuestOutput(engine.config.toy)); engine.start(); requestHostSync(); break;
       case 'pause': engine.pause(); await stopPhysical(); requestHostSync(); break;
       case 'resume':
         requireReady(); if (remote?.owned && hadGuest && !guestConnected) throw new Error('Wait for the guest to reconnect before resuming.');
-        remoteFaulted = false; connectionError = ''; engine.setGuestOutput({ percent: 0 }); engine.resume(); requestHostSync(); break;
+        remoteFaulted = false; connectionError = ''; engine.setGuestOutput(zeroGuestOutput(engine.config.toy)); engine.resume(); requestHostSync(); break;
       case 'unlock-dev': await unlock(payload.password); break;
       case 'lock-dev':
         requireDev(); if (remote) await endRemote(); if (simulation) await setSimulation(false);
@@ -605,17 +644,21 @@ function render() {
   if (guestPage) {
     const state = { ...guestState };
     if (state.phase === 'cooldown' && Number.isFinite(state.cooldownEndsAt)) state.remainingCooldown = Math.max(0, (state.cooldownEndsAt - (Date.now() + backend.clockOffset)) / 1000);
-    if (!guestConnected || Date.now() - lastGuestPoll > 5000) { state.phase = 'paused'; state.outputPercent = 0; state.reason = connectionError || 'Host connection unavailable'; }
+    if (!guestConnected || Date.now() - lastGuestPoll > 5000) { state.phase = 'paused'; state.outputPercent = 0; state.outputPercentA = 0; state.outputPercentB = 0; state.reason = connectionError || 'Host connection unavailable'; }
     ui.render({ screen: 'guest', engine: state, toy: state.toy || 'lush', mode: 'guest', best: guestBest, newRecord: guestNewRecord, simulation, guestConnected: guestConnected && Date.now() - lastGuestPoll <= 5000, networkStatus: guestNetwork, connectionError, busy: false, devices: {} });
     return;
   }
   if (!engine) return;
   if (previewOverlay && previewEndsAt) previewOverlay = { ...previewOverlay, remainingCooldown: Math.max(0, (previewEndsAt - Date.now()) / 1000) };
-  ui.render({ screen: 'host', engine: engine.snapshot(), toy: engine.config.toy, mode: engine.config.mode, devices: deviceStates, best: simulation ? simulationBest : best, newRecord, devUnlocked: Boolean(backend.ownerToken), simulation, calibration, link: remote, guestConnected, networkStatus: remote?.owned ? lastHostSync && Date.now() - lastHostSync < 5000 ? 'connected' : 'offline' : 'idle', logs, testResults, hardwareArmed, busy, connectionError, wakeStatus, guestPreview, previewOverlay, opossumChannel });
+  ui.render({ screen: 'host', engine: engine.snapshot(), toy: engine.config.toy, mode: engine.config.mode, devices: deviceStates, best: simulation ? simulationBest : best, newRecord, devUnlocked: Boolean(backend.ownerToken), simulation, calibration, link: remote, guestConnected, networkStatus: remote?.owned ? lastHostSync && Date.now() - lastHostSync < 5000 ? 'connected' : 'offline' : 'idle', logs, testResults, hardwareArmed, busy, connectionError, wakeStatus, guestPreview, previewOverlay });
 }
 
 function backgroundStop() {
   if (guestPage || !engine) return;
+  // The isolated simulator owns no physical connections. Let its guest-link
+  // test keep running when switching browser tabs; live hardware never uses
+  // this exception. Browser suspension can still trip the sensor watchdog.
+  if (simulation) return;
   operationGeneration += 1; hardwareGeneration += 1; hardwareArmed = false;
   cancelCapture('Capture cancelled because the page is no longer visible.');
   if (ACTIVE.has(engine.phase)) engine.pause('Control page hidden. Return and resume explicitly.');

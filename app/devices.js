@@ -4,6 +4,7 @@
  *
  * Protocol sources:
  * https://github.com/dungeonlab-open/dglab-bluetooth-protocol/tree/main/civet-edging-sensor
+ * https://github.com/dungeonlab-open/dglab-bluetooth-protocol/tree/main/opossum-vibrate-controller
  * https://developers.autoblow.com/reference/http-api-v1-vacuglide/
  * Lovense's official API documents vibration levels 0–20. The Lush Mini GATT
  * profile below is the profile verified in the existing ctmp.uk application.
@@ -14,7 +15,7 @@ export const CIVET_SERVICE = 0x180c;
 export const CIVET_WRITE = 0x150a;
 export const CIVET_NOTIFY = 0x150b;
 export const LUSH_MAX_NATIVE = 13;
-export const OPOSSUM_MAX_NATIVE = 120; // 60% of the documented 0–200 channel scale.
+export const OPOSSUM_MAX_NATIVE = 80; // 40% per channel of the documented 0–200 scale.
 export const VACUGLIDE_MAX_NATIVE = 35;
 export const LUSH_PROFILES = Object.freeze([
   { service: '53300001-0023-4bd4-bbd5-a6920e4c5653', write: '53300002-0023-4bd4-bbd5-a6920e4c5653' },
@@ -29,6 +30,7 @@ const VG_CLUSTERS = new Set([
 ]);
 const canceled = () => ({ sent: false, reason: 'superseded' });
 const asError = error => error instanceof Error ? error : new Error(String(error));
+const sameLevels = (a, b) => Boolean(a && b && a.a === b.a && a.b === b.b);
 const percent = value => {
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new TypeError('Output must be a finite number.');
   return Math.max(0, Math.min(100, value));
@@ -60,16 +62,21 @@ export function parseCivetPressure(value) {
 }
 
 export function opossumStrengthCommand(native, channel = 'A') {
-  const level = Math.max(0, Math.min(OPOSSUM_MAX_NATIVE, Math.floor(Number.isFinite(native) ? native : 0)));
+  const limit = value => Math.max(0, Math.min(OPOSSUM_MAX_NATIVE, Math.floor(Number.isFinite(value) ? value : 0)));
+  if (native && typeof native === 'object') return new Uint8Array([0xb3, limit(native.a), limit(native.b)]);
   if (!['A', 'B'].includes(channel)) throw new TypeError('Opossum channel must be A or B.');
-  return new Uint8Array([0xb3, channel === 'A' ? level : 0, channel === 'B' ? level : 0]);
+  return new Uint8Array([0xb3, channel === 'A' ? limit(native) : 0, channel === 'B' ? limit(native) : 0]);
 }
 
 export function opossumPulseCommand(active, channel = 'A') {
   if (!['A', 'B'].includes(channel)) throw new TypeError('Opossum channel must be A or B.');
   const bytes = new Uint8Array(20);
   bytes[0] = 0xb0;
-  if (active) bytes.fill(100, channel === 'A' ? 8 : 16, channel === 'A' ? 12 : 20);
+  const levels = active && typeof active === 'object' ? active : { a: channel === 'A' && active ? 1 : 0, b: channel === 'B' && active ? 1 : 0 };
+  // Each zero-strength channel has an explicitly zero carrier as well. Both
+  // channels occupy their documented four-byte slots in the SAME B0 frame.
+  if (levels.a > 0) bytes.fill(100, 8, 12);
+  if (levels.b > 0) bytes.fill(100, 16, 20);
   return bytes;
 }
 
@@ -427,31 +434,23 @@ export class LushDevice extends BluetoothAdapter {
 
 /**
  * Opossum uses a 0–200 channel strength plus a streamed 0–100 Pulse carrier.
- * The 60% cap is enforced on channel strength (at most 120); only the selected
- * channel is enabled. This describes command scale, not calibrated motor power.
+ * The 40% cap is enforced independently on both channel strengths (at most 80).
+ * B3 sets both strengths together; B0 carries both channels in the same frame.
+ * This describes command scale, not calibrated motor power.
  * Official protocol does not guarantee what hardware does after a missing frame.
  */
 export class OpossumDevice extends BluetoothAdapter {
-  constructor({ channel = 'A', now = () => Date.now(), ...options } = {}) {
+  constructor({ now = () => Date.now(), ...options } = {}) {
     super(options);
-    if (!['A', 'B'].includes(channel)) throw new TypeError('Opossum channel must be A or B.');
-    this.channel = channel;
     this.now = now;
-    this._native = 0;
+    this._native = { a: 0, b: 0 };
     this._lastNative = null;
+    this._lastCommandedNative = null;
+    this._expectedStrengths = new Map();
     this._outputGeneration = 0;
     this._pulseTimer = null;
     this._lastPulseTick = null;
     this._pendingOutput = null;
-  }
-
-  async setChannel(channel) {
-    if (!['A', 'B'].includes(channel)) throw new TypeError('Opossum channel must be A or B.');
-    if (channel === this.channel) return { channel };
-    if (this._writeCharacteristic && this._device?.gatt?.connected) await this.stop();
-    this.channel = channel;
-    this._lastNative = null;
-    return { channel };
   }
 
   connect() {
@@ -488,7 +487,7 @@ export class OpossumDevice extends BluetoothAdapter {
       this._check(epoch);
       if (this._faultReported) throw new Error('Opossum reported an invalid channel setting.');
       this._ready = true;
-      this._status('connected', `Opossum connected on channel ${this.channel}; command intensity capped at 60%.`);
+      this._status('connected', 'Opossum connected. Channels A and B are independently capped at 40% command intensity.');
       return this;
     } catch (error) {
       this._error(asError(error), epoch);
@@ -500,9 +499,12 @@ export class OpossumDevice extends BluetoothAdapter {
   _handleNotification(view, epoch) {
     if (epoch !== this._epoch || !(view instanceof DataView) || view.byteLength < 3 || view.getUint8(0) !== 0xb3) return;
     const a = view.getUint8(1), b = view.getUint8(2);
-    const invalid = a > OPOSSUM_MAX_NATIVE || b > OPOSSUM_MAX_NATIVE || (this.channel === 'A' ? b !== 0 : a !== 0);
-    if (invalid) {
-      this._error(new Error('Opossum channel setting exceeded the cap or enabled the inactive channel. Stop requested; check physical controls.'), epoch);
+    const overCap = a > OPOSSUM_MAX_NATIVE || b > OPOSSUM_MAX_NATIVE;
+    const unexpected = this._ready && !this._expectedReport(a, b);
+    if (overCap || unexpected) {
+      this._error(new Error(overCap
+        ? 'Opossum channel setting exceeded the 40% cap. Stop requested; check physical controls.'
+        : 'Opossum channel settings changed outside the current app commands. Stop requested; check physical controls.'), epoch);
       this.stop().catch(() => {});
       return;
     }
@@ -511,26 +513,55 @@ export class OpossumDevice extends BluetoothAdapter {
     this._queuedWrite(opossumDisplayCommand(a, b), { key: 'display' }).catch(() => {});
   }
 
+  _rememberStrength(native) {
+    const at = this.now();
+    this._lastCommandedNative = { ...native };
+    this._expectedStrengths.set(`${native.a}:${native.b}`, at);
+    for (const [key, sentAt] of this._expectedStrengths) {
+      if (at - sentAt > 2000) this._expectedStrengths.delete(key);
+    }
+  }
+
+  _expectedReport(a, b) {
+    if (sameLevels(this._lastCommandedNative, { a, b })) return true;
+    // B3 notifications have no sequence/command ID. Accept recent legitimate
+    // acknowledgements during a strength transition, not just the latest value,
+    // to avoid mistaking a delayed command response for a physical button change.
+    const sentAt = this._expectedStrengths.get(`${a}:${b}`);
+    return typeof sentAt === 'number' && this.now() >= sentAt && this.now() - sentAt <= 2000;
+  }
+
   _error(error, epoch = this._epoch) {
     if (epoch !== this._epoch) return;
     this._stopPulseTimer();
-    this._native = 0;
+    this._native = { a: 0, b: 0 };
     this._outputGeneration += 1;
     super._error(error, epoch);
   }
 
   _detach() {
     this._stopPulseTimer();
-    this._native = 0;
+    this._native = { a: 0, b: 0 };
+    this._lastNative = null;
+    this._lastCommandedNative = null;
+    this._expectedStrengths?.clear();
     this._outputGeneration += 1;
     super._detach();
   }
 
   setOutput(displayPercent) {
-    const native = opossumNativeLevel(displayPercent);
-    if (native === 0) return this.stop();
+    // Backwards-compatible scalar API is A-only. It cannot silently enable B.
+    return this.setLevels({ a: displayPercent, b: 0 });
+  }
+
+  setPercent(displayPercent) { return this.setOutput(displayPercent); }
+
+  setLevels({ a = 0, b = 0 } = {}) {
+    // Compute both before changing state, so malformed updates are atomic.
+    const native = { a: opossumNativeLevel(a), b: opossumNativeLevel(b) };
+    if (native.a === 0 && native.b === 0) return this.stop();
     if (!this.connected) return Promise.reject(new Error('Opossum is not connected and ready.'));
-    if (native === this._native && this._pulseTimer !== null) {
+    if (sameLevels(native, this._native) && this._pulseTimer !== null) {
       return this._pendingOutput?.promise ?? Promise.resolve({ sent: false, reason: 'unchanged' });
     }
     this._native = native;
@@ -554,20 +585,20 @@ export class OpossumDevice extends BluetoothAdapter {
   _sendFrame(native, generation) {
     const epoch = this._epoch;
     const characteristic = this._writeCharacteristic;
-    const channel = this.channel;
     if (!this._queue) return Promise.reject(new Error('Opossum is disconnected.'));
     return this._queue.enqueue(async () => {
       if (generation !== this._outputGeneration || !this.connected) return canceled();
       this._check(epoch);
-      if (native !== this._lastNative) {
-        await writeCharacteristic(characteristic, opossumStrengthCommand(native, channel));
+      if (!sameLevels(native, this._lastNative)) {
+        this._rememberStrength(native);
+        await writeCharacteristic(characteristic, opossumStrengthCommand(native));
         this._check(epoch);
         this._lastNative = native;
       }
       if (generation !== this._outputGeneration || !this.connected) return canceled();
-      await writeCharacteristic(characteristic, opossumPulseCommand(true, channel));
+      await writeCharacteristic(characteristic, opossumPulseCommand(native));
       this._check(epoch);
-      return { sent: true, nativeLevel: Math.min(OPOSSUM_MAX_NATIVE, native) };
+      return { sent: true, nativeLevels: { ...native }, nativeLevel: Math.max(native.a, native.b) };
     });
   }
 
@@ -575,7 +606,7 @@ export class OpossumDevice extends BluetoothAdapter {
     if (this._pulseTimer !== null) return;
     this._lastPulseTick = this.now();
     this._pulseTimer = setInterval(() => {
-      if (!this.connected || !this._native) return;
+      if (!this.connected || (!this._native.a && !this._native.b)) return;
       const at = this.now();
       if (at < this._lastPulseTick || at - this._lastPulseTick > 500) {
         this._error(new Error('Opossum pulse timing was interrupted. Reconnect before continuing.'));
@@ -601,7 +632,7 @@ export class OpossumDevice extends BluetoothAdapter {
 
   stop() {
     this._stopPulseTimer();
-    this._native = 0;
+    this._native = { a: 0, b: 0 };
     this._outputGeneration += 1;
     this._lastNative = null;
     const epoch = this._epoch;
@@ -612,12 +643,16 @@ export class OpossumDevice extends BluetoothAdapter {
       let failure;
       // Attempt both documented zeros even if one command fails.
       for (const bytes of [opossumStrengthCommand(0), opossumPulseCommand(false)]) {
-        try { await writeCharacteristic(characteristic, bytes); this._check(epoch); }
+        try {
+          if (bytes[0] === 0xb3) this._rememberStrength({ a: 0, b: 0 });
+          await writeCharacteristic(characteristic, bytes);
+          this._check(epoch);
+        }
         catch (error) { failure ??= error; }
       }
       if (failure) throw failure;
-      this._lastNative = 0;
-      return { sent: true, nativeLevel: 0 };
+      this._lastNative = { a: 0, b: 0 };
+      return { sent: true, nativeLevel: 0, nativeLevels: { a: 0, b: 0 } };
     }, { key: 'stop', priority: true });
   }
 

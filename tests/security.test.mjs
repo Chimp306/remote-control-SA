@@ -58,6 +58,8 @@ test('public telemetry is an explicit projection, never the source object', () =
   assert.deepEqual(Object.keys(state).sort(), [
     'phase', 'toy', 'mode', 'simulation', 'pressure', 'threshold',
     'resetThreshold', 'edgeCount', 'newRecord', 'outputPercent', 'guestPercent',
+    'outputPercentA', 'outputPercentB', 'guestPercentA', 'guestPercentB',
+    'maxPercentA', 'maxPercentB',
     'pattern', 'cooldownSeconds', 'cooldownEndsAt', 'remainingCooldown',
     'epoch', 'reason',
   ].sort());
@@ -81,6 +83,12 @@ test('record announcements accept only a strict host-provided boolean', () => {
 test('all non-running phases report zero commanded output', () => {
   for (const phase of PHASES.filter((value) => value !== 'running')) {
     assert.equal(sanitizeState({ phase, outputPercent: 100 }, 'lush').outputPercent, 0);
+    const dual = sanitizeState({ phase, outputPercent: 100, outputPercentA: 70, outputPercentB: 90, guestPercentA: 70, guestPercentB: 90 }, 'opossum');
+    assert.equal(dual.outputPercent, 0, phase);
+    assert.equal(dual.outputPercentA, 0, phase);
+    assert.equal(dual.outputPercentB, 0, phase);
+    assert.equal(dual.guestPercentA, 70, 'selected controls remain visible while output is paused');
+    assert.equal(dual.guestPercentB, 90);
   }
   assert.equal(sanitizeState({ phase: 'made-up', outputPercent: 100 }, 'lush').phase, 'paused');
   assert.equal(sanitizeState({ phase: 'made-up', outputPercent: 100 }, 'lush').outputPercent, 0);
@@ -130,6 +138,57 @@ test('host telemetry clamps display ranges and enforces the selected toy pattern
   assert.equal(state.epoch, 0);
 });
 
+test('Opossum telemetry aggregates independent channels without trusting scalar claims', () => {
+  const state = sanitizeState({
+    phase: 'running', outputPercent: 0, outputPercentA: 35, outputPercentB: 80,
+    guestPercent: 0, guestPercentA: 25, guestPercentB: 95,
+    maxPercentA: 70, maxPercentB: 100,
+  }, 'opossum');
+  assert.equal(state.outputPercent, 80);
+  assert.equal(state.guestPercent, 95);
+  assert.equal(state.outputPercentA, 35);
+  assert.equal(state.outputPercentB, 80);
+  assert.equal(state.guestPercentA, 25);
+  assert.equal(state.guestPercentB, 95);
+  assert.equal(state.maxPercentA, 70);
+  assert.equal(state.maxPercentB, 100);
+  for (const toy of ['lush', 'vacuglide']) {
+    const single = sanitizeState({ ...state, outputPercent: 55, guestPercent: 65 }, toy);
+    assert.equal(single.outputPercent, 55);
+    assert.equal(single.guestPercent, 65);
+    for (const field of ['outputPercentA', 'outputPercentB', 'guestPercentA', 'guestPercentB', 'maxPercentA', 'maxPercentB']) {
+      assert.equal(single[field], 0, `${toy}: ${field}`);
+    }
+  }
+});
+
+test('legacy Opossum telemetry is A-only and malformed explicit channels fail closed', () => {
+  const legacy = sanitizeState({ phase: 'running', outputPercent: 65, guestPercent: 75 }, 'opossum');
+  assert.equal(legacy.outputPercentA, 65);
+  assert.equal(legacy.outputPercentB, 0);
+  assert.equal(legacy.guestPercentA, 75);
+  assert.equal(legacy.guestPercentB, 0);
+  assert.equal(legacy.maxPercentA, 100);
+  assert.equal(legacy.maxPercentB, 100);
+  for (const value of [null, '100', true, [], {}, NaN, Infinity, -Infinity]) {
+    const state = sanitizeState({
+      phase: 'running', outputPercent: 100, guestPercent: 100,
+      outputPercentA: value, outputPercentB: value,
+      guestPercentA: value, guestPercentB: value,
+    }, 'opossum');
+    for (const field of ['outputPercent', 'outputPercentA', 'outputPercentB', 'guestPercent', 'guestPercentA', 'guestPercentB']) {
+      assert.equal(state[field], 0, `${field} must not fall back to an unrelated scalar`);
+    }
+  }
+  const bounded = sanitizeState({ phase: 'running', outputPercentA: -1, outputPercentB: 101, guestPercentA: 1000, guestPercentB: -2, maxPercentA: -4, maxPercentB: 101 }, 'opossum');
+  assert.equal(bounded.outputPercentA, 0);
+  assert.equal(bounded.outputPercentB, 100);
+  assert.equal(bounded.guestPercentA, 100);
+  assert.equal(bounded.guestPercentB, 0);
+  assert.equal(bounded.maxPercentA, 0);
+  assert.equal(bounded.maxPercentB, 100);
+});
+
 test('guest commands accept only the exact approved control fields', () => {
   const command = validCommand();
   assert.deepEqual(sanitizeCommand(command, 'lush'), command);
@@ -164,6 +223,43 @@ test('commands reject out-of-range outputs and cooldowns instead of clamping', (
     }
   }
   assert.equal(sanitizeCommand(validCommand({ percent: 50.5 }), 'lush').percent, 51);
+});
+
+test('paired Opossum commands canonicalize their scalar aggregate including B-only output', () => {
+  for (const [percentA, percentB] of [[0, 100], [100, 0], [10, 90], [90, 10], [0, 0], [20.4, 80.5]]) {
+    const expected = validCommand({ percent: Math.max(Math.round(percentA), Math.round(percentB)), percentA: Math.round(percentA), percentB: Math.round(percentB) });
+    for (const scalar of [undefined, 0, 100]) {
+      const input = validCommand({ percent: scalar, percentA, percentB });
+      if (scalar === undefined) delete input.percent;
+      assert.deepEqual(sanitizeCommand(input, 'opossum'), expected);
+    }
+  }
+  assert.deepEqual(sanitizeCommand(validCommand({ percent: 47.5 }), 'opossum'), validCommand({ percent: 48, percentA: 48, percentB: 0 }));
+});
+
+test('Opossum paired controls require both finite in-range channels and strict optional scalar', () => {
+  for (const field of ['percentA', 'percentB']) {
+    for (const value of [undefined, null, '50', true, {}, [], NaN, Infinity, -Infinity, -0.1, 100.1]) {
+      assert.throws(() => sanitizeCommand(validCommand({ percentA: 50, percentB: 50, [field]: value }), 'opossum'));
+    }
+    const missing = validCommand({ percentA: 50, percentB: 50 });
+    delete missing[field];
+    assert.throws(() => sanitizeCommand(missing, 'opossum'));
+  }
+  for (const percent of [undefined, null, '0', true, {}, [], NaN, Infinity, -Infinity, -1, 101]) {
+    assert.throws(() => sanitizeCommand(validCommand({ percent, percentA: 0, percentB: 60 }), 'opossum'));
+  }
+});
+
+test('dual controls are forbidden for other devices and never authorize changing caps', () => {
+  for (const toy of ['lush', 'vacuglide']) {
+    for (const fields of [{ percentA: 0 }, { percentB: 0 }, { percentA: 0, percentB: 0 }]) {
+      assert.throws(() => sanitizeCommand(validCommand(fields), toy), /Unsupported control/);
+    }
+  }
+  for (const field of ['maxPercentA', 'maxPercentB', 'powerCapA', 'powerCapB', 'outputPercentA', 'outputPercentB', 'deviceToken', 'valve']) {
+    assert.throws(() => sanitizeCommand(validCommand({ percentA: 10, percentB: 20, [field]: 100 }), 'opossum'), /Unsupported control/);
+  }
 });
 
 test('sequence and epoch fields reject fractions, negatives and unsafe integers', () => {
@@ -223,6 +319,26 @@ test('guest-visible host state becomes unavailable at the five-second freshness 
     assert.equal(result.state.phase, 'paused');
     assert.equal(result.state.outputPercent, 0);
     assert.equal(result.state.reason, 'Host connection unavailable');
+  }
+});
+
+test('stale Opossum state zeros both outputs but preserves separate selected levels', () => {
+  const now = 1700000000000;
+  const row = {
+    id: 'session-id', toy: 'opossum', simulation: false,
+    state: { phase: 'running', outputPercentA: 35, outputPercentB: 85, guestPercentA: 40, guestPercentB: 90 },
+  };
+  const fresh = publicSession({ ...row, state_at: new Date(now - 4999).toISOString() }, 0, now);
+  assert.equal(fresh.state.outputPercent, 85);
+  assert.equal(fresh.state.outputPercentA, 35);
+  assert.equal(fresh.state.outputPercentB, 85);
+  for (const state_at of [new Date(now - 5000).toISOString(), new Date(now + 1).toISOString(), null, 'invalid']) {
+    const result = publicSession({ ...row, state_at }, 0, now);
+    assert.equal(result.hostOnline, false);
+    assert.equal(result.state.phase, 'paused');
+    for (const field of ['outputPercent', 'outputPercentA', 'outputPercentB']) assert.equal(result.state[field], 0);
+    assert.equal(result.state.guestPercentA, 40);
+    assert.equal(result.state.guestPercentB, 90);
   }
 });
 
@@ -472,6 +588,59 @@ test('guest command honors atomic stale/phase/epoch/replay rejection from storag
   }
 });
 
+test('Opossum guest commands reach the atomic gate only after canonicalizing both channels', async () => {
+  for (const [phase, percentA, percentB, accepted] of [
+    ['running', 0, 80, true], ['running', 35, 65, true],
+    ['cooldown', 0, 80, false], ['paused', 75, 0, false],
+    ['cooldown', 0, 0, true], ['fault', 0, 0, true],
+  ]) {
+    let commandSeen;
+    await withDatabase(call => {
+      if (call.path === 'rpc/ctmp_v2_rate') return true;
+      if (call.path === 'ctmp_v2_sessions') return [fixtureSession({ toy: 'opossum', state: { phase, epoch: 3 } })];
+      assert.equal(call.path, 'rpc/ctmp_v2_command');
+      commandSeen = call.body.p_command;
+      assert.equal(commandSeen.percentA, percentA);
+      assert.equal(commandSeen.percentB, percentB);
+      assert.equal(commandSeen.percent, Math.max(percentA, percentB), 'a forged scalar zero must not bypass the SQL phase gate');
+      // Mirror the unchanged service-only RPC phase predicate. Assertions above
+      // independently prove its input is canonical, not the raw guest payload.
+      return phase !== 'running' && commandSeen.percent !== 0 ? -2 : 1;
+    }, async () => {
+      const response = await handler(apiRequest({ action: 'guest-command', sessionId, command: validCommand({ percent: 0, percentA, percentB }) }, { token: guestToken }));
+      assert.equal(response.status, accepted ? 200 : 409, `${phase}: A=${percentA}, B=${percentB}`);
+      assert.ok(commandSeen);
+      if (accepted) assert.equal((await response.json()).accepted, true);
+    });
+  }
+});
+
+test('dual guest payloads retain atomic stale/epoch/replay rejections and reject cap injection', async () => {
+  for (const result of [-1, -2, -3, -4]) {
+    await withDatabase(call => {
+      if (call.path === 'rpc/ctmp_v2_rate') return true;
+      if (call.path === 'ctmp_v2_sessions') return [fixtureSession({ toy: 'opossum' })];
+      assert.equal(call.path, 'rpc/ctmp_v2_command');
+      assert.equal(call.body.p_command.percent, 80);
+      return result;
+    }, async () => {
+      const command = validCommand({ percentA: 20, percentB: 80 });
+      delete command.percent;
+      assert.equal((await handler(apiRequest({ action: 'guest-command', sessionId, command }, { token: guestToken }))).status, 409);
+    });
+  }
+  for (const toy of ['lush', 'vacuglide', 'opossum']) {
+    await withDatabase(call => {
+      if (call.path === 'rpc/ctmp_v2_rate') return true;
+      if (call.path === 'ctmp_v2_sessions') return [fixtureSession({ toy })];
+      assert.fail('unsupported dual/cap fields must fail before the command RPC');
+    }, async () => {
+      const command = validCommand({ percentA: 0, percentB: 90, ...(toy === 'opossum' ? { maxPercentB: 100 } : {}) });
+      assert.equal((await handler(apiRequest({ action: 'guest-command', sessionId, command }, { token: guestToken }))).status, 400);
+    });
+  }
+});
+
 test('only the creating owner token can publish authoritative host telemetry', async () => {
   await withDatabase(call => {
     if (call.path === 'ctmp_v2_owner_tokens') return [{ token_hash: ownerHash }];
@@ -639,8 +808,9 @@ async function makeHostHarness() {
     releaseValves() {}
   }
   class FakeDevice {
-    constructor() { this.connected = false; this.stops = 0; this.outputs = []; this.stopFailure = null; }
+    constructor() { this.connected = false; this.stops = 0; this.outputs = []; this.levelOutputs = []; this.stopFailure = null; }
     setOutput(value) { this.outputs.push(value); return Promise.resolve(); }
+    setLevels({ a, b }) { this.levelOutputs.push({ a, b }); return Promise.resolve(); }
     stop() { this.stops++; return this.stopFailure ? Promise.reject(this.stopFailure) : Promise.resolve(); }
     disconnect() { this.connected = false; return Promise.resolve(); }
   }
@@ -654,12 +824,13 @@ async function makeHostHarness() {
     return { getItem: key => map.get(key) ?? null, setItem: (key, value) => map.set(key, value), removeItem: key => map.delete(key) };
   };
   const windowListeners = new Map();
+  const documentListeners = new Map();
   const scope = {
     UI: FakeUI, SessionEngine, Backend: FakeBackend, CivetDevice: FakeDevice,
     LushDevice: FakeDevice, OpossumDevice: FakeDevice, VacuGlideDevice: FakeDevice,
     runDiagnostics: () => [], Date, crypto: globalThis.crypto,
     location: { pathname: '/', origin: 'https://ctmp.uk' }, navigator: {},
-    document: { hidden: false, addEventListener() {} },
+    document: { hidden: false, addEventListener(name, listener) { if (!documentListeners.has(name)) documentListeners.set(name, []); documentListeners.get(name).push(listener); } },
     window: { addEventListener(name, listener) { if (!windowListeners.has(name)) windowListeners.set(name, []); windowListeners.get(name).push(listener); } },
     localStorage: storage(), sessionStorage: storage(),
     setInterval: () => 1, setTimeout: () => 1, clearTimeout() {}, queueMicrotask() {},
@@ -667,9 +838,11 @@ async function makeHostHarness() {
   runInNewContext(source + `
     globalThis.hostHarness = {
       syncHost, remoteFault, endRemote, handleAction, applyGuestState, unlock,
+      queueGuestCommand, flushGuestCommand,
       get engine() { return engine; }, get drivers() { return drivers; },
       get backend() { return backend; }, get epoch() { return epoch; },
       get remote() { return remote; }, get guestNewRecord() { return guestNewRecord; },
+      get guestDesired() { return guestDesired; }, get guestPending() { return guestPending; },
       setState(values) {
         if ('remote' in values) remote = values.remote;
         if ('guest' in values) guest = values.guest;
@@ -679,14 +852,18 @@ async function makeHostHarness() {
     };
   `, scope, { filename: 'ctmp-main-security-fixture.js' });
   scope.hostHarness.dispatchWindow = name => { for (const listener of windowListeners.get(name) || []) listener(); };
+  scope.hostHarness.setHidden = hidden => {
+    scope.document.hidden = hidden;
+    for (const listener of documentListeners.get('visibilitychange') || []) listener();
+  };
   return scope.hostHarness;
 }
 
-async function runningGuestHost() {
+async function runningGuestHost(toy = 'lush') {
   const host = await makeHostHarness();
-  host.drivers.lush.connected = true;
+  host.drivers[toy].connected = true;
   host.backend.ownerToken = ownerToken;
-  host.engine.configure({ mode: 'guest', threshold: 23, resetThreshold: 21.5 });
+  host.engine.configure({ mode: 'guest', toy, threshold: 23, resetThreshold: 21.5 });
   host.engine.updatePressure(21);
   host.engine.start();
   host.setState({ remote: { sessionId, owned: true, url: 'https://ctmp.uk/ABCDEF' } });
@@ -728,6 +905,261 @@ test('a guest Stop during cooldown cannot shorten or reconfigure that cooldown',
   assert.equal(host.engine.pattern, 'pulse');
   assert.equal(host.engine.config.cooldownSeconds, 30);
   assert.equal(host.engine.cooldownEndsAt, deadline);
+});
+
+test('host routes independent Opossum outputs through setLevels, including B-only commands', async () => {
+  for (const [percentA, percentB] of [[0, 85], [45, 85], [85, 0]]) {
+    const host = await runningGuestHost('opossum');
+    host.backend.respond = () => {
+      const now = Date.now();
+      return { best: 0, guestConnected: true, commandSeq: 1, serverNow: now,
+        command: validCommand({ percent: 0, percentA, percentB, epoch: host.epoch, at: now }) };
+    };
+    await host.syncHost();
+    assert.equal(host.engine.phase, 'running');
+    assert.equal(host.engine.guestPercentA, percentA);
+    assert.equal(host.engine.guestPercentB, percentB);
+    assert.equal(host.engine.outputPercent, Math.max(percentA, percentB));
+    assert.deepEqual(host.drivers.opossum.levelOutputs.at(-1), { a: percentA, b: percentB });
+    assert.equal(host.drivers.opossum.outputs.length, 0, 'dual output must not fall through the legacy scalar driver');
+  }
+});
+
+test('host maps legacy scalar Opossum guest control to A only', async () => {
+  const host = await runningGuestHost('opossum');
+  host.engine.setGuestOutput({ percentA: 20, percentB: 80 });
+  host.backend.respond = () => {
+    const now = Date.now();
+    return { best: 0, guestConnected: true, commandSeq: 1, serverNow: now,
+      command: validCommand({ percent: 55, epoch: host.epoch, at: now }) };
+  };
+  await host.syncHost();
+  assert.equal(host.engine.guestPercentA, 55);
+  assert.equal(host.engine.guestPercentB, 0);
+  assert.deepEqual(host.drivers.opossum.levelOutputs.at(-1), { a: 55, b: 0 });
+});
+
+test('a forged scalar zero cannot hide positive Opossum B from host cooldown protection', async () => {
+  const host = await runningGuestHost('opossum');
+  host.engine.setGuestOutput({ percentA: 45, percentB: 85, pattern: 'pulse', cooldownSeconds: 30 });
+  host.engine.updatePressure(23);
+  const deadline = host.engine.cooldownEndsAt;
+  const writesBefore = host.drivers.opossum.levelOutputs.length;
+  host.backend.respond = () => {
+    const now = Date.now();
+    return { best: 1, guestConnected: true, commandSeq: 1, serverNow: now,
+      command: validCommand({ percent: 0, percentA: 0, percentB: 100, pattern: 'wave', cooldownSeconds: 10, epoch: host.epoch, at: now }) };
+  };
+  await host.syncHost();
+  assert.equal(host.engine.phase, 'cooldown');
+  assert.equal(host.engine.guestPercentA, 45);
+  assert.equal(host.engine.guestPercentB, 85);
+  assert.equal(host.engine.outputPercentA, 0);
+  assert.equal(host.engine.outputPercentB, 0);
+  assert.equal(host.engine.pattern, 'pulse');
+  assert.equal(host.engine.config.cooldownSeconds, 30);
+  assert.equal(host.engine.cooldownEndsAt, deadline);
+  assert.equal(host.drivers.opossum.levelOutputs.length, writesBefore);
+});
+
+test('true Opossum Stop zeros both selections during cooldown without changing settings or deadline', async () => {
+  for (const channelFields of [{ percentA: 0, percentB: 0 }, {}]) {
+    const host = await runningGuestHost('opossum');
+    host.engine.setGuestOutput({ percentA: 45, percentB: 85, pattern: 'pulse', cooldownSeconds: 30 });
+    host.engine.updatePressure(23);
+    const deadline = host.engine.cooldownEndsAt;
+    host.backend.respond = () => {
+      const now = Date.now();
+      return { best: 1, guestConnected: true, commandSeq: 1, serverNow: now,
+        command: validCommand({ percent: 0, ...channelFields, pattern: 'wave', cooldownSeconds: 10, epoch: host.epoch, at: now }) };
+    };
+    await host.syncHost();
+    assert.equal(host.engine.phase, 'cooldown');
+    assert.equal(host.engine.guestPercentA, 0);
+    assert.equal(host.engine.guestPercentB, 0);
+    assert.equal(host.engine.outputPercentA, 0);
+    assert.equal(host.engine.outputPercentB, 0);
+    assert.equal(host.engine.pattern, 'pulse');
+    assert.equal(host.engine.config.cooldownSeconds, 30);
+    assert.equal(host.engine.cooldownEndsAt, deadline);
+  }
+});
+
+test('both-off Opossum controls may change pattern and cooldown while running', async () => {
+  const host = await runningGuestHost('opossum');
+  host.engine.setGuestOutput({ percentA: 40, percentB: 80 });
+  const stopsBefore = host.drivers.opossum.stops;
+  host.backend.respond = () => {
+    const now = Date.now();
+    return { best: 0, guestConnected: true, commandSeq: 1, serverNow: now,
+      command: validCommand({ percent: 0, percentA: 0, percentB: 0, pattern: 'wave', cooldownSeconds: 10, epoch: host.epoch, at: now }) };
+  };
+  await host.syncHost();
+  assert.equal(host.engine.guestPercentA, 0);
+  assert.equal(host.engine.guestPercentB, 0);
+  assert.equal(host.engine.pattern, 'wave');
+  assert.equal(host.engine.config.cooldownSeconds, 10);
+  assert.ok(host.drivers.opossum.stops > stopsBefore);
+});
+
+test('stale, previous-epoch and disconnected guest commands cannot start either Opossum channel', async () => {
+  for (const scenario of ['stale', 'epoch', 'disconnected']) {
+    const host = await runningGuestHost('opossum');
+    host.backend.respond = () => {
+      const now = Date.now();
+      return { best: 0, guestConnected: scenario !== 'disconnected', commandSeq: 1, serverNow: now,
+        command: validCommand({ percent: 100, percentA: 40, percentB: 100, epoch: host.epoch - (scenario === 'epoch' ? 1 : 0), at: now - (scenario === 'stale' ? 3001 : 0) }) };
+    };
+    await host.syncHost();
+    assert.equal(host.engine.guestPercentA, 0, scenario);
+    assert.equal(host.engine.guestPercentB, 0, scenario);
+    assert.equal(host.engine.outputPercentA, 0, scenario);
+    assert.equal(host.engine.outputPercentB, 0, scenario);
+    assert.equal(host.drivers.opossum.levelOutputs.length, 0, scenario);
+  }
+});
+
+test('host pause wins over an in-flight command to both Opossum channels', async () => {
+  const host = await runningGuestHost('opossum');
+  const commandEpoch = host.epoch;
+  let release;
+  host.backend.respond = () => new Promise(resolve => { release = resolve; });
+  const syncing = host.syncHost();
+  host.engine.pause('Fixture host pause');
+  const now = Date.now();
+  release({ best: 0, guestConnected: true, commandSeq: 1, serverNow: now,
+    command: validCommand({ percent: 100, percentA: 40, percentB: 100, epoch: commandEpoch, at: now }) });
+  await syncing;
+  assert.equal(host.engine.phase, 'paused');
+  assert.equal(host.engine.outputPercentA, 0);
+  assert.equal(host.engine.outputPercentB, 0);
+  assert.equal(host.drivers.opossum.levelOutputs.length, 0);
+});
+
+async function dualGuestHarness(phase = 'running') {
+  const guest = await makeHostHarness();
+  guest.backend.guestToken = guestToken;
+  guest.setState({ guest: { clientId: 'a'.repeat(32), clientSeq: 0, sessionId } });
+  const reported = {
+    hostOnline: true, clientSeq: 0, best: 0,
+    state: { toy: 'opossum', phase, epoch: 3, guestPercent: 80, guestPercentA: 40, guestPercentB: 80, pattern: 'steady', cooldownSeconds: 20, edgeCount: 0 },
+  };
+  guest.applyGuestState(reported);
+  guest.backend.respond = action => {
+    assert.equal(action, 'guest-command');
+    return { accepted: true, commandSeq: 1, serverNow: Date.now() };
+  };
+  return { guest, reported };
+}
+
+test('guest channel updates send a complete vector and preserve the other channel across poll lag', async () => {
+  const { guest, reported } = await dualGuestHarness();
+  guest.queueGuestCommand({ percentB: 60 });
+  assert.equal(guest.guestPending.percentA, 40);
+  assert.equal(guest.guestPending.percentB, 60);
+  await guest.flushGuestCommand();
+  guest.applyGuestState(reported); // Host has not applied the just-accepted change yet.
+  guest.queueGuestCommand({ percentA: 70 });
+  assert.equal(guest.guestPending.percentA, 70);
+  assert.equal(guest.guestPending.percentB, 60, 'a stale poll must not restore the former B setting');
+  assert.equal(guest.guestPending.percent, 70);
+  await guest.flushGuestCommand();
+  assert.equal(guest.backend.calls.length, 2);
+  assert.equal(guest.backend.calls[1].payload.command.percentA, 70);
+  assert.equal(guest.backend.calls[1].payload.command.percentB, 60);
+});
+
+test('guest queue rejects scalar-zero positive B in cooldown and sends both-zero Stop immediately', async () => {
+  const { guest } = await dualGuestHarness('cooldown');
+  assert.throws(() => guest.queueGuestCommand({ percent: 0, percentA: 0, percentB: 80 }), /paused during cooldown/);
+  assert.equal(guest.backend.calls.length, 0);
+  guest.queueGuestCommand({ percent: 0, percentA: 0, percentB: 0 });
+  assert.equal(guest.backend.calls.length, 1);
+  const command = guest.backend.calls[0].payload.command;
+  assert.equal(command.percentA, 0);
+  assert.equal(command.percentB, 0);
+  assert.equal(command.percent, 0);
+});
+
+test('an epoch change cancels a queued dual-channel command before it can be sent', async () => {
+  const { guest, reported } = await dualGuestHarness();
+  guest.queueGuestCommand({ percentA: 85, percentB: 95 });
+  guest.applyGuestState({ ...reported, state: { ...reported.state, epoch: 4, phase: 'cooldown' } });
+  await guest.flushGuestCommand();
+  assert.equal(guest.guestPending, null);
+  assert.equal(guest.backend.calls.length, 0);
+});
+
+test('an epoch change discards stale dual-channel intent even while a command is in flight', async () => {
+  const { guest, reported } = await dualGuestHarness();
+  let release;
+  guest.backend.respond = () => new Promise(resolve => { release = resolve; });
+  guest.queueGuestCommand({ percentA: 90, percentB: 100 });
+  const sending = guest.flushGuestCommand();
+  guest.applyGuestState({ ...reported, state: { ...reported.state, epoch: 4, phase: 'cooldown', guestPercentA: 0, guestPercentB: 0, guestPercent: 0 } });
+  assert.equal(guest.guestDesired.percentA, 0);
+  assert.equal(guest.guestDesired.percentB, 0);
+  release({ accepted: true, commandSeq: 1, serverNow: Date.now() });
+  await sending;
+  assert.equal(guest.guestDesired.percentA, 0);
+  assert.equal(guest.guestDesired.percentB, 0);
+  assert.equal(guest.backend.calls.length, 1);
+});
+
+test('hiding a live Opossum host pauses both channels and visibility alone cannot resume', async () => {
+  const host = await runningGuestHost('opossum');
+  host.engine.setGuestOutput({ percentA: 45, percentB: 85 });
+  assert.equal(host.engine.outputPercentA, 45);
+  assert.equal(host.engine.outputPercentB, 85);
+  const stopsBefore = host.drivers.opossum.stops;
+  const writesBefore = host.drivers.opossum.levelOutputs.length;
+  host.setHidden(true);
+  assert.equal(host.engine.phase, 'paused');
+  assert.equal(host.engine.outputPercentA, 0);
+  assert.equal(host.engine.outputPercentB, 0);
+  assert.ok(host.drivers.opossum.stops > stopsBefore);
+  host.setHidden(false);
+  assert.equal(host.engine.phase, 'paused');
+  assert.equal(host.drivers.opossum.levelOutputs.length, writesBefore);
+});
+
+test('isolated simulation may switch tabs without pausing and cannot write either physical channel', async () => {
+  const host = await makeHostHarness();
+  host.backend.ownerToken = ownerToken;
+  for (const driver of Object.values(host.drivers)) driver.connected = true;
+  await host.handleAction('simulation', { enabled: true });
+  assert.equal(host.engine.simulation, true);
+  for (const driver of Object.values(host.drivers)) assert.equal(driver.connected, false);
+  const counts = Object.values(host.drivers).map(driver => [driver.stops, driver.outputs.length, driver.levelOutputs.length]);
+  host.engine.configure({ toy: 'opossum', mode: 'guest' });
+  host.engine.start();
+  host.engine.setGuestOutput({ percentA: 45, percentB: 85 });
+  host.setHidden(true);
+  assert.equal(host.engine.phase, 'running');
+  assert.equal(host.engine.outputPercentA, 45);
+  assert.equal(host.engine.outputPercentB, 85);
+  host.engine.setGuestOutput({ percentA: 70, percentB: 30 });
+  host.setHidden(false);
+  assert.equal(host.engine.phase, 'running');
+  assert.deepEqual(Object.values(host.drivers).map(driver => [driver.stops, driver.outputs.length, driver.levelOutputs.length]), counts);
+});
+
+test('an unconfirmed physical disconnect prevents enabling the simulation visibility exception', async () => {
+  const host = await makeHostHarness();
+  host.backend.ownerToken = ownerToken;
+  host.drivers.opossum.connected = true;
+  host.drivers.opossum.disconnect = () => Promise.reject(new Error('Deliberate disconnect failure'));
+  await assert.rejects(host.handleAction('simulation', { enabled: true }), /physical disconnect or stop was not confirmed/);
+  assert.equal(host.engine.simulation, false);
+  host.engine.configure({ toy: 'opossum', mode: 'guest' });
+  host.engine.updatePressure(21);
+  host.engine.start();
+  host.engine.setGuestOutput({ percentA: 45, percentB: 85 });
+  assert.equal(host.engine.phase, 'running');
+  host.setHidden(true);
+  assert.equal(host.engine.phase, 'paused');
+  assert.equal(host.engine.outputPercentA, 0);
+  assert.equal(host.engine.outputPercentB, 0);
 });
 
 test('End invalidates the guest link even when physical stop cannot be confirmed', async () => {
@@ -892,8 +1324,8 @@ test('solo VacuGlide faults immediately on offline and never resumes merely on o
   assert.equal(host.engine.outputPercent, 0);
 });
 
-test('all nine built-in diagnostic checks pass without hardware', () => {
+test('all twelve built-in diagnostic checks pass without hardware', () => {
   const checks = runDiagnostics();
-  assert.equal(checks.length, 9);
+  assert.equal(checks.length, 12);
   for (const check of checks) assert.equal(check.passed, true, `${check.name}: ${check.message || ''}`);
 });

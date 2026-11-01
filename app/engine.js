@@ -7,6 +7,7 @@
 export const SENSOR_FRESH_MS = 1000;
 export const ENGINE_DEFAULTS = Object.freeze({
   toy: 'lush', mode: 'solo', startPercent: 10, rampSeconds: 60,
+  maxPercentA: 100, maxPercentB: 100,
   cooldownSeconds: 20, threshold: 22.9, resetThreshold: 21.6,
 });
 
@@ -36,7 +37,11 @@ export class SessionEngine {
     this.pressureAt = null;
     this.edgeCount = 0;
     this.outputPercent = 0;
+    this.outputPercentA = 0;
+    this.outputPercentB = 0;
     this.guestPercent = 0;
+    this.guestPercentA = 0;
+    this.guestPercentB = 0;
     this.pattern = 'steady';
     this.cooldownEndsAt = null;
     this.reason = '';
@@ -62,11 +67,19 @@ export class SessionEngine {
       throw new Error('Pause or stop before changing device or session mode.');
     }
     if (values.startPercent !== undefined) next.startPercent = clamp(finite(values.startPercent, 'Start percentage'), 0, 100);
+    if (values.maxPercentA !== undefined) next.maxPercentA = clamp(finite(values.maxPercentA, 'Channel A maximum'), 0, 100);
+    if (values.maxPercentB !== undefined) next.maxPercentB = clamp(finite(values.maxPercentB, 'Channel B maximum'), 0, 100);
     if (values.rampSeconds !== undefined) next.rampSeconds = clamp(finite(values.rampSeconds, 'Ramp duration'), 0, 3600);
     if (values.cooldownSeconds !== undefined) next.cooldownSeconds = clamp(finite(values.cooldownSeconds, 'Cooldown duration'), 10, 30);
     if (values.threshold !== undefined) next.threshold = pressureLevel(values.threshold, 'Cutoff');
     if (values.resetThreshold !== undefined) next.resetThreshold = pressureLevel(values.resetThreshold, 'Reset threshold');
     if (next.resetThreshold >= next.threshold) throw new RangeError('Reset threshold must be below the cutoff.');
+    if (next.toy !== this.config.toy) {
+      // Changing devices never carries a second-channel request into a newly
+      // selected toy. Dual-channel output requires an explicit Opossum command.
+      this.guestPercentA = this.guestPercent;
+      this.guestPercentB = 0;
+    }
     this.config = next;
     if (next.toy === 'vacuglide') this.pattern = 'steady';
     // Editing the duration never shortens an already-running cooldown.
@@ -229,13 +242,32 @@ export class SessionEngine {
     return this.snapshot();
   }
 
-  setGuestOutput({ percent, pattern, cooldownSeconds } = {}) {
+  setGuestOutput({ percent, percentA, percentB, pattern, cooldownSeconds } = {}) {
     // Validate atomically so a malformed command does not partly alter a session.
-    const nextPercent = percent === undefined ? this.guestPercent : clamp(finite(percent, 'Guest percentage'), 0, 100);
+    let nextPercent = percent === undefined ? this.guestPercent : clamp(finite(percent, 'Guest percentage'), 0, 100);
+    const hasChannels = percentA !== undefined || percentB !== undefined;
+    let nextA = this.guestPercentA, nextB = this.guestPercentB;
+    if (this.config.toy === 'opossum') {
+      if (hasChannels) {
+        if (percentA !== undefined) nextA = clamp(finite(percentA, 'Channel A percentage'), 0, 100);
+        if (percentB !== undefined) nextB = clamp(finite(percentB, 'Channel B percentage'), 0, 100);
+      } else if (percent !== undefined) {
+        // Older scalar controllers can never unexpectedly enable channel B.
+        nextA = nextPercent;
+        nextB = 0;
+      }
+      nextPercent = Math.max(nextA, nextB);
+    } else {
+      if (hasChannels) throw new TypeError('Separate channels are supported only for Opossum.');
+      nextA = nextPercent;
+      nextB = 0;
+    }
     const nextPattern = pattern === undefined ? this.pattern : pattern;
     if (!PATTERNS.has(nextPattern)) throw new TypeError('Unsupported pattern.');
     const nextCooldown = cooldownSeconds === undefined ? this.config.cooldownSeconds : clamp(finite(cooldownSeconds, 'Cooldown duration'), 10, 30);
     this.guestPercent = nextPercent;
+    this.guestPercentA = nextA;
+    this.guestPercentB = nextB;
     this.pattern = this.config.toy === 'vacuglide' ? 'steady' : nextPattern;
     this.config.cooldownSeconds = nextCooldown;
     this.tick();
@@ -250,8 +282,10 @@ export class SessionEngine {
       ...this.config,
       phase: this.phase, pressure: this.pressure, pressureAt: this.pressureAt,
       sensorFresh: this._fresh(at), edgeCount: this.edgeCount, outputPercent: this.outputPercent,
+      outputPercentA: this.outputPercentA, outputPercentB: this.outputPercentB,
       remainingCooldown: remaining, cooldownEndsAt: this.cooldownEndsAt,
       guestPercent: this.guestPercent, pattern: this.pattern, reason: this.reason,
+      guestPercentA: this.guestPercentA, guestPercentB: this.guestPercentB,
       simulation: this.simulation,
     };
   }
@@ -280,18 +314,29 @@ export class SessionEngine {
     const elapsed = Math.max(0, at - this._cycleStartedAt);
     if (this.config.mode === 'solo') {
       const fraction = this.config.rampSeconds === 0 ? 1 : clamp(elapsed / (this.config.rampSeconds * 1000), 0, 1);
-      return this.config.startPercent + (100 - this.config.startPercent) * fraction;
+      const rampPercent = this.config.startPercent + (100 - this.config.startPercent) * fraction;
+      if (this.config.toy === 'opossum') {
+        return { a: this.config.maxPercentA * rampPercent / 100, b: this.config.maxPercentB * rampPercent / 100 };
+      }
+      return rampPercent;
     }
-    const peak = clamp(this.guestPercent, 0, 100);
-    if (this.config.toy === 'vacuglide' || this.pattern === 'steady') return peak;
-    if (this.pattern === 'pulse') return elapsed % 2000 < 1000 ? peak : 0;
-    return peak * (1 - Math.cos(2 * Math.PI * (elapsed % 4000) / 4000)) / 2;
+    let multiplier = 1;
+    if (this.config.toy !== 'vacuglide' && this.pattern === 'pulse') multiplier = elapsed % 2000 < 1000 ? 1 : 0;
+    else if (this.config.toy !== 'vacuglide' && this.pattern === 'wave') multiplier = (1 - Math.cos(2 * Math.PI * (elapsed % 4000) / 4000)) / 2;
+    if (this.config.toy === 'opossum') return { a: this.guestPercentA * multiplier, b: this.guestPercentB * multiplier };
+    return clamp(this.guestPercent, 0, 100) * multiplier;
   }
 
-  _output(percent, force = false) {
-    const value = tenth(clamp(Number.isFinite(percent) ? percent : 0, 0, 100));
-    if (!force && value === this.outputPercent) return;
+  _output(percentOrChannels, force = false) {
+    const normalize = value => tenth(clamp(Number.isFinite(value) ? value : 0, 0, 100));
+    const channels = typeof percentOrChannels === 'object' && percentOrChannels !== null ? percentOrChannels : { a: percentOrChannels, b: 0 };
+    const a = normalize(channels.a);
+    const b = this.config.toy === 'opossum' ? normalize(channels.b) : 0;
+    const value = Math.max(a, b);
+    if (!force && a === this.outputPercentA && b === this.outputPercentB) return;
     this.outputPercent = value;
+    this.outputPercentA = a;
+    this.outputPercentB = b;
     const generation = this._generation;
     const failed = error => {
       if (generation !== this._generation) return;
@@ -303,7 +348,7 @@ export class SessionEngine {
       }
     };
     try {
-      const result = this.onOutput(value);
+      const result = this.onOutput(value, { a, b });
       if (result && typeof result.then === 'function') Promise.resolve(result).catch(failed);
     } catch (error) {
       failed(error);

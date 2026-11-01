@@ -267,24 +267,33 @@ test('Lush stop preempts a positive command waiting for the 100ms write interval
 });
 
 test('Opossum native cap and both protocol channels are bounded independently', () => {
-  assert.equal(opossumNativeLevel(100), 120);
-  assert.equal(opossumNativeLevel(1000), 120);
-  assert.equal(opossumNativeLevel(50), 60);
+  assert.equal(opossumNativeLevel(100), 80);
+  assert.equal(opossumNativeLevel(1000), 80);
+  assert.equal(opossumNativeLevel(50), 40);
   assert.throws(() => opossumNativeLevel(NaN));
-  assert.deepEqual([...opossumStrengthCommand(200, 'A')], [0xb3, 120, 0]);
-  assert.deepEqual([...opossumStrengthCommand(200, 'B')], [0xb3, 0, 120]);
+  assert.deepEqual([...opossumStrengthCommand(200, 'A')], [0xb3, 80, 0]);
+  assert.deepEqual([...opossumStrengthCommand(200, 'B')], [0xb3, 0, 80]);
+  assert.deepEqual([...opossumStrengthCommand({ a: 200, b: 500 })], [0xb3, 80, 80]);
+  assert.deepEqual([...opossumStrengthCommand({ a: 35, b: 70 })], [0xb3, 35, 70]);
   const pulse = opossumPulseCommand(true, 'A');
   assert.equal(pulse.length, 20);
   assert.equal(pulse[0], 0xb0);
   assert.deepEqual([...pulse.slice(1, 8)], Array(7).fill(0));
   assert.deepEqual([...pulse.slice(8, 12)], Array(4).fill(100));
   assert.deepEqual([...pulse.slice(12)], Array(8).fill(0));
+  const both = opossumPulseCommand({ a: 80, b: 40 });
+  assert.deepEqual([...both.slice(8, 12)], Array(4).fill(100));
+  assert.deepEqual([...both.slice(12, 16)], Array(4).fill(0));
+  assert.deepEqual([...both.slice(16, 20)], Array(4).fill(100));
+  const bOnly = opossumPulseCommand({ a: 0, b: 40 });
+  assert.deepEqual([...bOnly.slice(8, 12)], Array(4).fill(0));
+  assert.deepEqual([...bOnly.slice(16)], Array(4).fill(100));
   const display = opossumDisplayCommand(200, 200);
   assert.equal(display.length, 24);
-  assert.equal(Buffer.from(display).toString('hex'), 'b2ffff00ffffffffffffffffffffffffffffffff08097878');
+  assert.equal(Buffer.from(display).toString('hex'), 'b2ffff00ffffffffffffffffffffffffffffffff08095050');
 });
 
-test('Opossum sends 100ms B0 frames, caps B3 at120, and stop cancels its timer', async t => {
+test('Opossum sends 100ms B0 frames, caps B3 at80, and stop cancels its timer', async t => {
   t.mock.timers.enable({ apis: ['setInterval'] });
   let now = 0;
   const fake = bluetoothFixture('opossum');
@@ -293,7 +302,7 @@ test('Opossum sends 100ms B0 frames, caps B3 at120, and stop cancels its timer',
   assert.equal(fake.requests[0].filters[0].name, '47L127000');
   assert.deepEqual([...fake.tx.writes[0]], [0xb3, 0, 0]);
   await adapter.setOutput(1000);
-  assert.ok(fake.tx.writes.some(bytes => bytes[0] === 0xb3 && bytes[1] === 120 && bytes[2] === 0));
+  assert.ok(fake.tx.writes.some(bytes => bytes[0] === 0xb3 && bytes[1] === 80 && bytes[2] === 0));
   const before = fake.tx.writes.length;
   now = 100; t.mock.timers.tick(100); await flush();
   assert.equal(fake.tx.writes.length, before + 1);
@@ -307,18 +316,26 @@ test('Opossum sends 100ms B0 frames, caps B3 at120, and stop cancels its timer',
   await adapter.disconnect();
 });
 
-test('Opossum channel switch zeros both and never automatically starts the new channel', async () => {
+test('Opossum controls both channels independently and scalar legacy calls remain A-only', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let now = 0;
   const fake = bluetoothFixture('opossum');
-  const adapter = new OpossumDevice({ bluetooth: fake.bluetooth });
-  await adapter.connect(); await adapter.setOutput(50);
-  await adapter.setChannel('B');
-  assert.equal(adapter.channel, 'B');
+  const adapter = new OpossumDevice({ bluetooth: fake.bluetooth, now: () => now });
+  await adapter.connect();
+  await adapter.setLevels({ a: 1000, b: 50 });
+  assert.deepEqual([...fake.tx.writes.at(-2)], [0xb3, 80, 40]);
+  assert.deepEqual(fake.tx.writes.at(-1), opossumPulseCommand({ a: 80, b: 40 }));
+  const next = adapter.setLevels({ a: 0, b: 75 });
+  now = 100; t.mock.timers.tick(100); await flush(); await next;
+  assert.deepEqual([...fake.tx.writes.at(-2)], [0xb3, 0, 60]);
+  assert.deepEqual(fake.tx.writes.at(-1), opossumPulseCommand({ a: 0, b: 60 }));
+  const scalar = adapter.setOutput(50);
+  now = 200; t.mock.timers.tick(100); await flush(); await scalar;
+  assert.deepEqual([...fake.tx.writes.at(-2)], [0xb3, 40, 0]);
+  assert.deepEqual(fake.tx.writes.at(-1), opossumPulseCommand({ a: 40, b: 0 }));
+  await adapter.setPercent(0);
   assert.deepEqual([...fake.tx.writes.at(-2)], [0xb3, 0, 0]);
   assert.deepEqual(fake.tx.writes.at(-1), opossumPulseCommand(false));
-  await adapter.setOutput(100);
-  assert.deepEqual([...fake.tx.writes.at(-2)], [0xb3, 0, 120]);
-  assert.deepEqual(fake.tx.writes.at(-1), opossumPulseCommand(true, 'B'));
-  await assert.rejects(adapter.setChannel('both'), /A or B/);
   await adapter.disconnect();
 });
 
@@ -337,13 +354,13 @@ test('frequent Opossum output updates coalesce onto one B0 per100ms, not a secon
   assert.equal(fake.tx.writes.filter(bytes => bytes[0] === 0xb0).length, 1, 'only the first frame is immediate');
   now = 100; t.mock.timers.tick(100); await flush(); await latest;
   assert.equal(fake.tx.writes.filter(bytes => bytes[0] === 0xb0).length, 2);
-  assert.deepEqual([...fake.tx.writes.at(-2)], [0xb3, 96, 0]);
+  assert.deepEqual([...fake.tx.writes.at(-2)], [0xb3, 64, 0]);
   const next = adapter.setOutput(90);
   const final = adapter.setOutput(100);
   assert.equal((await next).sent, false);
   now = 200; t.mock.timers.tick(100); await flush(); await final;
   assert.equal(fake.tx.writes.filter(bytes => bytes[0] === 0xb0).length, 3);
-  assert.deepEqual([...fake.tx.writes.at(-2)], [0xb3, 120, 0]);
+  assert.deepEqual([...fake.tx.writes.at(-2)], [0xb3, 80, 0]);
   const canceledByStop = adapter.setOutput(50);
   await adapter.stop();
   assert.equal((await canceledByStop).sent, false);
@@ -353,8 +370,8 @@ test('frequent Opossum output updates coalesce onto one B0 per100ms, not a secon
   await adapter.disconnect();
 });
 
-test('Opossum out-of-cap physical strength and inactive-channel changes cause fault and stop', async () => {
-  for (const report of [[0xb3, 121, 0], [0xb3, 100, 1]]) {
+test('Opossum over-cap or unrequested channel changes cause fault and stop', async () => {
+  for (const report of [[0xb3, 81, 0], [0xb3, 40, 81], [0xb3, 40, 1]]) {
     const fake = bluetoothFixture('opossum'), statuses = [];
     const adapter = new OpossumDevice({ bluetooth: fake.bluetooth, onStatus: status => statuses.push(status) });
     await adapter.connect(); await adapter.setOutput(50);
@@ -370,10 +387,59 @@ test('Opossum out-of-cap physical strength and inactive-channel changes cause fa
 test('Opossum B3 notification triggers documented 24-byte B2 display sync', async () => {
   const fake = bluetoothFixture('opossum');
   const adapter = new OpossumDevice({ bluetooth: fake.bluetooth });
-  await adapter.connect();
-  fake.rx.notify(new Uint8Array([0xb3, 50, 0])); await flush();
-  assert.deepEqual(fake.tx.writes.at(-1), opossumDisplayCommand(50, 0));
+  await adapter.connect(); await adapter.setLevels({ a: 50, b: 75 });
+  fake.rx.notify(new Uint8Array([0xb3, 40, 60])); await flush();
+  assert.equal(adapter.connected, true);
+  assert.deepEqual(fake.tx.writes.at(-1), opossumDisplayCommand(40, 60));
   await adapter.disconnect();
+});
+
+test('Opossum accepts recent legitimate paired acknowledgements without confusing them with physical changes', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let now = 0;
+  const fake = bluetoothFixture('opossum');
+  const adapter = new OpossumDevice({ bluetooth: fake.bluetooth, now: () => now });
+  await adapter.connect(); await adapter.setLevels({ a: 50, b: 25 });
+  const next = adapter.setLevels({ a: 75, b: 100 });
+  now = 100; t.mock.timers.tick(100); await flush(); await next;
+  fake.rx.notify(new Uint8Array([0xb3, 40, 20])); await flush();
+  assert.equal(adapter.connected, true, 'delayed valid acknowledgement remains accepted');
+  fake.rx.notify(new Uint8Array([0xb3, 60, 80])); await flush();
+  assert.equal(adapter.connected, true, 'both nonzero channels are supported');
+  fake.rx.notify(new Uint8Array([0xb3, 20, 40])); await flush();
+  assert.equal(adapter.connected, false, 'never-commanded pair requests a stop');
+  assert.deepEqual(fake.tx.writes.at(-1), opossumPulseCommand(false));
+  await adapter.disconnect();
+});
+
+test('Opossum rejects malformed dual updates atomically without disturbing the current pair', async () => {
+  const fake = bluetoothFixture('opossum');
+  const adapter = new OpossumDevice({ bluetooth: fake.bluetooth });
+  await adapter.connect(); await adapter.setLevels({ a: 50, b: 75 });
+  const before = fake.tx.writes.length;
+  assert.throws(() => adapter.setLevels({ a: 10, b: NaN }));
+  assert.throws(() => adapter.setLevels({ a: '50', b: 20 }));
+  assert.equal(fake.tx.writes.length, before);
+  assert.deepEqual(adapter._native, { a: 40, b: 60 });
+  await adapter.disconnect();
+});
+
+test('all Opossum explicit stop APIs zero both channels and cancel recurring output', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  for (const action of ['stop', 'zero-levels', 'scalar-zero', 'disconnect']) {
+    const fake = bluetoothFixture('opossum');
+    const adapter = new OpossumDevice({ bluetooth: fake.bluetooth });
+    await adapter.connect(); await adapter.setLevels({ a: 100, b: 100 });
+    if (action === 'zero-levels') await adapter.setLevels({ a: 0, b: 0 });
+    else if (action === 'scalar-zero') await adapter.setOutput(0);
+    else await adapter[action]();
+    assert.deepEqual([...fake.tx.writes.at(-2)], [0xb3, 0, 0], action);
+    assert.deepEqual(fake.tx.writes.at(-1), opossumPulseCommand(false), action);
+    const count = fake.tx.writes.length;
+    t.mock.timers.tick(1000); await flush();
+    assert.equal(fake.tx.writes.length, count, action);
+    await adapter.disconnect();
+  }
 });
 
 test('Opossum stop prevents a queued B0 from following an in-flight strength write', async () => {
@@ -382,9 +448,9 @@ test('Opossum stop prevents a queued B0 from following an in-flight strength wri
   await adapter.connect(); fake.tx.writes.length = 0;
   const hold = deferred();
   fake.tx.writeHook = bytes => bytes[0] === 0xb3 && bytes[1] > 0 ? hold.promise : undefined;
-  const output = adapter.setOutput(100), stop = adapter.stop();
+  const output = adapter.setLevels({ a: 100, b: 50 }), stop = adapter.stop();
   hold.resolve(); await Promise.all([output, stop]);
-  assert.deepEqual(fake.tx.writes.map(bytes => [...bytes]), [[0xb3, 120, 0], [0xb3, 0, 0], [...opossumPulseCommand(false)]]);
+  assert.deepEqual(fake.tx.writes.map(bytes => [...bytes]), [[0xb3, 80, 40], [0xb3, 0, 0], [...opossumPulseCommand(false)]]);
   await adapter.disconnect();
 });
 
@@ -395,13 +461,13 @@ test('a newer Opossum target does not starve B0 while the current B3 write compl
   const adapter = new OpossumDevice({ bluetooth: fake.bluetooth, now: () => now });
   await adapter.connect(); fake.tx.writes.length = 0;
   const hold = deferred();
-  fake.tx.writeHook = bytes => bytes[0] === 0xb3 && bytes[1] === 12 ? hold.promise : undefined;
-  const current = adapter.setOutput(10);
-  const next = adapter.setOutput(80);
+  fake.tx.writeHook = bytes => bytes[0] === 0xb3 && bytes[1] === 8 ? hold.promise : undefined;
+  const current = adapter.setLevels({ a: 10, b: 20 });
+  const next = adapter.setLevels({ a: 80, b: 100 });
   hold.resolve(); await current;
-  assert.deepEqual(fake.tx.writes.map(bytes => [...bytes]), [[0xb3, 12, 0], [...opossumPulseCommand(true)]]);
+  assert.deepEqual(fake.tx.writes.map(bytes => [...bytes]), [[0xb3, 8, 16], [...opossumPulseCommand({ a: 8, b: 16 })]]);
   now = 100; t.mock.timers.tick(100); await flush(); await next;
-  assert.deepEqual(fake.tx.writes.slice(-2).map(bytes => [...bytes]), [[0xb3, 96, 0], [...opossumPulseCommand(true)]]);
+  assert.deepEqual(fake.tx.writes.slice(-2).map(bytes => [...bytes]), [[0xb3, 64, 80], [...opossumPulseCommand({ a: 64, b: 80 })]]);
   await adapter.disconnect();
 });
 

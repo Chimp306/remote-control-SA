@@ -9,6 +9,13 @@ export const finite = (value, min, max, fallback) => typeof value === 'number' &
 export function sanitizeState(value, toy, simulation = false) {
   const s = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   const phase = PHASES.includes(s.phase) ? s.phase : 'paused';
+  const dual = toy === 'opossum';
+  // Older hosts exposed only one scalar output. Treat that as A-only so an
+  // existing client never starts a second channel merely by being upgraded.
+  const guestPercentA = dual ? finite(s.guestPercentA === undefined ? s.guestPercent : s.guestPercentA, 0, 100, 0) : 0;
+  const guestPercentB = dual ? finite(s.guestPercentB, 0, 100, 0) : 0;
+  const outputPercentA = dual && phase === 'running' ? finite(s.outputPercentA === undefined ? s.outputPercent : s.outputPercentA, 0, 100, 0) : 0;
+  const outputPercentB = dual && phase === 'running' ? finite(s.outputPercentB, 0, 100, 0) : 0;
   return {
     phase, toy, mode: 'guest', simulation,
     pressure: finite(s.pressure, -100, 100, null),
@@ -16,8 +23,11 @@ export function sanitizeState(value, toy, simulation = false) {
     resetThreshold: finite(s.resetThreshold, -100, 59.8, null),
     edgeCount: Math.floor(finite(s.edgeCount, 0, 1000000, 0)),
     newRecord: s.newRecord === true,
-    outputPercent: phase === 'running' ? finite(s.outputPercent, 0, 100, 0) : 0,
-    guestPercent: finite(s.guestPercent, 0, 100, 0),
+    outputPercent: dual ? Math.max(outputPercentA, outputPercentB) : phase === 'running' ? finite(s.outputPercent, 0, 100, 0) : 0,
+    guestPercent: dual ? Math.max(guestPercentA, guestPercentB) : finite(s.guestPercent, 0, 100, 0),
+    outputPercentA, outputPercentB, guestPercentA, guestPercentB,
+    maxPercentA: dual ? finite(s.maxPercentA, 0, 100, 100) : 0,
+    maxPercentB: dual ? finite(s.maxPercentB, 0, 100, 100) : 0,
     pattern: ['lush', 'opossum'].includes(toy) && PATTERNS.includes(s.pattern) ? s.pattern : 'steady',
     cooldownSeconds: Math.round(finite(s.cooldownSeconds, 10, 30, 20)),
     cooldownEndsAt: finite(s.cooldownEndsAt, 0, 9007199254740991, null),
@@ -29,15 +39,23 @@ export function sanitizeState(value, toy, simulation = false) {
 
 export function sanitizeCommand(value, toy) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid controls');
-  const allowed = ['percent', 'pattern', 'cooldownSeconds', 'epoch', 'clientSeq'];
+  const dual = toy === 'opossum';
+  const allowed = ['percent', 'pattern', 'cooldownSeconds', 'epoch', 'clientSeq', ...(dual ? ['percentA', 'percentB'] : [])];
   if (Object.keys(value).some((key) => !allowed.includes(key))) throw new Error('Unsupported control');
-  for (const field of ['percent', 'cooldownSeconds', 'epoch', 'clientSeq']) {
+  const hasChannels = dual && ('percentA' in value || 'percentB' in value);
+  const numeric = ['cooldownSeconds', 'epoch', 'clientSeq', ...(hasChannels ? ['percentA', 'percentB'] : ['percent'])];
+  if (hasChannels && 'percent' in value) numeric.push('percent');
+  for (const field of numeric) {
     if (typeof value[field] !== 'number' || !Number.isFinite(value[field])) throw new Error('Invalid controls');
   }
   if (!Number.isSafeInteger(value.epoch) || value.epoch < 0 || !Number.isSafeInteger(value.clientSeq) || value.clientSeq < 1) throw new Error('Invalid sequence');
-  if (value.percent < 0 || value.percent > 100 || value.cooldownSeconds < 10 || value.cooldownSeconds > 30) throw new Error('Controls outside limits');
+  if (numeric.filter(field => field.startsWith('percent')).some(field => value[field] < 0 || value[field] > 100) || value.cooldownSeconds < 10 || value.cooldownSeconds > 30) throw new Error('Controls outside limits');
   if (!PATTERNS.includes(value.pattern) || (toy === 'vacuglide' && value.pattern !== 'steady')) throw new Error('Unsupported pattern');
-  return { percent: Math.round(value.percent), pattern: value.pattern, cooldownSeconds: Math.round(value.cooldownSeconds), epoch: value.epoch, clientSeq: value.clientSeq };
+  const channels = dual ? { percentA: Math.round(hasChannels ? value.percentA : value.percent), percentB: Math.round(hasChannels ? value.percentB : 0) } : {};
+  // The database's atomic phase gate uses this canonical aggregate. Never trust
+  // a client-supplied percent=0 when either channel is requesting output.
+  const percent = dual ? Math.max(channels.percentA, channels.percentB) : Math.round(value.percent);
+  return { percent, ...channels, pattern: value.pattern, cooldownSeconds: Math.round(value.cooldownSeconds), epoch: value.epoch, clientSeq: value.clientSeq };
 }
 
 export async function hash(value) {
@@ -75,6 +93,6 @@ export function publicSession(row, best, now = Date.now()) {
   const state = sanitizeState(row.state, row.toy, row.simulation);
   const age = now - Date.parse(row.state_at);
   const fresh = Number.isFinite(age) && age >= 0 && age < 5000;
-  if (!fresh) { state.phase = 'paused'; state.outputPercent = 0; state.reason = 'Host connection unavailable'; }
+  if (!fresh) { state.phase = 'paused'; state.outputPercent = 0; state.outputPercentA = 0; state.outputPercentB = 0; state.reason = 'Host connection unavailable'; }
   return { sessionId: row.id, state, best: row.simulation ? 0 : best, hostOnline: fresh, serverNow: now, commandSeq: row.command_seq || 0, clientSeq: row.client_seq || 0 };
 }
