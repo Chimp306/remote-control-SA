@@ -264,6 +264,7 @@ export class UI {
     if (!view.devUnlocked && this.tab === 'debug') this.tab = 'play';
     if (!simulation) this.previewOpen = false;
     this.node('app-shell').classList.toggle('guest-shell', guest);
+    this.node('app-shell').classList.toggle('finish-available', Boolean(view.canFinish) && !guest);
     this.hide('host-view', guest); this.hide('guest-view', !guest); this.hide('debug-button', guest);
     this.hide('host-bottom-actions', guest); this.hide('guest-bottom-actions', !guest);
     this.text('brand-sub', guest ? 'PRIVATE SESSION' : 'PRIVATE CONTROL');
