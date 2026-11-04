@@ -68,16 +68,43 @@ const template = `
     <p class="guest-footer"><strong>Automatic pressure cutoff is active.</strong><br>When it activates, you’ll see the count and a cooldown timer.</p>
   </main>
 
-  <footer class="bottom-bar"><div class="bottom-inner"><div class="bottom-status"><strong id="bottom-title">Session not started</strong><span id="bottom-copy">Your controls stay here.</span></div><div class="bottom-actions" id="host-bottom-actions"><button class="button button-primary" id="session-start" type="button">Start session</button><button class="button" id="session-pause" type="button" hidden>Pause</button><button class="button button-primary" id="session-resume" type="button" hidden>Resume</button><button class="button button-danger stop-button" id="session-stop" type="button"><span class="stop-square"></span>Stop</button></div><div class="bottom-actions" id="guest-bottom-actions" hidden><button class="button button-danger" id="guest-stop" type="button"><span class="stop-square"></span><span id="guest-stop-label">Stop output</span></button></div></div></footer>
+  <footer class="bottom-bar"><div class="bottom-inner"><div class="bottom-status"><strong id="bottom-title">Session not started</strong><span id="bottom-copy">Your controls stay here.</span></div><div class="bottom-actions" id="host-bottom-actions"><button class="button button-primary" id="session-start" type="button">Start session</button><button class="button" id="session-pause" type="button" hidden>Pause</button><button class="button button-primary" id="session-resume" type="button" hidden>Resume</button><button class="button button-secondary finish-action" id="session-finish" type="button" hidden>✦ Orgasm</button><button class="button button-danger stop-button" id="session-stop" type="button"><span class="stop-square"></span>Stop</button></div><div class="bottom-actions" id="guest-bottom-actions" hidden><button class="button button-danger" id="guest-stop" type="button"><span class="stop-square"></span><span id="guest-stop-label">Stop output</span></button></div></div></footer>
 </div>
 
 <div class="modal-backdrop" id="unlock-modal" role="dialog" aria-modal="true" aria-labelledby="unlock-title" hidden><form class="modal" id="unlock-form"><p class="eyebrow">PRIVATE ACCESS</p><h2 id="unlock-title">Debugging</h2><p>Enter your developer password to open session access and test tools.</p><label class="field-label" for="dev-password">Password</label><input id="dev-password" type="password" autocomplete="current-password" required><div class="button-row"><button class="button" id="unlock-cancel" type="button">Cancel</button><button class="button button-primary" id="unlock-submit" type="submit">Unlock</button></div></form></div>
 
 <div class="cooldown-backdrop" id="cooldown-overlay" role="dialog" aria-modal="true" aria-labelledby="cooldown-title" hidden><section class="cooldown-content"><div class="event-symbol" aria-hidden="true">✦</div><p class="eyebrow" id="overlay-eyebrow">AUTOMATIC CUTOFF ACTIVATED</p><h2 id="cooldown-title">Nice timing.</h2><p class="cooldown-copy" id="cooldown-copy">The pressure threshold was reached. Output is paused for the cooldown.</p><div class="record-celebration" id="overlay-record" hidden>✦ New personal best — record updated</div><div class="overlay-scores"><div><div class="score-value" id="overlay-count">0</div><div class="score-caption">Session edges</div></div><div><div class="best-value" id="overlay-best">0</div><div class="score-caption">Personal best</div></div></div><div class="cooldown-timer"><span id="overlay-seconds">20</span><small id="overlay-seconds-unit">sec</small></div><div class="cooldown-timer-label" id="overlay-timer-label">Until cooldown is complete</div><div class="progress-track"><div class="progress-fill" id="overlay-progress"></div></div><p class="cooldown-footnote" id="overlay-footnote">Your selected settings resume after the timer finishes and pressure has settled.</p><div class="button-row" style="justify-content:center;margin-top:20px"><button class="button button-small button-danger" id="overlay-stop" type="button"><span class="stop-square"></span><span id="overlay-stop-label">Stop output</span></button></div><div class="preview-tag" id="overlay-preview" hidden>SIMULATION PREVIEW · no live output<br><button class="button button-small" id="close-preview" type="button">Back to Debugging</button></div></section></div>
+<div class="finish-backdrop" id="finish-overlay" role="dialog" aria-modal="true" aria-labelledby="finish-title" hidden>
+  <section class="finish-content">
+    <div class="finish-symbol" aria-hidden="true">✦</div>
+    <p class="eyebrow">SESSION COMPLETE</p>
+    <h2 id="finish-title">You reached the finish line.</h2>
+    <p class="finish-message" id="finish-message">Your session is complete.</p>
+    <p class="finish-test-label" id="finish-test-label" hidden>SIMULATION ONLY — NOT A LIVE RESULT</p>
+    <div class="finish-stats" aria-label="Session statistics">
+      <div><span>Play duration</span><strong id="finish-duration">—</strong></div>
+      <div><span>Edges this session</span><strong id="finish-edges">—</strong></div>
+      <div><span>Time since last edge</span><strong id="finish-since-edge">—</strong></div>
+      <div><span>Longest stimulation phase</span><strong id="finish-longest">—</strong></div>
+      <div><span>Average stimulation phase</span><strong id="finish-average">—</strong></div>
+      <div><span>All-time personal best</span><strong id="finish-best">—</strong></div>
+    </div>
+    <p class="control-note">This game has ended. A new game starts at zero; your personal best remains saved.</p>
+    <p class="finish-alert" id="finish-stop-error" role="alert" hidden></p>
+    <div class="button-row finish-actions"><button class="button button-small button-secondary" id="finish-export" type="button">Export session CSV</button><button class="button button-primary" id="finish-close" type="button">Close report</button></div>
+  </section>
+</div>
 <div class="toast" id="toast" role="status" hidden></div>`;
 
 const number = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const fixed = (value, places = 1) => value === null || value === undefined || !Number.isFinite(Number(value)) ? '—' : Number(value).toFixed(places);
+const clock = seconds => {
+  if (seconds === null || seconds === undefined || !Number.isFinite(Number(seconds))) return '—';
+  const n = Math.max(0, Math.round(Number(seconds)));
+  const s = String(n % 60).padStart(2, '0');
+  const m = String(Math.floor(n / 60) % 60).padStart(2, '0');
+  return n >= 3600 ? Math.floor(n / 3600) + ':' + m + ':' + s : Math.floor(n / 60) + ':' + s;
+};
 const connected = value => typeof value === 'boolean' ? value : Boolean(value?.connected);
 const phaseNames = { idle: 'Ready when you are', running: 'Output active', cooldown: 'Cooldown', settling: 'Waiting for pressure', paused: 'Paused', stopped: 'Session stopped', fault: 'Connection paused' };
 
@@ -148,7 +175,8 @@ export class UI {
     this.node('cal-sample-ms').addEventListener('change', event => this.action('calibration-sample-ms', { value: Number(event.target.value) }));
     click('reset-calibration', 'reset-calibration'); click('finish-calibration', 'finish-calibration');
     click('cutoff-down', 'adjust-cutoff', { delta: -0.1 }); click('cutoff-up', 'adjust-cutoff', { delta: 0.1 });
-    click('session-start', 'start'); click('session-pause', 'pause'); click('session-resume', 'resume'); click('session-stop', 'stop'); click('hardware-stop', 'stop');
+    click('session-start', 'start'); click('session-pause', 'pause'); click('session-resume', 'resume'); click('session-finish', 'finish-orgasm'); click('session-stop', 'stop'); click('hardware-stop', 'stop');
+    click('finish-close', 'close-finish-report'); click('finish-export', 'export-data', { format: 'csv' });
     click('guest-stop', 'guest-output', { percent: 0, percentA: 0, percentB: 0 }); click('overlay-stop', 'guest-output', { percent: 0, percentA: 0, percentB: 0 });
     this.node('start-percent').addEventListener('input', event => { this.text('start-percent-value', event.target.value + '%'); this.action('configure', { startPercent: Number(event.target.value) }); });
     for (const channel of ['a', 'b']) {
@@ -265,6 +293,7 @@ export class UI {
     this.text('phase-detail', descriptions[phase] || engine.reason || '');
     this.text('bottom-title', phaseNames[phase] || phase); this.text('bottom-copy', cooldown ? 'Cutoff has priority.' : simulation ? 'Simulation only.' : 'Stop is always available.');
     this.hide('session-start', active || resumed); this.hide('session-pause', !active); this.hide('session-resume', !resumed);
+    this.hide('session-finish', !view.canFinish || guest); this.disable('session-finish', !view.canFinish || guest);
     this.disable('session-start', busy || !sensorConnected || !outputConnected); this.disable('session-resume', busy || !sensorConnected || !outputConnected);
     this.text('mode-label', mode === 'guest' ? 'GUEST CONTROL' : 'SOLO'); this.hide('solo-settings', mode === 'guest'); this.hide('guest-host-settings', mode !== 'guest');
     this.node('mode-solo').setAttribute('aria-pressed', String(mode === 'solo')); this.node('mode-guest').setAttribute('aria-pressed', String(mode === 'guest'));
@@ -352,6 +381,22 @@ export class UI {
     this.renderCalibration(view.calibration || {}, { sensorConnected, busy, active, pressure: engine.pressure });
     this.renderDeveloper(view, { busy, simulation, outputConnected });
     this.renderGuest(view, { engine, vg, opossum, phase, best, count, record, remaining, cooldown, busy });
+    const finished = !guest && Boolean(view.finishReport);
+    this.hide('finish-overlay', !finished);
+    if (this.node('unlock-modal').hidden && !guest) this.node('app-shell').inert = finished;
+    if (finished) {
+      const report = view.finishReport;
+      this.text('finish-duration', clock(report.durationSeconds));
+      this.text('finish-edges', report.count);
+      this.text('finish-since-edge', clock(report.timeSinceLastEdgeSeconds));
+      this.text('finish-longest', clock(report.longestCycleSeconds));
+      this.text('finish-average', clock(report.averageCycleSeconds));
+      this.text('finish-best', report.personalBest);
+      this.text('finish-message', report.closingLine);
+      this.hide('finish-test-label', !report.simulation);
+      this.text('finish-stop-error', view.finishStopError || '');
+      this.hide('finish-stop-error', !view.finishStopError);
+    }
     this.drawChart(engine, simulation);
   }
 
