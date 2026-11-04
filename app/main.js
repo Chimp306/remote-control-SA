@@ -1,8 +1,8 @@
-import { UI } from './ui.js?v=20261104-v21b';
-import { SessionEngine } from './engine.js?v=20261104-v21b';
-import { CivetDevice, LushDevice, OpossumDevice, VacuGlideDevice } from './devices.js?v=20261104-v21b';
-import { Backend } from './backend.js?v=20261104-v21b';
-import { runDiagnostics } from './diagnostics.js?v=20261104-v21b';
+import { UI } from './ui.js?v=20261104-v21c';
+import { SessionEngine } from './engine.js?v=20261104-v21c';
+import { CivetDevice, LushDevice, OpossumDevice, VacuGlideDevice } from './devices.js?v=20261104-v21c';
+import { Backend } from './backend.js?v=20261104-v21c';
+import { runDiagnostics } from './diagnostics.js?v=20261104-v21c';
 import { PressureFilter, SessionRecorder, loadProfile, saveProfile, loadRecovery, saveRecovery, clearRecovery, loadLastSessionData, saveLastSessionData } from './session-tools.js?v=20261104-v21c';
 import { buildFinishReport } from './finish-report.js?v=20261104-v21c';
 
