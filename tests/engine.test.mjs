@@ -161,7 +161,7 @@ test('Opossum uses the same host-owned guest patterns and solo ramp as Lush', ()
   assert.ok(outputs.every(value => value <= 70));
   sample(12); advance(10000);
   assert.equal(engine.snapshot().phase, 'running');
-  assert.equal(engine.snapshot().outputPercent, 0);
+  assert.equal(engine.snapshot().outputPercent, 35, 'Opossum wave keeps B phase-offset from A at cycle start');
   engine.pause(); engine.configure({ mode: 'solo' }); engine.resume();
   assert.equal(engine.snapshot().outputPercent, 20);
 });
@@ -419,4 +419,64 @@ test('changing active mode/device is rejected and configuration validates reset 
   assert.throws(() => engine.setCutoff(Number.MAX_VALUE));
   engine.pause(); engine.configure({ mode: 'guest' });
   assert.equal(engine.snapshot().mode, 'guest');
+});
+
+
+test('random recovery picks within configured range before applying adaptive multiplier', () => {
+  let time = 0;
+  const engine = new SessionEngine({ now: () => time, random: () => 0.5 });
+  engine.configure({ threshold: 12, resetThreshold: 10, recoveryMinSeconds: 10, recoveryMaxSeconds: 20, adaptiveEnabled: false });
+  engine.updatePressure(9); engine.start();
+  time = 6000; engine.updatePressure(12);
+  const state = engine.snapshot();
+  assert.equal(state.recoveryBaseSeconds, 15);
+  assert.equal(state.recoverySeconds, 15);
+  assert.equal(state.cooldownEndsAt, 21000);
+});
+
+test('three short cycles double adaptive recovery and stable cycles step it back to normal', () => {
+  let time = 0;
+  const engine = new SessionEngine({ now: () => time, random: () => 0 });
+  engine.configure({ threshold: 12, resetThreshold: 10, recoveryMinSeconds: 2, recoveryMaxSeconds: 2, shortPhaseSeconds: 5, shortPhaseCount: 3, stablePhaseSeconds: 8, stablePhaseCount: 2, adaptiveMaxMultiplier: 8 });
+  const edgeAfter = seconds => {
+    engine.updatePressure(9, time);
+    if (['idle','stopped'].includes(engine.phase)) engine.start();
+    if (engine.phase === 'cooldown') { time = engine.cooldownEndsAt; engine.updatePressure(9, time); }
+    time += seconds * 1000; engine.updatePressure(12, time);
+  };
+  edgeAfter(2); time = engine.cooldownEndsAt; engine.updatePressure(9,time);
+  edgeAfter(2); time = engine.cooldownEndsAt; engine.updatePressure(9,time);
+  edgeAfter(2);
+  assert.equal(engine.snapshot().adaptiveMultiplier, 2);
+  assert.equal(engine.snapshot().recoverySeconds, 4);
+  time = engine.cooldownEndsAt; engine.updatePressure(9,time);
+  edgeAfter(9); time = engine.cooldownEndsAt; engine.updatePressure(9,time);
+  edgeAfter(9);
+  assert.equal(engine.snapshot().adaptiveMultiplier, 1);
+});
+
+test('restored sessions are always paused with output zero until explicit resume', () => {
+  const outputs = [];
+  const engine = new SessionEngine({ onOutput: value => outputs.push(value) });
+  engine.restore({ toy:'opossum', mode:'solo', threshold:12, resetThreshold:10, edgeCount:137, maxPercentA:100, maxPercentB:80, phase:'running', adaptiveMultiplier:2 });
+  const state = engine.snapshot();
+  assert.equal(state.phase, 'paused');
+  assert.equal(state.edgeCount, 137);
+  assert.equal(state.outputPercent, 0);
+  assert.match(state.reason, /resume explicitly/i);
+  assert.equal(outputs.at(-1), 0);
+});
+
+test('Opossum alternating and offset-wave patterns drive A and B independently', () => {
+  let time = 0;
+  const channels = [];
+  const engine = new SessionEngine({ now: () => time, onOutput: (_value, pair) => channels.push(pair) });
+  engine.configure({ toy:'opossum', mode:'guest', threshold:12, resetThreshold:10, patternSpeedSeconds:4, phaseOffset:0.25 });
+  engine.setGuestOutput({ percentA:100, percentB:100, pattern:'alternating', recoveryMinSeconds:20, recoveryMaxSeconds:20 });
+  engine.updatePressure(9); engine.start();
+  time=1000; engine.updatePressure(9);
+  assert.ok(Math.abs(channels.at(-1).a - channels.at(-1).b) > 50);
+  engine.setGuestOutput({ percentA:100, percentB:100, pattern:'offset-wave', recoveryMinSeconds:20, recoveryMaxSeconds:20 });
+  time=2000; engine.updatePressure(9);
+  assert.notEqual(Math.round(channels.at(-1).a), Math.round(channels.at(-1).b));
 });
