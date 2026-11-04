@@ -1,4 +1,5 @@
-export const PATTERNS = ['steady','pulse','wave','alternating','offset-wave'];
+export const PATTERNS = ['steady','pulse','wave'];
+const OPOSSUM_PATTERNS = [...PATTERNS,'alternating','offset-wave'];
 export const PHASES = ['idle', 'running', 'cooldown', 'settling', 'paused', 'stopped', 'fault'];
 export const isToken = (value) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 export const normalizeCode = (value) => typeof value === 'string' ? value.trim().toUpperCase() : '';
@@ -28,12 +29,12 @@ export function sanitizeState(value, toy, simulation = false) {
     outputPercentA, outputPercentB, guestPercentA, guestPercentB,
     maxPercentA: dual ? finite(s.maxPercentA, 0, 100, 100) : 0,
     maxPercentB: dual ? finite(s.maxPercentB, 0, 100, 100) : 0,
-    pattern: ['lush','opossum'].includes(toy) && PATTERNS.includes(s.pattern) && (toy === 'opossum' || !['alternating','offset-wave'].includes(s.pattern)) ? s.pattern : 'steady',
-    recoveryMinSeconds: finite(s.recoveryMinSeconds, 1, 300, 20),
-    recoveryMaxSeconds: finite(s.recoveryMaxSeconds, 1, 300, 20),
-    recoveryBaseSeconds: finite(s.recoveryBaseSeconds, 1, 300, 20),
-    recoverySeconds: finite(s.recoverySeconds ?? s.cooldownSeconds, 1, 1800, 20),
-    cooldownSeconds: finite(s.recoverySeconds ?? s.cooldownSeconds, 1, 1800, 20),
+    pattern: ['lush','opossum'].includes(toy) && (toy === 'opossum' ? OPOSSUM_PATTERNS : PATTERNS).includes(s.pattern) ? s.pattern : 'steady',
+    recoveryMinSeconds: finite(s.recoveryMinSeconds, 1, 300, finite(s.cooldownSeconds,10,30,20)),
+    recoveryMaxSeconds: finite(s.recoveryMaxSeconds, 1, 300, finite(s.cooldownSeconds,10,30,20)),
+    recoveryBaseSeconds: finite(s.recoveryBaseSeconds, 1, 300, finite(s.cooldownSeconds,10,30,20)),
+    recoverySeconds: finite(s.recoverySeconds, 1, 1800, finite(s.cooldownSeconds,10,30,20)),
+    cooldownSeconds: finite(s.cooldownSeconds, 10, 30, 20),
     adaptiveMultiplier: finite(s.adaptiveMultiplier, 1, 32, 1),
     lastCycleSeconds: finite(s.lastCycleSeconds, 0, 86400, null),
     cooldownEndsAt: finite(s.cooldownEndsAt, 0, 9007199254740991, null),
@@ -46,7 +47,8 @@ export function sanitizeState(value, toy, simulation = false) {
 export function sanitizeCommand(value, toy) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid controls');
   const dual = toy === 'opossum';
-  const allowed = ['percent','pattern','recoveryMinSeconds','recoveryMaxSeconds','cooldownSeconds','epoch','clientSeq', ...(dual ? ['percentA','percentB'] : [])];
+  const usesRange = value.recoveryMinSeconds !== undefined || value.recoveryMaxSeconds !== undefined;
+  const allowed = ['percent','pattern','cooldownSeconds','epoch','clientSeq', ...(usesRange ? ['recoveryMinSeconds','recoveryMaxSeconds'] : []), ...(dual ? ['percentA','percentB'] : [])];
   if (Object.keys(value).some(key => !allowed.includes(key))) throw new Error('Unsupported control');
   const hasChannels = dual && ('percentA' in value || 'percentB' in value);
   const numeric = ['epoch','clientSeq', ...(hasChannels ? ['percentA','percentB'] : ['percent'])];
@@ -54,14 +56,21 @@ export function sanitizeCommand(value, toy) {
   for (const field of numeric) if (typeof value[field] !== 'number' || !Number.isFinite(value[field])) throw new Error('Invalid controls');
   if (!Number.isSafeInteger(value.epoch) || value.epoch < 0 || !Number.isSafeInteger(value.clientSeq) || value.clientSeq < 1) throw new Error('Invalid sequence');
   if (numeric.filter(field => field.startsWith('percent')).some(field => value[field] < 0 || value[field] > 100)) throw new Error('Controls outside limits');
-  const legacy = typeof value.cooldownSeconds === 'number' && Number.isFinite(value.cooldownSeconds) ? value.cooldownSeconds : null;
-  const min = typeof value.recoveryMinSeconds === 'number' && Number.isFinite(value.recoveryMinSeconds) ? value.recoveryMinSeconds : legacy;
-  const max = typeof value.recoveryMaxSeconds === 'number' && Number.isFinite(value.recoveryMaxSeconds) ? value.recoveryMaxSeconds : legacy;
-  if (!Number.isFinite(min) || !Number.isFinite(max) || min < 1 || min > 300 || max < min || max > 300) throw new Error('Recovery range outside limits');
-  if (!PATTERNS.includes(value.pattern) || (toy === 'vacuglide' && value.pattern !== 'steady') || (toy !== 'opossum' && ['alternating','offset-wave'].includes(value.pattern))) throw new Error('Unsupported pattern');
+  let recoveryFields = {};
+  if (usesRange) {
+    const min = value.recoveryMinSeconds, max = value.recoveryMaxSeconds;
+    if (typeof min !== 'number' || !Number.isFinite(min) || typeof max !== 'number' || !Number.isFinite(max) || min < 1 || min > 300 || max < min || max > 300) throw new Error('Recovery range outside limits');
+    recoveryFields = { recoveryMinSeconds: Math.round(min), recoveryMaxSeconds: Math.round(max) };
+  } else {
+    if (typeof value.cooldownSeconds !== 'number' || !Number.isFinite(value.cooldownSeconds)) throw new Error('Invalid controls');
+    if (value.cooldownSeconds < 10 || value.cooldownSeconds > 30) throw new Error('Controls outside limits');
+    recoveryFields = { cooldownSeconds: Math.round(value.cooldownSeconds) };
+  }
+  const allowedPatterns = dual ? OPOSSUM_PATTERNS : toy === 'vacuglide' ? ['steady'] : PATTERNS;
+  if (!allowedPatterns.includes(value.pattern)) throw new Error('Unsupported pattern');
   const channels = dual ? { percentA: Math.round(hasChannels ? value.percentA : value.percent), percentB: Math.round(hasChannels ? value.percentB : 0) } : {};
   const percent = dual ? Math.max(channels.percentA, channels.percentB) : Math.round(value.percent);
-  return { percent, ...channels, pattern: value.pattern, recoveryMinSeconds: Math.round(min), recoveryMaxSeconds: Math.round(max), epoch: value.epoch, clientSeq: value.clientSeq };
+  return { percent, ...channels, pattern: value.pattern, ...recoveryFields, epoch: value.epoch, clientSeq: value.clientSeq };
 }
 
 export function sanitizeProfile(value) {
