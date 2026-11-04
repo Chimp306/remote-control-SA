@@ -253,7 +253,7 @@ export class UI {
     this.text('phase-name', phaseNames[phase] || phase);
     const remaining = Math.max(0, Math.ceil(number(engine.remainingCooldown)));
     this.text('phase-clock', cooldown ? (phase === 'settling' ? 'Waiting' : remaining + ' sec') : opossum ? 'A ' + Math.round(number(engine.outputPercentA)) + '% · B ' + Math.round(number(engine.outputPercentB)) + '%' : Math.round(number(engine.outputPercent)) + '%');
-    this.node('phase-progress').style.width = (cooldown ? Math.min(100, 100 * (1 - remaining / Math.max(1, number(engine.cooldownSeconds, 20)))) : Math.max(0, Math.min(100, number(engine.outputPercent)))) + '%';
+    this.node('phase-progress').style.width = (cooldown ? Math.min(100, 100 * (1 - remaining / Math.max(1, number(engine.recoverySeconds ?? engine.cooldownSeconds, 20)))) : Math.max(0, Math.min(100, number(engine.outputPercent)))) + '%';
     const descriptions = { idle: 'Connect your devices and calibrate to begin.', running: mode === 'solo' ? 'Ramping toward your selected device limit.' : 'Guest controls are active. Automatic cutoff has priority.', cooldown: 'Output paused. The next cycle starts after cooldown and pressure reset.', settling: 'Cooldown complete. Waiting for fresh pressure below the reset threshold.', paused: 'Output is paused. Resume when you are ready.', stopped: 'Output stopped. Start a new session when ready.', fault: engine.reason || 'Connection issue detected. Check devices before resuming.' };
     this.text('phase-detail', descriptions[phase] || engine.reason || '');
     this.text('bottom-title', phaseNames[phase] || phase); this.text('bottom-copy', cooldown ? 'Cutoff has priority.' : simulation ? 'Simulation only.' : 'Stop is always available.');
@@ -262,7 +262,7 @@ export class UI {
     this.text('mode-label', mode === 'guest' ? 'GUEST CONTROL' : 'SOLO'); this.hide('solo-settings', mode === 'guest'); this.hide('guest-host-settings', mode !== 'guest');
     this.node('mode-solo').setAttribute('aria-pressed', String(mode === 'solo')); this.node('mode-guest').setAttribute('aria-pressed', String(mode === 'guest'));
     this.disable('mode-solo', active); this.disable('mode-guest', active);
-    this.text('host-guest-power', opossum ? 'A ' + Math.round(number(engine.guestPercentA ?? engine.guestPercent)) + '% · B ' + Math.round(number(engine.guestPercentB)) + '%' : Math.round(number(engine.guestPercent)) + '%'); this.text('host-guest-pattern', (engine.pattern || 'steady') + ' · ' + number(engine.cooldownSeconds, 20) + '-second cooldown');
+    this.text('host-guest-power', opossum ? 'A ' + Math.round(number(engine.guestPercentA ?? engine.guestPercent)) + '% · B ' + Math.round(number(engine.guestPercentB)) + '%' : Math.round(number(engine.guestPercent)) + '%'); this.text('host-guest-pattern', (engine.pattern || 'steady') + ' · recovery ' + number(engine.recoveryMinSeconds, 20) + '–' + number(engine.recoveryMaxSeconds, 20) + ' sec');
     this.text('guest-host-status', view.guestConnected ? 'Your guest is connected' : 'Waiting for your guest');
     this.text('start-power-label', opossum ? 'Starting fraction of each maximum' : 'Starting power');
     this.hide('opossum-solo-settings', !opossum);
@@ -270,7 +270,15 @@ export class UI {
     this.value('max-percent-b', engine.maxPercentB ?? 100); this.text('max-percent-b-value', Math.round(number(engine.maxPercentB, 100)) + '%');
     this.disable('max-percent-a', busy); this.disable('max-percent-b', busy);
     this.value('start-percent', engine.startPercent ?? 10); this.text('start-percent-value', Math.round(number(engine.startPercent, 10)) + '%');
-    this.value('ramp-seconds', engine.rampSeconds ?? 60); this.value('solo-cooldown', engine.cooldownSeconds ?? 20); this.text('solo-cooldown-value', number(engine.cooldownSeconds, 20) + ' sec');
+    this.value('ramp-seconds', engine.rampSeconds ?? 60);
+    this.value('recovery-min', engine.recoveryMinSeconds ?? 20); this.value('recovery-max', engine.recoveryMaxSeconds ?? 20);
+    this.node('adaptive-enabled').checked = engine.adaptiveEnabled !== false;
+    this.value('short-phase-seconds', engine.shortPhaseSeconds ?? 5); this.value('short-phase-count', engine.shortPhaseCount ?? 3);
+    this.value('stable-phase-seconds', engine.stablePhaseSeconds ?? 12); this.value('stable-phase-count', engine.stablePhaseCount ?? 3);
+    this.hide('adaptive-settings', engine.adaptiveEnabled === false);
+    this.hide('opossum-pattern-settings', !opossum);
+    this.value('opossum-pattern', engine.opossumPattern ?? 'synchronized'); this.value('pattern-speed', engine.patternSpeedSeconds ?? 4);
+    this.value('phase-offset', engine.phaseOffset ?? 0.25); this.value('pattern-min-a', engine.patternMinA ?? 0); this.value('pattern-min-b', engine.patternMinB ?? 0);
     this.text('power-cap-note', vg ? 'Displayed 100% is capped at 35% of VacuGlide speed.' : opossum ? 'Displayed 100% on either Opossum channel is capped at 40% of its native output.' : 'Displayed 100% is capped at 65% of Lush output.');
     this.hide('pump-panel', !vg); this.disable('stroke-plus', !outputConnected || busy || simulation); this.disable('stroke-minus', !outputConnected || busy || simulation);
     this.node('toy-lush').setAttribute('aria-pressed', String(toy === 'lush')); this.node('toy-opossum').setAttribute('aria-pressed', String(opossum)); this.node('toy-vacuglide').setAttribute('aria-pressed', String(vg));
@@ -284,27 +292,43 @@ export class UI {
     this.text('connect-civet', sensorConnected && !simulation ? 'Connected' : 'Connect'); this.text('connect-output', outputConnected && !simulation ? 'Connected' : 'Connect');
     this.disable('connect-civet', busy || simulation || sensorConnected); this.disable('connect-output', busy || simulation || outputConnected);
     this.hide('disconnect-output', !outputConnected || simulation); this.disable('zero-civet', busy || !sensorConnected || active);
-    this.renderCalibration(view.calibration || {}, { sensorConnected, busy, active });
+    this.text('data-runtime', (() => { const total=Math.max(0,Math.floor(number(view.dataRuntimeMs)/1000)); return Math.floor(total/60)+':'+String(total%60).padStart(2,'0'); })());
+    this.text('data-last-cycle', Number.isFinite(engine.lastCycleSeconds) ? engine.lastCycleSeconds.toFixed(1)+'s' : '—');
+    this.text('data-adaptive', '×'+number(engine.adaptiveMultiplier,1));
+    this.text('data-recovery', number(engine.recoverySeconds ?? engine.cooldownSeconds,20).toFixed(1).replace(/\.0$/,'')+'s');
+    this.text('data-status', view.hasSessionData ? (active || resumed ? 'RECORDING' : 'AVAILABLE') : 'READY');
+    this.disable('export-csv', !view.hasSessionData); this.disable('export-json', !view.hasSessionData);
+    this.renderCalibration(view.calibration || {}, { sensorConnected, busy, active, pressure: engine.pressure });
     this.renderDeveloper(view, { busy, simulation, outputConnected });
     this.renderGuest(view, { engine, vg, opossum, phase, best, count, record, remaining, cooldown, busy });
     this.drawChart(engine, simulation);
   }
 
-  renderCalibration(calibration, { sensorConnected, busy, active }) {
+  renderCalibration(calibration, { sensorConnected, busy, active, pressure }) {
     const values = calibration.values || {};
-    const labels = { relaxed: 'Relaxed', partial: 'Partial', full: 'Stronger' };
-    this.text('calibration-status', calibration.status || (sensorConnected ? 'Zero the unloaded sensor, then capture your readings.' : 'Connect Civet to begin. No automatic inflation is performed.'));
-    for (const stage of ['relaxed', 'partial', 'full']) {
-      const exists = values[stage] !== undefined && values[stage] !== null;
-      this.node('cal-step-' + stage).dataset.done = String(exists);
-      this.text('capture-' + stage, calibration.step === stage && busy ? 'Reading…' : exists ? 'Retake' : 'Capture');
-      this.disable('capture-' + stage, busy || !sensorConnected || active);
+    const mode = calibration.mode === 'automatic' ? 'automatic' : 'manual';
+    this.text('calibration-status', calibration.status || (sensorConnected ? 'Watch the live reading, then capture or edit each point.' : 'Connect Civet to begin.'));
+    this.text('cal-live-pressure', fixed(pressure, 2));
+    this.node('cal-mode-manual').setAttribute('aria-pressed', String(mode === 'manual'));
+    this.node('cal-mode-auto').setAttribute('aria-pressed', String(mode === 'automatic'));
+    this.hide('auto-calibration-options', mode !== 'automatic');
+    this.value('cal-sample-ms', calibration.autoSampleMs ?? 1000);
+    for (const stage of ['zero','relaxed','partial','full']) {
+      const raw = values[stage];
+      const value = raw && typeof raw === 'object' ? raw.mean : raw;
+      const exists = Number.isFinite(Number(value));
+      this.node('cal-step-' + stage).dataset.done = String(exists || (stage === 'zero' && calibration.zeroed));
+      this.value('cal-value-' + stage, exists ? Number(value).toFixed(2) : '');
+      this.disable('cal-value-' + stage, active || busy);
+      this.disable('capture-now-' + stage, busy || !sensorConnected || active);
+      if (stage !== 'zero') {
+        this.text('capture-' + stage, calibration.step === stage && busy ? 'Reading…' : exists ? 'Resample' : 'Sample');
+        this.disable('capture-' + stage, busy || !sensorConnected || active || mode !== 'automatic');
+      }
     }
-    this.node('cal-step-zero').dataset.done = String(Boolean(calibration.zeroed || calibration.step === 'relaxed' || values.relaxed !== undefined));
-    const entries = ['relaxed', 'partial', 'full'].filter(stage => values[stage] !== undefined).map(stage => labels[stage] + ': ' + fixed(typeof values[stage] === 'object' ? values[stage].mean : values[stage]) + ' kPa');
-    this.text('calibration-values', entries.join(' · ')); this.hide('calibration-values', !entries.length);
-    this.disable('finish-calibration', busy || active || entries.length < 3); this.disable('reset-calibration', active || busy);
-    this.text('finish-calibration', calibration.complete ? 'Calibration ready' : 'Use calibration');
+    const ready = ['relaxed','partial','full'].every(stage => Number.isFinite(Number(values[stage]?.mean ?? values[stage])));
+    this.disable('finish-calibration', busy || active || !ready); this.disable('reset-calibration', active || busy);
+    this.text('finish-calibration', calibration.complete ? 'Save calibration again' : 'Save calibration');
   }
 
   renderDeveloper(view, { busy, simulation, outputConnected }) {
@@ -362,11 +386,12 @@ export class UI {
     this.value('guest-speed-b', engine.guestPercentB ?? 0); this.text('guest-power-b-value', Math.round(number(engine.guestPercentB)));
     this.text('guest-power-note', opossum ? 'Both channels can run together, with independent levels and one shared pattern. Each channel has its own host-enforced limit.' : 'The host’s output limit applies to every setting.');
     this.text('guest-stop-label', opossum ? 'Stop both channels' : 'Stop output'); this.text('overlay-stop-label', opossum ? 'Stop both channels' : 'Stop output');
-    this.value('guest-cooldown', engine.cooldownSeconds ?? 20); this.text('guest-cooldown-value', number(engine.cooldownSeconds, 20) + ' sec');
+    this.value('guest-recovery-min', engine.recoveryMinSeconds ?? 20); this.value('guest-recovery-max', engine.recoveryMaxSeconds ?? 20);
     this.hide('guest-patterns', vg);
+    this.hide('pattern-alternating', !opossum); this.hide('pattern-offset-wave', !opossum);
     const blocked = busy || cooldown || fault || !connected;
-    this.disable('guest-speed', blocked); this.disable('guest-speed-a', blocked); this.disable('guest-speed-b', blocked); this.disable('guest-cooldown', blocked); this.disable('guest-stop', !connected || busy);
-    for (const pattern of ['steady', 'pulse', 'wave']) { this.node('pattern-' + pattern).setAttribute('aria-pressed', String((engine.pattern || 'steady') === pattern)); this.disable('pattern-' + pattern, blocked); }
+    this.disable('guest-speed', blocked); this.disable('guest-speed-a', blocked); this.disable('guest-speed-b', blocked); this.disable('guest-recovery-min', blocked); this.disable('guest-recovery-max', blocked); this.disable('guest-stop', !connected || busy);
+    for (const pattern of ['steady','pulse','wave','alternating','offset-wave']) { const node=this.node('pattern-' + pattern); if (node) { node.setAttribute('aria-pressed', String((engine.pattern || 'steady') === pattern)); node.disabled = blocked || ((!opossum) && ['alternating','offset-wave'].includes(pattern)); } }
     const alert = view.connectionError || (fault ? engine.reason || (phase === 'idle' ? 'Waiting for the host to start the session.' : 'The host has paused or stopped output.') : !connected ? 'Connection interrupted. Controls will return when the session reconnects.' : '');
     this.text('guest-alert', alert); this.hide('guest-alert', !alert);
     const preview = Boolean(view.simulation && (this.previewOpen || view.guestPreview || view.previewOverlay));
@@ -386,7 +411,7 @@ export class UI {
     this.text('cooldown-title', title);
     this.text('overlay-seconds', waiting ? 'Ready' : Math.max(0, Math.ceil(overlayRemaining))); this.hide('overlay-seconds-unit', waiting);
     this.text('overlay-timer-label', waiting ? 'Waiting for pressure to settle' : 'Until cooldown is complete');
-    this.node('overlay-progress').style.width = Math.max(0, Math.min(100, 100 * (1 - overlayRemaining / Math.max(1, number(engine.cooldownSeconds, 20))))) + '%';
+    this.node('overlay-progress').style.width = Math.max(0, Math.min(100, 100 * (1 - overlayRemaining / Math.max(1, number(engine.recoverySeconds ?? engine.cooldownSeconds, 20))))) + '%';
     this.hide('overlay-preview', !preview);
     this.hide('overlay-stop', !guest || preview); this.disable('overlay-stop', !connected || busy);
     this.text('overlay-footnote', preview ? 'Preview only. No real device is being driven and your saved record is unchanged.' : 'Your selected settings resume after the timer finishes and pressure has settled.');
