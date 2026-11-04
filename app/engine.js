@@ -448,7 +448,7 @@ export class SessionEngine {
     if (this.config.toy !== 'vacuglide' && this.pattern === 'pulse') multiplier = elapsed % 2000 < 1000 ? 1 : 0;
     else if (this.config.toy !== 'vacuglide' && this.pattern === 'wave') multiplier = (1 - Math.cos(2 * Math.PI * (elapsed % 4000) / 4000)) / 2;
     if (this.config.toy === 'opossum') {
-      const mode = ['alternating','offset-wave','custom'].includes(this.pattern) ? this.pattern : this.pattern === 'pulse' ? 'pulse' : 'synchronized';
+      const mode = ['alternating','offset-wave','custom'].includes(this.pattern) ? this.pattern : this.pattern === 'wave' ? 'offset-wave' : this.pattern === 'pulse' ? 'pulse' : 'synchronized';
       return this._opossumPattern(elapsed, this.guestPercentA, this.guestPercentB, mode);
     }
     return clamp(this.guestPercent, 0, 100) * multiplier;
