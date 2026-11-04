@@ -256,14 +256,24 @@ export class CivetDevice extends BluetoothAdapter {
     return this._connectPromise;
   }
 
-  async _connect() {
+  async reconnect() {
+    if (this.connected) return this;
+    if (this._connectPromise) return this._connectPromise;
+    const granted = typeof this.bluetooth?.getDevices === 'function' ? await this.bluetooth.getDevices() : [];
+    const device = granted.find(item => item?.name === '47L124000' || item?.name?.startsWith('Civet'));
+    if (!device) throw new Error('Civet permission is not available for automatic reconnect. Press Connect.');
+    this._connectPromise = this._connect(device).finally(() => { this._connectPromise = null; });
+    return this._connectPromise;
+  }
+
+  async _connect(existingDevice = null) {
     this._requireBluetooth();
     this._detach();
     const epoch = this._epoch;
     this._faultReported = false;
-    this._status('connecting', 'Select the Civet sensor.');
+    this._status('connecting', existingDevice ? 'Reconnecting Civet…' : 'Select the Civet sensor.');
     try {
-      const device = await this.bluetooth.requestDevice({
+      const device = existingDevice || await this.bluetooth.requestDevice({
         // DG-LAB reuses service 180C across devices, including stimulators. Do
         // not offer every device with that service as if it were a Civet.
         filters: [{ name: '47L124000' }, { namePrefix: 'Civet' }],
@@ -337,15 +347,25 @@ export class LushDevice extends BluetoothAdapter {
     return this._connectPromise;
   }
 
-  async _connect() {
+  async reconnect() {
+    if (this.connected) return this;
+    if (this._connectPromise) return this._connectPromise;
+    const granted = typeof this.bluetooth?.getDevices === 'function' ? await this.bluetooth.getDevices() : [];
+    const device = granted.find(item => item?.name?.startsWith('LVS-') || item?.name?.startsWith('LOVE-'));
+    if (!device) throw new Error('Lush permission is not available for automatic reconnect. Press Connect.');
+    this._connectPromise = this._connect(device).finally(() => { this._connectPromise = null; });
+    return this._connectPromise;
+  }
+
+  async _connect(existingDevice = null) {
     this._requireBluetooth();
     this._detach();
     const epoch = this._epoch;
     this._faultReported = false;
     this._lastNative = null;
-    this._status('connecting', 'Select the Lush.');
+    this._status('connecting', existingDevice ? 'Reconnecting Lush…' : 'Select the Lush.');
     try {
-      const device = await this.bluetooth.requestDevice({
+      const device = existingDevice || await this.bluetooth.requestDevice({
         filters: [{ namePrefix: 'LVS-' }, { namePrefix: 'LOVE-' }, { services: [LUSH_PROFILES[0].service] }],
         optionalServices: LUSH_PROFILES.map(profile => profile.service),
       });
@@ -460,14 +480,24 @@ export class OpossumDevice extends BluetoothAdapter {
     return this._connectPromise;
   }
 
-  async _connect() {
+  async reconnect() {
+    if (this.connected) return this;
+    if (this._connectPromise) return this._connectPromise;
+    const granted = typeof this.bluetooth?.getDevices === 'function' ? await this.bluetooth.getDevices() : [];
+    const device = granted.find(item => item?.name === '47L127000' || item?.name?.startsWith('Opossum'));
+    if (!device) throw new Error('Opossum permission is not available for automatic reconnect. Press Connect.');
+    this._connectPromise = this._connect(device).finally(() => { this._connectPromise = null; });
+    return this._connectPromise;
+  }
+
+  async _connect(existingDevice = null) {
     this._requireBluetooth();
     this._detach();
     const epoch = this._epoch;
     this._faultReported = false;
-    this._status('connecting', 'Select the Opossum controller (47L127000).');
+    this._status('connecting', existingDevice ? 'Reconnecting Opossum…' : 'Select the Opossum controller (47L127000).');
     try {
-      const device = await this.bluetooth.requestDevice({
+      const device = existingDevice || await this.bluetooth.requestDevice({
         filters: [{ name: '47L127000' }, { namePrefix: 'Opossum' }],
         optionalServices: [CIVET_SERVICE, 0x180a],
       });
@@ -725,6 +755,12 @@ export class VacuGlideDevice {
       if (controller.signal.aborted) throw new Error('VacuGlide request timed out. Command delivery is unconfirmed; check the physical device.');
       throw error;
     } finally { clearTimeout(timer); }
+  }
+
+  reconnect() {
+    if (this.connected) return Promise.resolve(this);
+    if (!this._token) return Promise.reject(new Error('VacuGlide token is not available for automatic reconnect. Press Connect.'));
+    return this.connect(this._token);
   }
 
   connect(token) {
