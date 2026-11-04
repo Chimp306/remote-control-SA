@@ -8,7 +8,10 @@ export const SENSOR_FRESH_MS = 1000;
 export const ENGINE_DEFAULTS = Object.freeze({
   toy: 'lush', mode: 'solo', startPercent: 10, rampSeconds: 60,
   maxPercentA: 100, maxPercentB: 100,
-  cooldownSeconds: 20, threshold: 22.9, resetThreshold: 21.6,
+  recoveryMinSeconds: 20, recoveryMaxSeconds: 20,
+  adaptiveEnabled: true, shortPhaseSeconds: 5, shortPhaseCount: 3,
+  stablePhaseSeconds: 12, stablePhaseCount: 3, adaptiveMaxMultiplier: 8,
+  threshold: 22.9, resetThreshold: 21.6,
 });
 
 const ACTIVE = new Set(['running', 'cooldown', 'settling']);
@@ -26,8 +29,9 @@ const pressureLevel = (value, name) => {
 };
 
 export class SessionEngine {
-  constructor({ now = () => Date.now(), onOutput = () => {}, onEvent = () => {}, simulation = false } = {}) {
+  constructor({ now = () => Date.now(), random = Math.random, onOutput = () => {}, onEvent = () => {}, simulation = false } = {}) {
     this.now = now;
+    this.random = random;
     this.onOutput = onOutput;
     this.onEvent = onEvent;
     this.simulation = Boolean(simulation);
@@ -44,6 +48,12 @@ export class SessionEngine {
     this.guestPercentB = 0;
     this.pattern = 'steady';
     this.cooldownEndsAt = null;
+    this.recoveryBaseSeconds = 20;
+    this.recoverySeconds = 20;
+    this.adaptiveMultiplier = 1;
+    this.shortPhaseStreak = 0;
+    this.stablePhaseStreak = 0;
+    this.lastCycleSeconds = null;
     this.reason = '';
     this._cycleStartedAt = null;
     this._pausedCooldownMs = 0;
@@ -70,7 +80,21 @@ export class SessionEngine {
     if (values.maxPercentA !== undefined) next.maxPercentA = clamp(finite(values.maxPercentA, 'Channel A maximum'), 0, 100);
     if (values.maxPercentB !== undefined) next.maxPercentB = clamp(finite(values.maxPercentB, 'Channel B maximum'), 0, 100);
     if (values.rampSeconds !== undefined) next.rampSeconds = clamp(finite(values.rampSeconds, 'Ramp duration'), 0, 3600);
-    if (values.cooldownSeconds !== undefined) next.cooldownSeconds = clamp(finite(values.cooldownSeconds, 'Cooldown duration'), 10, 30);
+    if (values.cooldownSeconds !== undefined) {
+      const legacy = clamp(finite(values.cooldownSeconds, 'Recovery duration'), 1, 300);
+      next.recoveryMinSeconds = legacy;
+      next.recoveryMaxSeconds = legacy;
+    }
+    if (values.recoveryMinSeconds !== undefined) next.recoveryMinSeconds = clamp(finite(values.recoveryMinSeconds, 'Minimum recovery'), 1, 300);
+    if (values.recoveryMaxSeconds !== undefined) next.recoveryMaxSeconds = clamp(finite(values.recoveryMaxSeconds, 'Maximum recovery'), 1, 300);
+    if (next.recoveryMaxSeconds < next.recoveryMinSeconds) throw new RangeError('Maximum recovery must be at least the minimum recovery.');
+    if (values.adaptiveEnabled !== undefined) next.adaptiveEnabled = Boolean(values.adaptiveEnabled);
+    if (values.shortPhaseSeconds !== undefined) next.shortPhaseSeconds = clamp(finite(values.shortPhaseSeconds, 'Short-phase threshold'), 1, 120);
+    if (values.shortPhaseCount !== undefined) next.shortPhaseCount = Math.round(clamp(finite(values.shortPhaseCount, 'Short-phase count'), 1, 20));
+    if (values.stablePhaseSeconds !== undefined) next.stablePhaseSeconds = clamp(finite(values.stablePhaseSeconds, 'Stable-phase threshold'), 1, 600);
+    if (values.stablePhaseCount !== undefined) next.stablePhaseCount = Math.round(clamp(finite(values.stablePhaseCount, 'Stable-phase count'), 1, 20));
+    if (values.adaptiveMaxMultiplier !== undefined) next.adaptiveMaxMultiplier = clamp(finite(values.adaptiveMaxMultiplier, 'Maximum adaptive multiplier'), 1, 32);
+    if (next.stablePhaseSeconds <= next.shortPhaseSeconds) throw new RangeError('Stable-phase threshold must be above the short-phase threshold.');
     if (values.threshold !== undefined) next.threshold = pressureLevel(values.threshold, 'Cutoff');
     if (values.resetThreshold !== undefined) next.resetThreshold = pressureLevel(values.resetThreshold, 'Reset threshold');
     if (next.resetThreshold >= next.threshold) throw new RangeError('Reset threshold must be below the cutoff.');
@@ -111,6 +135,12 @@ export class SessionEngine {
     if (ACTIVE.has(this.phase)) return this.snapshot();
     this._generation += 1;
     this.edgeCount = 0;
+    this.adaptiveMultiplier = 1;
+    this.shortPhaseStreak = 0;
+    this.stablePhaseStreak = 0;
+    this.lastCycleSeconds = null;
+    this.recoveryBaseSeconds = this.config.recoveryMinSeconds;
+    this.recoverySeconds = this.config.recoveryMinSeconds;
     this._armed = false;
     this._pausedPhase = null;
     this._pausedCooldownMs = 0;
@@ -208,10 +238,14 @@ export class SessionEngine {
     if (this.phase === 'running') {
       if (this._armed && this.pressure >= this.config.threshold) {
         this.edgeCount += 1;
+        this.lastCycleSeconds = this._cycleStartedAt === null ? null : Math.max(0, (at - this._cycleStartedAt) / 1000);
+        this._updateAdaptiveRecovery(this.lastCycleSeconds);
+        this.recoveryBaseSeconds = this._randomRecoveryBase();
+        this.recoverySeconds = Math.min(1800, this.recoveryBaseSeconds * this.adaptiveMultiplier);
         this._armed = false;
         this.phase = 'cooldown';
         this.reason = '';
-        this.cooldownEndsAt = at + this.config.cooldownSeconds * 1000;
+        this.cooldownEndsAt = at + this.recoverySeconds * 1000;
         this._output(0, true);
         this._emit('edge', at);
         this._emit('state', at);
@@ -242,7 +276,7 @@ export class SessionEngine {
     return this.snapshot();
   }
 
-  setGuestOutput({ percent, percentA, percentB, pattern, cooldownSeconds } = {}) {
+  setGuestOutput({ percent, percentA, percentB, pattern, cooldownSeconds, recoveryMinSeconds, recoveryMaxSeconds } = {}) {
     // Validate atomically so a malformed command does not partly alter a session.
     let nextPercent = percent === undefined ? this.guestPercent : clamp(finite(percent, 'Guest percentage'), 0, 100);
     const hasChannels = percentA !== undefined || percentB !== undefined;
@@ -264,12 +298,16 @@ export class SessionEngine {
     }
     const nextPattern = pattern === undefined ? this.pattern : pattern;
     if (!PATTERNS.has(nextPattern)) throw new TypeError('Unsupported pattern.');
-    const nextCooldown = cooldownSeconds === undefined ? this.config.cooldownSeconds : clamp(finite(cooldownSeconds, 'Cooldown duration'), 10, 30);
+    const legacy = cooldownSeconds === undefined ? null : clamp(finite(cooldownSeconds, 'Recovery duration'), 1, 300);
+    const nextMin = recoveryMinSeconds === undefined ? (legacy ?? this.config.recoveryMinSeconds) : clamp(finite(recoveryMinSeconds, 'Minimum recovery'), 1, 300);
+    const nextMax = recoveryMaxSeconds === undefined ? (legacy ?? this.config.recoveryMaxSeconds) : clamp(finite(recoveryMaxSeconds, 'Maximum recovery'), 1, 300);
+    if (nextMax < nextMin) throw new RangeError('Maximum recovery must be at least the minimum recovery.');
     this.guestPercent = nextPercent;
     this.guestPercentA = nextA;
     this.guestPercentB = nextB;
     this.pattern = this.config.toy === 'vacuglide' ? 'steady' : nextPattern;
-    this.config.cooldownSeconds = nextCooldown;
+    this.config.recoveryMinSeconds = nextMin;
+    this.config.recoveryMaxSeconds = nextMax;
     this.tick();
     this._emit('state');
     return this.snapshot();
@@ -278,16 +316,88 @@ export class SessionEngine {
   snapshot(at = this.now()) {
     const remaining = this.phase === 'paused' ? this._pausedCooldownMs / 1000
       : this.cooldownEndsAt === null ? 0 : Math.max(0, (this.cooldownEndsAt - at) / 1000);
+    const cycleElapsedSeconds = this.phase === 'running' && this._cycleStartedAt !== null ? Math.max(0, (at - this._cycleStartedAt) / 1000) : this.lastCycleSeconds;
     return {
       ...this.config,
+      cooldownSeconds: this.recoverySeconds,
       phase: this.phase, pressure: this.pressure, pressureAt: this.pressureAt,
       sensorFresh: this._fresh(at), edgeCount: this.edgeCount, outputPercent: this.outputPercent,
       outputPercentA: this.outputPercentA, outputPercentB: this.outputPercentB,
       remainingCooldown: remaining, cooldownEndsAt: this.cooldownEndsAt,
       guestPercent: this.guestPercent, pattern: this.pattern, reason: this.reason,
       guestPercentA: this.guestPercentA, guestPercentB: this.guestPercentB,
-      simulation: this.simulation,
+      recoveryBaseSeconds: this.recoveryBaseSeconds, recoverySeconds: this.recoverySeconds,
+      adaptiveMultiplier: this.adaptiveMultiplier, shortPhaseStreak: this.shortPhaseStreak,
+      stablePhaseStreak: this.stablePhaseStreak, lastCycleSeconds: this.lastCycleSeconds,
+      cycleElapsedSeconds, simulation: this.simulation,
     };
+  }
+
+
+  restore(saved = {}) {
+    if (!saved || typeof saved !== 'object') throw new TypeError('Saved session is invalid.');
+    const config = saved.config || saved;
+    this.configure(config);
+    this.edgeCount = Number.isSafeInteger(saved.edgeCount) ? clamp(saved.edgeCount, 0, 1000000) : 0;
+    this.guestPercent = clamp(Number(saved.guestPercent) || 0, 0, 100);
+    this.guestPercentA = clamp(Number(saved.guestPercentA) || this.guestPercent, 0, 100);
+    this.guestPercentB = clamp(Number(saved.guestPercentB) || 0, 0, 100);
+    this.pattern = PATTERNS.has(saved.pattern) ? saved.pattern : 'steady';
+    this.adaptiveMultiplier = clamp(Number(saved.adaptiveMultiplier) || 1, 1, this.config.adaptiveMaxMultiplier);
+    this.shortPhaseStreak = Math.max(0, Math.round(Number(saved.shortPhaseStreak) || 0));
+    this.stablePhaseStreak = Math.max(0, Math.round(Number(saved.stablePhaseStreak) || 0));
+    this.lastCycleSeconds = Number.isFinite(saved.lastCycleSeconds) ? Math.max(0, saved.lastCycleSeconds) : null;
+    this.recoveryBaseSeconds = clamp(Number(saved.recoveryBaseSeconds) || this.config.recoveryMinSeconds, 1, 300);
+    this.recoverySeconds = clamp(Number(saved.recoverySeconds) || this.recoveryBaseSeconds, 1, 1800);
+    this.phase = 'paused';
+    this.reason = 'Session restored after interruption. Confirm devices and resume explicitly.';
+    this.cooldownEndsAt = null;
+    this._pausedPhase = saved.phase === 'cooldown' ? 'cooldown' : 'running';
+    this._pausedCooldownMs = saved.phase === 'cooldown' ? Math.max(0, Number(saved.remainingCooldown) || 0) * 1000 : 0;
+    this._armed = false;
+    this._cycleStartedAt = null;
+    this._generation += 1;
+    this._output(0, true);
+    this._emit('state');
+    return this.snapshot();
+  }
+
+  _randomRecoveryBase() {
+    const min = this.config.recoveryMinSeconds;
+    const max = this.config.recoveryMaxSeconds;
+    if (max <= min) return min;
+    const random = clamp(Number(this.random()) || 0, 0, 0.999999999);
+    return Math.round((min + random * (max - min)) * 10) / 10;
+  }
+
+  _updateAdaptiveRecovery(cycleSeconds) {
+    if (!this.config.adaptiveEnabled || !Number.isFinite(cycleSeconds)) {
+      this.shortPhaseStreak = 0;
+      this.stablePhaseStreak = 0;
+      this.adaptiveMultiplier = 1;
+      return;
+    }
+    if (cycleSeconds < this.config.shortPhaseSeconds) {
+      this.shortPhaseStreak += 1;
+      this.stablePhaseStreak = 0;
+      if (this.shortPhaseStreak >= this.config.shortPhaseCount) {
+        this.adaptiveMultiplier = Math.min(this.config.adaptiveMaxMultiplier, this.adaptiveMultiplier * 2);
+        this.shortPhaseStreak = 0;
+        this._emit('adaptive');
+      }
+    } else if (cycleSeconds >= this.config.stablePhaseSeconds) {
+      this.stablePhaseStreak += 1;
+      this.shortPhaseStreak = 0;
+      if (this.stablePhaseStreak >= this.config.stablePhaseCount) {
+        const previous = this.adaptiveMultiplier;
+        this.adaptiveMultiplier = Math.max(1, this.adaptiveMultiplier / 2);
+        this.stablePhaseStreak = 0;
+        if (this.adaptiveMultiplier !== previous) this._emit('adaptive');
+      }
+    } else {
+      this.shortPhaseStreak = 0;
+      this.stablePhaseStreak = 0;
+    }
   }
 
   _fresh(at) {
