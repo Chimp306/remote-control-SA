@@ -1,4 +1,4 @@
-import { hash, isToken, isClient, isCode, normalizeCode, randomToken, randomCode, verifyPassword, sanitizeState, sanitizeCommand, publicSession } from './core.js';
+import { hash, isToken, isClient, isCode, normalizeCode, randomToken, randomCode, verifyPassword, sanitizeState, sanitizeCommand, sanitizeProfile, publicSession } from './core.js';
 
 const API = Deno.env.get('SUPABASE_URL');
 const SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -102,7 +102,17 @@ export async function handler(request) {
     if (body.action === 'owner-status') {
       const config = await settings();
       const session = await one('ctmp_v2_sessions', 'active=eq.true');
-      return reply({ best: config?.best || 0, activeSessionId: session?.id || null, serverNow: Date.now() });
+      return reply({ best: config?.best || 0, profile: config?.profile || {}, activeSessionId: session?.id || null, serverNow: Date.now() });
+    }
+    if (body.action === 'profile-save') {
+      let profile;
+      try { profile = sanitizeProfile(body.profile); } catch (error) { throw new HttpError(error.message); }
+      await database('ctmp_v2_settings?id=eq.true', 'PATCH', { profile, updated_at: new Date().toISOString() });
+      return reply({ profile, serverNow: Date.now() });
+    }
+    if (body.action === 'profile-get') {
+      const config = await settings();
+      return reply({ profile: config?.profile || {}, serverNow: Date.now() });
     }
     if (body.action === 'owner-logout') {
       await database('ctmp_v2_sessions?owner_hash=eq.' + tokenHash + '&active=eq.true', 'PATCH', { active: false, ended_at: new Date().toISOString(), state: {}, command: null, guest_hash: null, guest_client_hash: null });
