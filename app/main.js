@@ -841,7 +841,7 @@ function render() {
   }
   if (!engine) return;
   if (previewOverlay && previewEndsAt) previewOverlay = { ...previewOverlay, remainingCooldown: Math.max(0, (previewEndsAt - Date.now()) / 1000) };
-  ui.render({ screen: 'host', engine: engine.snapshot(), toy: engine.config.toy, mode: engine.config.mode, devices: deviceStates, best: simulation ? simulationBest : best, newRecord, devUnlocked: Boolean(backend.ownerToken), simulation, calibration, link: remote, guestConnected, networkStatus: remote?.owned ? lastHostSync && Date.now() - lastHostSync < 5000 ? 'connected' : 'offline' : 'idle', logs, testResults, hardwareArmed, busy, connectionError, wakeStatus, guestPreview, previewOverlay, dataRuntimeMs: recorder.runtimeMs, hasSessionData: recorder.startedAt !== null || Boolean(lastSessionData), finishReport, finishStopError });
+  ui.render({ screen: 'host', engine: engine.snapshot(), toy: engine.config.toy, mode: engine.config.mode, devices: deviceStates, best: simulation ? simulationBest : best, newRecord, devUnlocked: Boolean(backend.ownerToken), simulation, calibration, link: remote, guestConnected, networkStatus: remote?.owned ? lastHostSync && Date.now() - lastHostSync < 5000 ? 'connected' : 'offline' : 'idle', logs, testResults, hardwareArmed, busy, connectionError, wakeStatus, guestPreview, previewOverlay, dataRuntimeMs: recorder.runtimeMs, hasSessionData: recorder.startedAt !== null || Boolean(lastSessionData), finishReport, finishStopError, canFinish: recorder.active && !['idle','stopped'].includes(engine.phase) });
 }
 
 function backgroundStop() {
