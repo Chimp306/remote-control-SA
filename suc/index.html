@@ -54,7 +54,7 @@ const ART={"assessment":"data:image/webp;base64,UklGRoC6AQBXRUJQVlA4IHS6AQCQwQWd
 
 // ---- content.js ----
 // SUC Clinic: authored fiction. No story instruction can command hardware.
-const VERSION = '1.2.1';
+const VERSION = '1.2.2';
 const DIFFICULTIES = {
   easy: {name:'Routine Collection',label:'Easy',min:45,max:75,copy:'A shorter appointment. The staff are still rather thorough.'},
   medium: {name:'Extended Collection',label:'Medium',min:95,max:140,copy:'More assessments, more opportunities for your nurse to take an interest.'},
@@ -244,10 +244,396 @@ function validPrescription(value,verdict){
 }
 
 
+// ---- dialogue.js ----
+// Dialogue selection is separate from the appointment's mechanics RNG.
+// Every callback describes a supplied, recorded choice; none invents an action.
+const RESPONSES = {
+  evelyn: {
+    counting: [
+      '“Of course. Each recorded result adds one to the counter.” Evelyn turns it slightly towards you. “You should be able to see what we are discussing.”',
+      '“One result, one mark,” Evelyn explains. “A fair question. I would want to know what I was looking at too.”',
+    ],
+    professional: [
+      '“Kind of you to notice,” Evelyn says. “It has been a good afternoon.”',
+      'Evelyn smiles at your comment. “Is it that obvious? I thought I was being quite composed.”',
+    ],
+    change: [
+      '“I wanted a comparison with the first part,” Evelyn explains. “You are right to ask why something changes.”',
+      'Evelyn points to the two entries on the chart. “So I can compare them. I should have explained that before you had to ask.”',
+    ],
+    enjoy: [
+      '“I am,” Evelyn replies. “Having someone to talk to helps.”',
+      'Evelyn looks up at your remark. “A little conversation makes an afternoon much nicer.”',
+    ],
+    quota: [
+      '“Yes, there is a target,” Evelyn answers. “I am keeping that part of the chart private, but I will tell you when the review is complete.”',
+      'Evelyn nods. “There is a number in my plan. I know you would like to see it; that page stays with me for now.”',
+    ],
+    smile: [
+      '“I was enjoying our conversation,” Evelyn says. “There need not always be a complicated explanation.”',
+      'Evelyn looks briefly amused by the question. “A pleasant conversation. You can take some of the credit.”',
+    ],
+    boss: [
+      '“She notices the smallest things,” Evelyn says. “I prefer to hear her questions after I have finished answering yours.”',
+      'Evelyn glances towards the corridor. “Very thorough. Sometimes I have to remind her that an appointment also involves a conversation.”',
+    ],
+    patience: [
+      '“You are hoping we are nearly finished. I heard you,” Evelyn says. “I have not finished the review yet.”',
+      'Evelyn gives your comment a moment of thought. “I understand. I would rather give you a clear answer than promise a time I have not checked.”',
+    ],
+    resolve: [
+      '“Thank you,” Evelyn says. “I will finish the review, then explain the result.”',
+      'Evelyn nods at your decision. “I will take it from here for a moment. Then we can look at the final page together.”',
+    ],
+  },
+  scarlett: {
+    counting: [
+      '“One result, one mark,” Scarlett says. “No bonus points for my handwriting.”',
+      'Scarlett points to the counter. “It counts the recorded results. The arithmetic is the straightforward part.”',
+    ],
+    professional: [
+      '“Already taking notes on me?” Scarlett asks. “I shall have to watch my expressions.”',
+      'Scarlett laughs at your observation. “I was aiming for professional composure. Clearly that needs work.”',
+    ],
+    change: [
+      '“For a comparison,” Scarlett replies. “I could have said ‘professional judgement’, but you looked as though you wanted an actual answer.”',
+      'Scarlett taps the earlier entry. “I want to compare the two parts. Even my choices occasionally come with an explanation.”',
+    ],
+    enjoy: [
+      '“Well spotted,” Scarlett says. “Do I get a mark for enthusiasm?”',
+      'Scarlett raises an eyebrow. “You make that sound like an accusation. I shall plead cheerful.”',
+    ],
+    quota: [
+      '“Of course,” Scarlett replies. “You were not expecting me to leave that page facing upwards, were you?”',
+      'Scarlett covers the last column with her hand. “There is a target. You have managed to find one of my shorter answers.”',
+    ],
+    smile: [
+      '“The conversation,” Scarlett says. “It is considerably more interesting than this form.”',
+      'Scarlett grins. “I was attempting a serious expression. You appear to have caught the attempt failing.”',
+    ],
+    boss: [
+      '“She can hear an unchecked box from the other end of the corridor,” Scarlett says. “A remarkable talent.”',
+      'Scarlett glances towards the door. “She likes things done properly. We disagree occasionally about how solemn that requires me to look.”',
+    ],
+    patience: [
+      '“An optimistic estimate,” Scarlett says. “I have heard it, but I have not signed it off.”',
+      'Scarlett gives your hopeful comment a thoughtful nod. “I admire the optimism. The review is still open.”',
+    ],
+    resolve: [
+      '“You are letting me finish a sentence and a review?” Scarlett says. “I shall make the most of that.”',
+      'Scarlett nods. “Very well. I will get to the last page without another running commentary.”',
+    ],
+  },
+  beatrice: {
+    counting: [
+      '“Each recorded result is counted once,” Beatrice replies. “The total is exact.”',
+      'Beatrice indicates the latest entry. “One entry, one count. I do not estimate.”',
+    ],
+    professional: [
+      '“I am in a good mood,” Beatrice confirms. “Please do not look quite so surprised.”',
+      'Beatrice pauses at your observation. “Correct. My expression is occasionally informative.”',
+    ],
+    change: [
+      '“For a comparison with the previous part,” Beatrice says. “It was a deliberate choice.”',
+      'Beatrice checks the earlier entry. “A comparison requires a change. That is why I chose it.”',
+    ],
+    enjoy: [
+      '“I can enjoy a conversation without announcing it,” Beatrice replies. A brief smile rather undermines her point.',
+      'Beatrice looks up. “Your observation is accurate. I see no reason to make a speech about it.”',
+    ],
+    quota: [
+      '“Yes. It is recorded in the private plan,” Beatrice says. “I will not quote the figure.”',
+      'Beatrice closes the final column from view. “There is a target. Its existence and its value are separate questions.”',
+    ],
+    smile: [
+      '“A private thought,” Beatrice answers. “You can allow me one.”',
+      'Beatrice lets the smile return briefly. “I was amused. A detailed account would rather spoil it.”',
+    ],
+    boss: [
+      '“She expects an accurate record,” Beatrice replies. “So do I. We generally get along.”',
+      'Beatrice gives the question some consideration. “Thorough. We agree on the value of doing things properly.”',
+    ],
+    patience: [
+      '“You would like us to be nearly finished,” Beatrice says. “I understand the distinction between that hope and a completed review.”',
+      'Beatrice acknowledges your comment with a small nod. “I heard you. The review is still in progress.”',
+    ],
+    resolve: [
+      '“Very well,” Beatrice says. “I will finish the review and give you the result.”',
+      'Beatrice nods once. “Then I shall complete it.”',
+    ],
+  },
+  victoria: {
+    counting: [
+      '“It tells you how many results have been recorded,” Victoria says. “It does not tell you what I think of them.”',
+      'Victoria turns the counter towards you. “A record of what has happened. It is sensible to ask what a number means.”',
+    ],
+    professional: [
+      '“You noticed,” Victoria says. “I had wondered whether you would.”',
+      'Victoria considers your observation before answering. “I am. I have no objection to you noticing.”',
+    ],
+    change: [
+      '“I wanted to compare this part with the first,” Victoria says. “You are watching the changes closely.”',
+      'Victoria places the two entries beside each other. “A comparison. I was waiting to hear which part you would ask about.”',
+    ],
+    enjoy: [
+      '“I have not complained, have I?” Victoria replies. The small smile stays.',
+      'Victoria gives your observation a quiet nod. “You are paying attention to more than the counter.”',
+    ],
+    quota: [
+      '“Yes,” Victoria says. “I was wondering when you would ask about that.” She leaves the private chart closed.',
+      'Victoria answers after a brief pause. “There is a target. I am keeping its number to myself.”',
+    ],
+    smile: [
+      '“I was thinking about our conversation,” Victoria says. “Some thoughts can stay private.”',
+      'Victoria considers the question. “Something amused me. I am content to leave it there for now.”',
+    ],
+    boss: [
+      '“She asks questions and waits for complete answers,” Victoria says. “I appreciate the second part.”',
+      'Victoria looks towards the corridor. “Observant. She usually sees more than she chooses to mention.”',
+    ],
+    patience: [
+      '“You are thinking about the end,” Victoria observes. “I heard you. I am still considering the review.”',
+      'Victoria lets your hopeful comment settle before answering. “I know you would like a conclusion. I am not ready to give one yet.”',
+    ],
+    resolve: [
+      'Victoria nods. “Then I will finish the review before we discuss its result.”',
+      '“You would like to hear it when it is complete,” Victoria says. “Very well.”',
+    ],
+  },
+};
+
+const PERMISSION_MANNER = {
+  evelyn: ['Evelyn gives your question her full attention.', 'Evelyn answers directly.'],
+  scarlett: ['Scarlett sets the joking aside to answer.', 'Scarlett gives you a matter-of-fact answer.'],
+  beatrice: ['Beatrice answers precisely.', 'Beatrice gives the question a small, acknowledging nod.'],
+  victoria: ['Victoria takes a moment before answering.', 'Victoria considers the question before replying.'],
+};
+
+// These are deliberately valid in any later scene, including the final review.
+const CALLBACKS = {
+  evelyn: {
+    counting: ['Evelyn puts the running record where you can see it. “It is easier when we are looking at the same thing.”', '“The total tells us what has been recorded,” Evelyn says. “The review gives it some context.”'],
+    professional: ['“A good mood survives a little paperwork,” Evelyn says, moving the chart aside for a moment.', 'Evelyn abandons her attempt at a solemn expression. “I was never particularly convincing, was I?”'],
+    change: ['Evelyn places the earlier and current entries side by side. “This is the comparison I meant.”', '“A change only helps if we look at the difference,” Evelyn explains, checking the two entries together.'],
+    enjoy: ['“The conversation certainly helps,” Evelyn says, taking a moment away from the paperwork.', 'Evelyn gives a small laugh. “There are worse ways to spend an afternoon.”'],
+    quota: ['Evelyn turns the current record towards you while keeping the final column covered. “This part we can look at together.”', '“I can explain the record without giving away the target,” Evelyn says. “That seems a fair place to start.”'],
+    smile: ['“A pleasant conversation,” Evelyn says. “Sometimes the explanation really is that simple.”', 'Evelyn smiles again. “Must that one come with an explanation as well?”'],
+    boss: ['“A careful review need not crowd out a conversation,” Evelyn says. “My supervisor and I occasionally discuss that.”', 'Evelyn considers what her supervisor would ask. “Probably whether I have explained things clearly.”'],
+    patience: ['“I would rather be clear than turn a hope into a promise,” Evelyn says, checking the next part of the review.', 'Evelyn takes a moment over the remaining pages. “I can explain where we are, even when I cannot give you the answer you hoped for.”'],
+    permission: ['“The final prescription will give you a definite answer,” Evelyn says. “I will explain it plainly.”', 'Evelyn checks the place reserved for the final decision. “That part should be clear when you leave.”'],
+    resolve: ['Evelyn works through the next part of the review without filling the pause with more questions.', '“I will explain the result when I have finished checking it,” Evelyn says, returning to the review.'],
+  },
+  scarlett: {
+    counting: ['“The arithmetic is still behaving,” Scarlett says. “I refuse to make the same claim about my handwriting.”', 'Scarlett turns the running record towards you. “The number is public. My margin notes are considerably less so.”'],
+    professional: ['Scarlett arranges her features into a solemn expression. It lasts perhaps a second.', '“I shall stop trying to look solemn,” Scarlett says. “You have already ruined the illusion.”'],
+    change: ['Scarlett puts the two entries side by side. “There. My method, exposed to daylight.”', '“The old entry stays beside the new one,” Scarlett explains. “Otherwise I would be comparing the result with my imagination.”'],
+    enjoy: ['Scarlett studies the serious stationery and grins. “This place makes it surprisingly difficult to maintain the appropriate expression.”', '“I could look bored, if that would help the professional image,” Scarlett says. Her expression suggests the attempt would be brief.'],
+    quota: ['Scarlett turns the chart just far enough to show the current entry. “That last column is not going to wander into view by accident.”', '“The target’s existence was the public part,” Scarlett says. “I have been uncharacteristically concise about the rest.”'],
+    smile: ['Scarlett demonstrates her serious face again. “There. Clearly unsuitable.”', '“I could give you a tedious explanation,” Scarlett says. “But that would defeat the purpose of the smile.”'],
+    boss: ['“My supervisor would call this an informal discussion,” Scarlett says. “I call it talking.”', 'Scarlett adopts an impressively solemn tone for a few words, then gives it up. “A poor impression. She is much better at it.”'],
+    patience: ['“Nearly is a famously elastic word,” Scarlett says. “I prefer an actual conclusion.”', 'Scarlett glances at the open review. “Optimism is welcome. It does not do the reading for me, unfortunately.”'],
+    permission: ['“The answer on the final page will be plain enough,” Scarlett says. “Even I know when to stop being cryptic.”', 'Scarlett sets the final form squarely beside the review. “That page will get a straight answer.”'],
+    resolve: ['Scarlett starts another remark, decides against it and gives the review her attention.', '“Right. The last page deserves my attention,” Scarlett says, setting the conversation aside for a moment.'],
+  },
+  beatrice: {
+    counting: ['“The count is exact; the review still requires reading,” Beatrice says, separating the two parts of the record.', 'Beatrice rules a line beneath the latest entry. “There. Easier to follow.”'],
+    professional: ['Beatrice catches herself straightening the folder. “Apparently a good mood does not cure every habit.”', '“You may add ‘occasionally cheerful’ to your assessment,” Beatrice says. “Occasionally.”'],
+    change: ['Beatrice places the earlier entry before the current one. “In order. Then compare.”', '“The difference between the entries is what interests me,” Beatrice says, keeping the two pages together.'],
+    enjoy: ['The formality remains. So does the small smile.', '“Enjoyment and concentration are quite compatible,” Beatrice says, returning to the page.'],
+    quota: ['“The target exists, and the target remains private,” Beatrice says. “Those answers are perfectly consistent.”', 'Beatrice leaves the current count visible and the final column covered. “A distinction worth maintaining.”'],
+    smile: ['“Some observations can remain uncatalogued,” Beatrice says, allowing the smile to return.', 'Beatrice permits herself another brief smile. “That one was intentional.”'],
+    boss: ['“We agree about accurate records,” Beatrice says. “The rest is largely a matter of style.”', '“If my supervisor has a question, I will answer it properly,” Beatrice says. “I expect the same courtesy in return.”'],
+    patience: ['“A hope is not an estimate,” Beatrice says. “I would rather make that distinction than give you an unreliable answer.”', 'Beatrice checks the next page before speaking. “I will give you a conclusion when there is one to give.”'],
+    permission: ['“The final decision will be written plainly,” Beatrice says. “There is no value in an ambiguous conclusion.”', 'Beatrice sets the final form beside the review. “The answer belongs here, when the review is complete.”'],
+    resolve: ['Beatrice continues reading, giving the review the uninterrupted attention it requires.', '“Then I shall check it properly,” Beatrice says, working through the next entry.'],
+  },
+  victoria: {
+    counting: ['Victoria turns the running record towards you, leaving her own notes on the other side.', '“Numbers answer the question they are built to answer,” Victoria says. “Sometimes we ask rather more of them.”'],
+    professional: ['Victoria makes no attempt to hide the next smile. “Perhaps I was being unnecessarily mysterious.”', 'Victoria lets the small smile remain instead of turning immediately back to the chart.'],
+    change: ['Victoria considers each entry separately before placing them together. “Now we can compare them.”', '“There is more to see with the two entries side by side,” Victoria says, leaving you a moment to look.'],
+    enjoy: ['“I find the conversation worth listening to,” Victoria says, taking her time before returning to the chart.', 'Victoria leaves a little more space for the conversation instead of immediately filling it with paperwork.'],
+    quota: ['“The current count and the private target are different pieces of information,” Victoria says. She leaves only the former in view.', 'Victoria keeps the final column covered while turning the rest of the record towards you. “Some of the picture, then.”'],
+    smile: ['Victoria makes no attempt to account for the next smile. “I need not explain every thought.”', '“A private thought,” Victoria says. “You can see its effect without the full transcript.”'],
+    boss: ['“A good supervisor knows when to speak,” Victoria says. “And when to let someone finish.”', 'Victoria considers the question of supervision. “I value a complete answer more than a quick one. So does she.”'],
+    patience: ['“I understand why you are looking for the end,” Victoria says. “I prefer to arrive at a conclusion rather than announce one early.”', 'Victoria gives the open review her full attention. “A quick answer would be simpler. It would not necessarily be better.”'],
+    permission: ['“The final page will answer that directly,” Victoria says. “There will be no need to interpret my expression.”', 'Victoria leaves the final form beside the review. “That answer should stand on its own.”'],
+    resolve: ['Victoria lets the quiet continue while she works through the review.', '“Then I will give you the whole answer when it is ready,” Victoria says, turning back to the page.'],
+  },
+};
+
+const OBSERVATIONS = {
+  evelyn: {
+    counting:'Evelyn leaves the running record facing you while she makes the next entry.',
+    professional:'Evelyn’s attempt at a formal expression gives way to another small smile.',
+    change:'Evelyn checks the current entry against the earlier one instead of reading it alone.',
+    enjoy:'Evelyn makes room for a little conversation alongside the paperwork.',
+    quota:'Evelyn separates the visible record from the private target column.',
+    smile:'“That one needs no explanation,” Evelyn says with another small smile.',
+    boss:'Evelyn checks the record carefully, then gives the conversation equal attention.',
+    patience:'“I will be precise about where we are,” Evelyn says, checking the next page.',
+    permission:'Evelyn checks the final form’s place in the review before continuing.',
+    resolve:'Evelyn works through the next entry without adding another question.',
+  },
+  scarlett: {
+    counting:'Scarlett makes the next entry with exaggeratedly careful handwriting.',
+    professional:'Scarlett tries for solemnity again and abandons it almost immediately.',
+    change:'Scarlett places the earlier entry beside the current one, making the comparison visible.',
+    enjoy:'Scarlett’s expression remains a poor match for the very serious stationery.',
+    quota:'Scarlett keeps the private column neatly beneath her hand while turning the rest of the page.',
+    smile:'Scarlett demonstrates a stern expression; the grin wins.',
+    boss:'Scarlett briefly adopts a more formal manner, then shakes her head at the effort.',
+    patience:'“The reading is resisting my considerable charm,” Scarlett says, turning the next page.',
+    permission:'Scarlett puts the final form where it will not be lost among the other pages.',
+    resolve:'Scarlett lets a remark go unsaid and gives the next part of the review her attention.',
+  },
+  beatrice: {
+    counting:'Beatrice checks that the latest entry and the running total agree.',
+    professional:'Beatrice straightens the folder once, then leaves it alone with a small smile.',
+    change:'Beatrice aligns the earlier and current entries before comparing them.',
+    enjoy:'A brief smile survives Beatrice’s return to the page.',
+    quota:'Beatrice leaves the current record visible and the target column covered.',
+    smile:'Beatrice allows the next small smile to pass without an explanation.',
+    boss:'Beatrice checks her own work with the same care she expects from an inspector.',
+    patience:'Beatrice reads the next entry before offering any estimate.',
+    permission:'Beatrice places the final form separately so its conclusion will be easy to find.',
+    resolve:'Beatrice gives the review a stretch of uninterrupted attention.',
+  },
+  victoria: {
+    counting:'Victoria lets the running record remain in view while keeping her notes to herself.',
+    professional:'Victoria lets the next smile linger instead of immediately turning away.',
+    change:'Victoria considers the two entries separately, then looks at them together.',
+    enjoy:'Victoria gives the conversation another moment before returning to the chart.',
+    quota:'Victoria turns the current entry towards you while leaving the final column concealed.',
+    smile:'Victoria offers no commentary on the small smile that follows.',
+    boss:'Victoria takes her time over an entry rather than supplying a quick answer for an imagined inspection.',
+    patience:'“I would rather give you a considered answer,” Victoria says, continuing the review.',
+    permission:'Victoria keeps the final form distinct from the working notes.',
+    resolve:'Victoria uses the quiet to continue through the review.',
+  },
+};
+
+const CLOSING = {
+  evelyn: {
+    permission:'“You asked about the final prescription, and I owe you a clear answer,” Evelyn says.',
+    resolve:'“Thank you for letting me finish the review,” Evelyn says. “Now you should see the result.”',
+  },
+  scarlett: {
+    permission:'“You wanted the answer on the final page,” Scarlett says. “Here it is.”',
+    resolve:'“You gave me the floor, and I have reached the last page,” Scarlett says. “Here is the result.”',
+  },
+  beatrice: {
+    permission:'“Your question about the final prescription now has an answer,” Beatrice says.',
+    resolve:'“You left me to complete the review,” Beatrice says. “It is complete.”',
+  },
+  victoria: {
+    permission:'“You asked about the final decision before we reached it,” Victoria says. “Now we have.”',
+    resolve:'“You chose to hear the whole review,” Victoria says. “It is ready.”',
+  },
+};
+
+const QUESTION_ACKNOWLEDGEMENTS = {
+  evelyn: {
+    recorded:'“I have your request,” Evelyn says. “You do not need to explain it again.”',
+    permission:'“You asked how the final prescription works,” Evelyn says. “I answered that question, but I have not taken it as a request.”',
+    other:'“I have heard your questions,” Evelyn says. “If you want me to review a request as well, I need to hear it.”',
+    none:'“If you have a request for the review, I am listening,” Evelyn says.',
+  },
+  scarlett: {
+    recorded:'“Your request reached me,” Scarlett says. “I was listening, despite appearances.”',
+    permission:'“You asked what the final prescription might say,” Scarlett recalls. “That was a question. I have not assumed it was your request.”',
+    other:'“We have had questions,” Scarlett says. “I am still waiting to hear whether you have a request.”',
+    none:'“Was there a request you wanted me to consider?” Scarlett asks.',
+  },
+  beatrice: {
+    recorded:'“Your request is recorded,” Beatrice confirms. “It has not been overlooked.”',
+    permission:'“Your earlier question concerned the prescription,” Beatrice says. “I recorded it as a question. A request is still outstanding.”',
+    other:'“I have answered the questions you raised,” Beatrice says. “No request has yet been recorded.”',
+    none:'“There is no request recorded for the final review,” Beatrice says.',
+  },
+  victoria: {
+    recorded:'“I heard your request,” Victoria says. “The quiet answer did not mean I missed it.”',
+    permission:'“We have discussed the final decision,” Victoria says. “Now tell me what you would like me to consider.”',
+    other:'“You have asked questions,” Victoria says. “I am waiting to hear what you would like me to consider.”',
+    none:'“Is there a request you would like me to consider?” Victoria asks.',
+  },
+};
+
+function voice(s){
+  return Object.hasOwn(RESPONSES,s?.nurse)?s.nurse:'beatrice';
+}
+
+function optionIndex(s,key,length){
+  let hash=Number.isInteger(s?.dialogueSeed)?s.dialogueSeed>>>0:0x811c9dc5;
+  const identity=`${voice(s)}|${s?.stage??0}|${key}`;
+  for(let i=0;i<identity.length;i++)hash=Math.imul(hash^identity.charCodeAt(i),0x01000193)>>>0;
+  // Mix high bits into low bits so two-way variants are not tied to seed parity.
+  hash=Math.imul(hash^(hash>>>16),0x85ebca6b)>>>0;
+  hash=Math.imul(hash^(hash>>>13),0xc2b2ae35)>>>0;
+  hash=(hash^(hash>>>16))>>>0;
+  return length?hash%length:0;
+}
+
+function chooseLine(s,key,lines){
+  if(!lines?.length)return '';
+  return lines[optionIndex(s,key,lines.length)];
+}
+
+function knownChoice(choice){
+  return !!choice&&typeof choice.id==='string'&&Object.hasOwn(REPLIES,choice.id);
+}
+
+function callback(s,choice,kind){
+  if(!knownChoice(choice))return '';
+  return chooseLine(s,`${kind}:${choice.stage??0}:${choice.id}`,CALLBACKS[voice(s)][choice.id]);
+}
+
+/** Immediate answer to one of the ten existing scene choices. */
+function choiceReply(s,id){
+  if(!Object.hasOwn(REPLIES,id))return '';
+  if(id==='permission'){
+    const manner=chooseLine(s,`reply:${id}`,PERMISSION_MANNER[voice(s)]);
+    return `${manner} ${REPLIES.permission}`;
+  }
+  return chooseLine(s,`reply:${id}`,RESPONSES[voice(s)][id]);
+}
+
+/** Refer to a genuine earlier choice when entering any later scene. */
+function sceneContinuation(s,choice){
+  return callback(s,choice,'scene');
+}
+
+/** A shorter acknowledgement a few recorded events after the choice. */
+function observationReply(s,choice){
+  return knownChoice(choice)?OBSERVATIONS[voice(s)][choice.id]||'':'';
+}
+
+/** Conclude the exchange with one precise reference to the final choice. */
+function closingCallback(s,choices){
+  const recorded=Array.isArray(choices)?choices.filter(knownChoice):[];
+  if(!recorded.length)return '';
+  const last=recorded[recorded.length-1];
+  return CLOSING[voice(s)][last.id]||callback(s,last,'closing-last');
+}
+
+/** Distinguish an informational question from an explicit recorded request. */
+function questionAcknowledgement(s){
+  const choices=Array.isArray(s?.choices)?s.choices:[];
+  const askedPermission=!!s?.flags?.permission||choices.some(c=>c?.id==='permission');
+  const askedQuestion=!!s?.flags?.questions||!!s?.flags?.ask||choices.some(c=>['counting','change','quota','smile','boss'].includes(c?.id));
+  const kind=s?.requested?'recorded':askedPermission?'permission':askedQuestion?'other':'none';
+  return QUESTION_ACKNOWLEDGEMENTS[voice(s)][kind];
+}
+
+
 // ---- story.js ----
 const clone=x=>JSON.parse(JSON.stringify(x));
 const cap=(n,a,b)=>Math.max(a,Math.min(b,n));
 const integer=(n,a,b)=>Number.isSafeInteger(n)&&n>=a&&n<=b;
+function legacyDialogueSeed(id){
+  let seed=2166136261;
+  for(const c of String(id??''))seed=Math.imul(seed^c.charCodeAt(0),16777619);
+  return seed>>>0;
+}
 function random(s){
   s.rng=(s.rng+0x6D2B79F5)>>>0;
   let t=s.rng;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);
@@ -307,7 +693,7 @@ const LOSS_LINES={
 function createAppointment({difficulty='medium',preview=true,lastNurse=null,seed=1,now=Date.now(),visitedBefore=false,previousPrescription=null}={}){
   if(!DIFFICULTIES[difficulty])throw Error('Choose a valid appointment type.');
   if(typeof visitedBefore!=='boolean'||(visitedBefore&&!PREVIOUS[previousPrescription])||(!visitedBefore&&previousPrescription!==null))throw Error('Complete the registration questions before choosing a programme.');
-  const s={version:1,appVersion:VERSION,rng:seed>>>0,id:`${now}-${seed>>>0}`,difficulty,preview:Boolean(preview),createdAt:now,endedAt:null,phase:'waiting',stage:0,count:0,lastIncoming:0,lastRequest:-1,requests:0,requested:false,elapsedMs:0,lastEdgeMs:null,lastEdgeAt:null,choiceDone:false,revision:0,flags:{},history:[],events:[],choices:[],cueIndex:0,observationUsed:[],recentObservations:[],extension:0,reduction:0,visitedBefore,previousPrescription,verdict:null,prescription:null};
+  const s={version:1,appVersion:VERSION,rng:seed>>>0,dialogueSeed:seed>>>0,id:`${now}-${seed>>>0}`,difficulty,preview:Boolean(preview),createdAt:now,endedAt:null,phase:'waiting',stage:0,count:0,lastIncoming:0,lastRequest:-1,requests:0,requested:false,elapsedMs:0,lastEdgeMs:null,lastEdgeAt:null,choiceDone:false,revision:0,flags:{},history:[],events:[],choices:[],cueIndex:0,observationUsed:[],recentObservations:[],extension:0,reduction:0,visitedBefore,previousPrescription,verdict:null,prescription:null};
   s.nurse=pick(s,Object.keys(NURSES).filter(k=>k!==lastNurse));
   s.day=pick(s,Object.keys(DAYS));s.rule=ruleFor(s.nurse,s.day);
   const d=DIFFICULTIES[difficulty];
@@ -351,7 +737,7 @@ class Appointment{
   choose(id){
     if(this.s.phase!=='scene'||this.s.choiceDone||!CHOICES[this.s.stage].some(x=>x[0]===id))return false;
     this.s.choiceDone=true;this.s.flags[id]=true;this.s.choices.push({stage:this.s.stage,id,count:this.s.count});
-    let line=REPLIES[id];
+    let line=choiceReply(this.s,id);
     if(id==='permission'&&this.s.visitedBefore){line+='\n\nShe reviews the previous prescription. “Your last appointment is certainly interesting. Today’s prescription is still my decision.”';}
     if(id==='patience'&&this.s.day==='quota')line+='\n\nShe checks the collection shortfall and seems even more amused by your optimism.';
     if(id==='boss'&&this.s.day==='inspection')line+='\n\nShe looks downright pleased to have a supervisor watching today’s totals.';
@@ -370,14 +756,30 @@ class Appointment{
     const interval=s.lastEdgeMs===null?null:(s.elapsedMs-s.lastEdgeMs)/1000;
     s.lastEdgeMs=s.elapsedMs;s.lastEdgeAt=Date.now();
     this.record('cutoff','',{sequence,intervalSeconds:interval,cycleSeconds:meta.cycleSeconds??null,powerA:meta.powerA??null,powerB:meta.powerB??null,pressure:meta.pressure??null,recoverySeconds:meta.recoverySeconds??null});
+    // Keep the established mechanics RNG schedule. Authored conversation uses
+    // its own saved seed and cannot consume an outcome/request random draw.
     s.currentText=nextObservation(s,this.nurse);
-    if(s.count===1||s.count%5===0)this.record('observation',s.currentText,{context:s.day});
     if(this.shouldComplete()){this.finish('completed');return true;}
     if(s.stage<4&&s.count>=s.boundaries[s.stage]){
-      s.stage++;s.phase='scene';s.choiceDone=false;s.currentText=this.nurse.stages[s.stage];this.record('room-change',s.currentText,{stage:s.stage});
+      s.stage++;s.phase='scene';s.choiceDone=false;
+      const previous=[...s.choices].reverse().find(choice=>choice.stage===s.stage-1);
+      const callbacks=previous?[previous]:[];
+      // The final review also remembers the opening exchange, so the effect of
+      // that decision remains visible several scenes after it was made.
+      const opening=s.choices.find(choice=>choice.stage===0);
+      if(s.stage===4&&opening&&opening!==previous)callbacks.push(opening);
+      s.currentText=[this.nurse.stages[s.stage],...callbacks.map(choice=>sceneContinuation(s,choice))].filter(Boolean).join('\n\n');
+      this.record('room-change',s.currentText,{stage:s.stage,context:callbacks.length?'choice-callback':'scene',choice:previous?.id??null,callbackChoices:callbacks.map(choice=>choice.id)});
     }else if(s.stage===4&&s.rule==='request'&&!s.requested&&s.count>=s.target){
-      s.currentText='Your nurse sets down the collection tally. “The collection is complete. You have done all I asked.” She places a permission form between you. “But I cannot review the ending you want until you actually ask me.”';
-      if(s.count===s.target)this.record('observation',s.currentText,{context:'explicit-permission-request'});
+      s.currentText='Your nurse sets down the collection tally. “The collection is complete. You have done all I asked.”\n\n'+questionAcknowledgement(s);
+      if(s.count===s.target)this.record('observation',s.currentText,{context:s.flags.permission?'prior-permission-question':'explicit-permission-request',choice:s.flags.permission?'permission':null});
+    }else{
+      const lastChoice=s.choices.at(-1);
+      const followUp=lastChoice?.stage===s.stage&&s.count===lastChoice.count+3?observationReply(s,lastChoice):'';
+      if(followUp){
+        s.currentText=followUp;
+        this.record('observation',s.currentText,{context:'choice-follow-up',choice:lastChoice.id});
+      }else if(s.count===1||s.count%5===0)this.record('observation',s.currentText,{context:s.day});
     }
     return true;
   }
@@ -403,7 +805,7 @@ class Appointment{
     if(outcome==='completed'){
       s.verdict=drawPrescription(s);
       s.prescription=prescriptionFor(s.verdict);
-      s.currentText=this.nurse.ending+'\n\n'+s.prescription.title+'. '+s.prescription.detail;
+      s.currentText=[this.nurse.ending,closingCallback(s,s.choices),s.prescription.title+'. '+s.prescription.detail].filter(Boolean).join('\n\n');
     }else if(outcome==='orgasm'){
       s.verdict='loss';s.currentText=LOSS_LINES[s.nurse];
     }else{
@@ -431,12 +833,14 @@ function validate(value){
   if(s.prescription===undefined)s.prescription=null;
   if(s.observationUsed===undefined)s.observationUsed=[];
   if(s.recentObservations===undefined)s.recentObservations=[];
+  if(s.dialogueSeed===undefined)s.dialogueSeed=legacyDialogueSeed(s.id);
   if(s.appVersion===undefined)s.appVersion='legacy';
   if(!s||s.version!==1||!DIFFICULTIES[s.difficulty]||!NURSES[s.nurse]||!DAYS[s.day]||!RULE_CUES[s.rule])throw Error('This saved appointment cannot be read. Export or start a new visit.');
   if(typeof s.visitedBefore!=='boolean'||(s.visitedBefore&&!PREVIOUS[s.previousPrescription])||(!s.visitedBefore&&s.previousPrescription!==null))throw Error('Saved registration details are invalid.');
   if(s.verdict!==null&&!['permitted','choice','denied','chastity','loss','unfinished','legacy'].includes(s.verdict))throw Error('Saved verdict is invalid.');
   if(s.prescription!==null&&(s.phase!=='ended'||s.outcome!=='completed'||!validPrescription(s.prescription,s.verdict)))throw Error('Saved prescription is invalid.');
   if(!Array.isArray(s.observationUsed)||!Array.isArray(s.recentObservations)||s.observationUsed.length>200||s.recentObservations.length>4||![...s.observationUsed,...s.recentObservations].every(line=>typeof line==='string'))throw Error('Saved dialogue history is invalid.');
+  if(!integer(s.dialogueSeed,0,4294967295))throw Error('Saved dialogue seed is invalid.');
   if(!integer(s.count,0,10000)||!integer(s.stage,0,4)||!integer(s.target,1,1000)||!integer(s.originalTarget,1,1000)||!integer(s.hardCap,s.target,1000)||!Number.isFinite(s.elapsedMs)||s.elapsedMs<0||!['waiting','intro','scene','running','ended'].includes(s.phase)||!Array.isArray(s.events)||!Array.isArray(s.history)||!Array.isArray(s.choices)||!Array.isArray(s.boundaries)||s.boundaries.length!==4||!s.boundaries.every((n,i)=>integer(n,1,s.target-1)&&(i===0||n>s.boundaries[i-1]))||typeof s.preview!=='boolean'||!integer(s.rng,0,4294967295)||!integer(s.lastIncoming,0,10000)||!Number.isFinite(s.createdAt)||!Number.isFinite(s.floor)||s.floor<1||s.floor>s.target||s.events.length>10000||s.history.length>10000||!s.flags||typeof s.currentText!=='string')throw Error('Saved appointment is invalid. It has not been resumed.');
   return s;
 }
@@ -1100,7 +1504,7 @@ fillSettings();render(true);
 </div><div class="row"><button type="button" id="save-calibration" class="button primary">Save calibration</button><button type="button" id="import-calibration" class="button secondary">Copy CTMP calibration</button></div><p id="cal-saved" class="note">No calibration saved for SUC yet.</p><div class="two"><label>Cutoff pressure · kPa<input name="threshold" type="number" step="0.1" required></label><label>Reset pressure · kPa<input name="resetThreshold" type="number" step="0.1" required></label></div></fieldset>
 <fieldset><legend>Session settings</legend><label class="check"><input name="randomTreatment" type="checkbox">Let the nurse vary each treatment cycle</label><p class="note">New combinations of ramps and patterns are chosen after each registered edge. Her style and the day’s circumstances influence the surprises. Your configured power caps, Civet cutoff and automatic recovery always apply. Switch this off to use the fixed setup below.</p><div class="two"><label>Starting level · %<input name="startPercent" type="number" min="0" max="100" required></label><label>Ramp time · seconds<input name="rampSeconds" type="number" min="1" max="3600" required></label></div><p class="note">A fresh ramp begins after recovery. Opossum’s starting level is a fraction of each channel maximum.</p><div class="two" id="channel-settings"><label>Channel A maximum · %<input name="maxPercentA" type="number" min="0" max="100" required></label><label>Channel B maximum · %<input name="maxPercentB" type="number" min="0" max="100" required></label></div><div class="two"><label>Recovery minimum · seconds<input name="recoveryMinSeconds" type="number" min="1" max="300" required></label><label>Recovery maximum · seconds<input name="recoveryMaxSeconds" type="number" min="1" max="300" required></label></div><label class="check"><input name="adaptiveEnabled" type="checkbox">Adapt recovery after repeated short phases</label><details><summary>Adaptive recovery details</summary><div class="two"><label>Shorter than · seconds<input name="shortPhaseSeconds" type="number" min="1" max="120" step="0.5"></label><label>Consecutive short phases<input name="shortPhaseCount" type="number" min="1" max="20"></label><label>Stable at least · seconds<input name="stablePhaseSeconds" type="number" min="1" max="600"></label><label>Stable phases to reduce recovery<input name="stablePhaseCount" type="number" min="1" max="20"></label><label>Maximum recovery multiplier<input name="adaptiveMaxMultiplier" type="number" min="1" max="32"></label></div></details>
 <div id="pattern-settings"><label class="check"><input name="chapterPatterns" type="checkbox">Use the room’s Opossum pattern when nurse variation is off</label><p class="note">The manual pattern below is a fallback. Nurse variation changes the pattern and ramp for each cycle, not your maximum channel strength or cutoff.</p><label>Manual pattern<select name="opossumPattern"><option value="synchronized">Together</option><option value="alternating">Alternating · A rises as B falls</option><option value="offset-wave">Offset wave · shifted waves</option><option value="pulse">Pulse · both channels together</option><option value="custom">Custom wave</option></select></label><div class="two"><label>Full pattern cycle · seconds<input name="patternSpeedSeconds" type="number" min="0.4" max="30" step="0.1"></label><label>B shift · fraction of a cycle<input name="phaseOffset" type="number" min="0" max="1" step="0.05"></label><label>Channel A floor · %<input name="patternMinA" type="number" min="0" max="100"></label><label>Channel B floor · %<input name="patternMinB" type="number" min="0" max="100"></label></div><p class="note">A shift of 0.25 means a quarter-cycle. 0.5 makes the waves opposite. Floors do not affect Together mode.</p></div></fieldset>
-<div class="sticky-save"><button type="submit" class="button primary">Save settings</button><button type="button" id="disconnect" class="button secondary">Disconnect devices</button></div></form><p class="fineprint">SUC 1.2.1 · Fictional interactive story, not medical care. Settings and visits stay in this browser. Clearing site data removes them; CTMP uses separate records.</p></dialog>
+<div class="sticky-save"><button type="submit" class="button primary">Save settings</button><button type="button" id="disconnect" class="button secondary">Disconnect devices</button></div></form><p class="fineprint">SUC 1.2.2 · Fictional interactive story, not medical care. Settings and visits stay in this browser. Clearing site data removes them; CTMP uses separate records.</p></dialog>
 <dialog id="journal-dialog" class="sheet"><div class="sheet-head"><div><span class="eyebrow">YOUR OBSERVATIONS</span><h2>Appointment journal</h2></div><button class="close-button" data-close="journal-dialog" aria-label="Close journal">×</button></div><div id="journal-content"></div></dialog>
 <dialog id="stop-dialog" class="small-dialog"><span class="eyebrow">OUTPUT PAUSED</span><h2>Appointment paused</h2><div class="stack"><button data-end="stopped" class="button secondary">End appointment</button><button data-close="stop-dialog" class="button quiet">Keep appointment paused</button></div></dialog>
 <div id="toast" class="toast" role="status" hidden></div>
