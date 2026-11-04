@@ -61,7 +61,7 @@ let remoteFaulted = false;
 let bestSaveBusy = false;
 let pendingBestSave = null;
 let guest = null;
-let guestState = { phase: 'idle', mode: 'guest', outputPercent: 0, guestPercent: 0, guestPercentA: 0, guestPercentB: 0, outputPercentA: 0, outputPercentB: 0, edgeCount: 0, cooldownSeconds: 20, pattern: 'steady', epoch: 0 };
+let guestState = { phase: 'idle', mode: 'guest', outputPercent: 0, guestPercent: 0, guestPercentA: 0, guestPercentB: 0, outputPercentA: 0, outputPercentB: 0, edgeCount: 0, recoveryMinSeconds: 20, recoveryMaxSeconds: 20, recoverySeconds: 20, pattern: 'steady', epoch: 0 };
 let guestBest = 0;
 let guestNewRecord = false;
 let guestNetwork = 'connecting';
@@ -70,7 +70,7 @@ let guestPollBusy = false;
 let guestCommandBusy = false;
 let guestPending = null;
 let guestCommandTimer = null;
-let guestDesired = { percent: 0, pattern: 'steady', cooldownSeconds: 20 };
+let guestDesired = { percent: 0, pattern: 'steady', recoveryMinSeconds: 20, recoveryMaxSeconds: 20 };
 let guestDesiredUntil = 0;
 
 function emptyCalibration() { return { mode: 'manual', zeroed: false, complete: false, step: 'zero', autoSampleMs: 1000, status: 'Connect Civet, then zero it while deflated and unloaded.', values: { zero: null, relaxed: null, partial: null, full: null } }; }
@@ -154,7 +154,7 @@ function commandIsZero(command, toy) {
 }
 function zeroGuestOutput(toy) { return toy === 'opossum' ? { percent: 0, percentA: 0, percentB: 0 } : { percent: 0 }; }
 function desiredFromState(state) {
-  const desired = { percent: Number(state.guestPercent) || 0, pattern: state.pattern || 'steady', cooldownSeconds: Number(state.cooldownSeconds) || 20 };
+  const desired = { percent: Number(state.guestPercent) || 0, pattern: state.pattern || 'steady', recoveryMinSeconds: Number(state.recoveryMinSeconds) || 20, recoveryMaxSeconds: Number(state.recoveryMaxSeconds) || 20 };
   if (state.toy === 'opossum') {
     desired.percentA = Number.isFinite(state.guestPercentA) ? state.guestPercentA : desired.percent;
     desired.percentB = Number.isFinite(state.guestPercentB) ? state.guestPercentB : 0;
@@ -375,12 +375,16 @@ async function setSimulation(enabled) {
   simulation = enabled; simulatedSensor = true; simulatedPressure = 21; simulationBest = 0; newRecord = false;
   guestPreview = false; previewOverlay = null; previewEndsAt = null; hardwareArmed = false;
   engine = makeEngine(enabled); lastPhase = 'idle'; epoch += 1;
-  calibration = emptyCalibration(); connectionError = '';
+  calibration = enabled ? { ...emptyCalibration(), zeroed: true, complete: true, step: 'complete', status: 'Simulation fixture. No live calibration or output is used.', values: { zero: { mean: 0, std: 0 }, relaxed: { mean: 21, std: 0 }, partial: { mean: 22.9, std: 0 }, full: { mean: 24, std: 0 } } } : normalizeCalibration(loadProfile()?.calibration) || emptyCalibration();
+  connectionError = '';
   if (enabled) {
-    calibration = { zeroed: true, complete: true, step: 'complete', status: 'Simulation fixture. No live calibration or output is used.', values: { relaxed: { mean: 21, std: 0 }, partial: { mean: 22.9, std: 0 }, full: { mean: 24, std: 0 } } };
+    engine.configure({ threshold: 22.9, resetThreshold: 21.6 });
     engine.updatePressure(simulatedPressure);
+  } else {
+    const profile = loadProfile();
+    if (profile?.settings) { try { engine.configure(profile.settings); } catch {} }
   }
-  log(enabled ? 'Isolated simulation enabled. Hardware disconnected.' : 'Simulation disabled. Reconnect and calibrate for live use.');
+  log(enabled ? 'Isolated simulation enabled. Hardware disconnected.' : 'Simulation disabled. Saved live calibration restored.');
 }
 
 function testOverlay(record = false) {
@@ -388,8 +392,9 @@ function testOverlay(record = false) {
   const current = engine.snapshot();
   const count = record ? Math.max(best, simulationBest, current.edgeCount) + 1 : Math.max(1, current.edgeCount);
   guestPreview = true;
-  previewEndsAt = Date.now() + current.cooldownSeconds * 1000;
-  previewOverlay = { edgeCount: count, best: record ? count : Math.max(simulationBest, count), newRecord: record, remainingCooldown: current.cooldownSeconds };
+  const previewRecovery = Number(current.recoverySeconds ?? current.recoveryMinSeconds ?? 20);
+  previewEndsAt = Date.now() + previewRecovery * 1000;
+  previewOverlay = { edgeCount: count, best: record ? count : Math.max(simulationBest, count), newRecord: record, remainingCooldown: previewRecovery };
 }
 
 async function hardwarePulse() {
@@ -434,6 +439,17 @@ async function unlock(password) {
   const result = await backend.unlock(password);
   const status = await backend.call('owner-status');
   keepBest(Math.max(score(result.best), score(status.best)));
+  if (status.profile && typeof status.profile === 'object') {
+    const local = loadProfile();
+    if (!local || Number(status.profile.savedAt || 0) > Number(local.savedAt || 0)) {
+      const incoming = status.profile;
+      const cal = normalizeCalibration(incoming.calibration);
+      if (cal) calibration = cal;
+      if (incoming.settings) { try { engine.configure(incoming.settings); } catch {} }
+      saveProfile(incoming);
+      log('Saved profile restored from cloud backup.');
+    }
+  }
   remote = status.activeSessionId
     ? { ...(remote?.sessionId === status.activeSessionId ? remote : {}), sessionId: status.activeSessionId, url: remote?.sessionId === status.activeSessionId ? remote.url : '', owned: false }
     : null;
@@ -503,7 +519,7 @@ async function syncHost() {
     if (zero && engine.phase !== 'running') engine.setGuestOutput(zeroGuestOutput(engine.config.toy));
     else {
       const levels = commandLevels(command);
-      engine.setGuestOutput({ percent: command.percent, ...(engine.config.toy === 'opossum' ? { percentA: levels.a, percentB: levels.b } : {}), pattern: command.pattern, cooldownSeconds: command.cooldownSeconds });
+      engine.setGuestOutput({ percent: command.percent, ...(engine.config.toy === 'opossum' ? { percentA: levels.a, percentB: levels.b } : {}), pattern: command.pattern, recoveryMinSeconds: command.recoveryMinSeconds, recoveryMaxSeconds: command.recoveryMaxSeconds });
     }
   } catch (error) {
     if (!remote || remote.sessionId !== sessionId) return;
@@ -602,8 +618,11 @@ function queueGuestCommand(values) {
     delete next.percentA; delete next.percentB;
     next.percent = Math.max(0, Math.min(100, Math.round(Number(next.percent))));
   }
-  next.cooldownSeconds = Math.max(10, Math.min(30, Math.round(Number(next.cooldownSeconds))));
-  if (!Number.isFinite(next.percent) || !Number.isFinite(next.cooldownSeconds) || !['steady', 'pulse', 'wave'].includes(next.pattern)) throw new Error('Invalid guest controls.');
+  next.recoveryMinSeconds = Math.max(1, Math.min(300, Math.round(Number(next.recoveryMinSeconds))));
+  next.recoveryMaxSeconds = Math.max(1, Math.min(300, Math.round(Number(next.recoveryMaxSeconds))));
+  if (next.recoveryMaxSeconds < next.recoveryMinSeconds) throw new Error('Maximum recovery must be at least the minimum.');
+  const allowedPatterns = guestState.toy === 'opossum' ? ['steady','pulse','wave','alternating','offset-wave'] : ['steady','pulse','wave'];
+  if (!Number.isFinite(next.percent) || !Number.isFinite(next.recoveryMinSeconds) || !Number.isFinite(next.recoveryMaxSeconds) || !allowedPatterns.includes(next.pattern)) throw new Error('Invalid guest controls.');
   const zero = commandIsZero(next, guestState.toy);
   if (!zero && guestState.phase !== 'running') throw new Error('Controls are paused during cooldown or a host interruption.');
   guestDesired = next;
@@ -772,7 +791,7 @@ function render() {
   }
   if (!engine) return;
   if (previewOverlay && previewEndsAt) previewOverlay = { ...previewOverlay, remainingCooldown: Math.max(0, (previewEndsAt - Date.now()) / 1000) };
-  ui.render({ screen: 'host', engine: engine.snapshot(), toy: engine.config.toy, mode: engine.config.mode, devices: deviceStates, best: simulation ? simulationBest : best, newRecord, devUnlocked: Boolean(backend.ownerToken), simulation, calibration, link: remote, guestConnected, networkStatus: remote?.owned ? lastHostSync && Date.now() - lastHostSync < 5000 ? 'connected' : 'offline' : 'idle', logs, testResults, hardwareArmed, busy, connectionError, wakeStatus, guestPreview, previewOverlay });
+  ui.render({ screen: 'host', engine: engine.snapshot(), toy: engine.config.toy, mode: engine.config.mode, devices: deviceStates, best: simulation ? simulationBest : best, newRecord, devUnlocked: Boolean(backend.ownerToken), simulation, calibration, link: remote, guestConnected, networkStatus: remote?.owned ? lastHostSync && Date.now() - lastHostSync < 5000 ? 'connected' : 'offline' : 'idle', logs, testResults, hardwareArmed, busy, connectionError, wakeStatus, guestPreview, previewOverlay, dataRuntimeMs: recorder.runtimeMs, hasSessionData: recorder.startedAt !== null || Boolean(lastSessionData) });
 }
 
 function backgroundStop() {
