@@ -3,12 +3,18 @@ import { SessionEngine } from './engine.js?v=20261101-dual40';
 import { CivetDevice, LushDevice, OpossumDevice, VacuGlideDevice } from './devices.js?v=20261101-dual40';
 import { Backend } from './backend.js?v=20261101-dual40';
 import { runDiagnostics } from './diagnostics.js?v=20261101-dual40';
+import { PressureFilter, SessionRecorder, loadProfile, saveProfile, loadRecovery, saveRecovery, clearRecovery, loadLastSessionData, saveLastSessionData } from './session-tools.js?v=20261104-v21';
 
 const ACTIVE = new Set(['running', 'cooldown', 'settling']);
 const TOYS = new Set(['lush', 'opossum', 'vacuglide']);
 const CODE = /^\/([ABCDEFGHJKLMNPQRSTUVWXYZ]{6})\/?$/i;
 const BEST_KEY = 'ctmp.best.v2';
 const backend = new Backend();
+const pressureFilter = new PressureFilter({ alpha: 0.34, window: 5 });
+const recorder = new SessionRecorder();
+const storedProfile = loadProfile();
+let recoveryCandidate = loadRecovery();
+let lastSessionData = loadLastSessionData();
 const ui = new UI({ onAction: handleAction });
 const match = location.pathname.match(CODE);
 const hostPage = location.pathname === '/' || location.pathname === '/index.html';
@@ -31,8 +37,11 @@ let wakeBusy = false;
 let wakeWarning = false;
 let logs = [];
 let testResults = [];
-let calibration = emptyCalibration();
+let calibration = normalizeCalibration(storedProfile?.calibration) || emptyCalibration();
 let capture = null;
+let navigationGuard = false;
+let reconnectTimers = new Map();
+let reconnectAttempts = new Map();
 let guestPreview = false;
 let previewOverlay = null;
 let previewEndsAt = null;
@@ -64,7 +73,55 @@ let guestCommandTimer = null;
 let guestDesired = { percent: 0, pattern: 'steady', cooldownSeconds: 20 };
 let guestDesiredUntil = 0;
 
-function emptyCalibration() { return { zeroed: false, complete: false, step: 'zero', status: 'Connect Civet, then zero it while deflated and unloaded.', values: {} }; }
+function emptyCalibration() { return { mode: 'manual', zeroed: false, complete: false, step: 'zero', autoSampleMs: 1000, status: 'Connect Civet, then zero it while deflated and unloaded.', values: { zero: null, relaxed: null, partial: null, full: null } }; }
+function calibrationNumber(value) { return typeof value === 'object' && value ? Number(value.mean) : Number(value); }
+function normalizeCalibration(value) {
+  if (!value || typeof value !== 'object') return null;
+  const next = { ...emptyCalibration(), ...value, values: { ...emptyCalibration().values, ...(value.values || {}) } };
+  for (const key of ['zero','relaxed','partial','full']) {
+    const n = calibrationNumber(next.values[key]);
+    if (Number.isFinite(n)) next.values[key] = typeof next.values[key] === 'object' ? next.values[key] : { mean: n, std: 0, range: 0, samples: 1 };
+    else next.values[key] = null;
+  }
+  return next;
+}
+function profilePayload() {
+  const config = engine?.snapshot() || {};
+  const settings = {};
+  for (const key of ['threshold','resetThreshold','startPercent','rampSeconds','maxPercentA','maxPercentB','recoveryMinSeconds','recoveryMaxSeconds','adaptiveEnabled','shortPhaseSeconds','shortPhaseCount','stablePhaseSeconds','stablePhaseCount','adaptiveMaxMultiplier','opossumPattern','patternSpeedSeconds','phaseOffset','patternMinA','patternMinB']) if (config[key] !== undefined) settings[key] = config[key];
+  return { calibration, settings };
+}
+function persistProfile(sync = true) {
+  const profile = profilePayload();
+  saveProfile(profile);
+  if (sync && backend.ownerToken) backend.call('profile-save', { profile }).catch(() => log('Profile saved locally; cloud backup unavailable.'));
+}
+function persistRecovery() {
+  if (!engine || simulation) return;
+  const state = engine.snapshot();
+  if (['idle','stopped'].includes(state.phase)) return;
+  saveRecovery({ engine: state, best, recorder: recorder.exportObject(), savedReason: state.reason });
+}
+function armNavigationGuard() {
+  if (guestPage || navigationGuard) return;
+  history.pushState({ ctmpSessionGuard: true }, '', location.href);
+  navigationGuard = true;
+}
+function finalizeSessionData(reason = '') {
+  if (!recorder.active) return;
+  const data = recorder.stop({ reason, finalState: engine?.snapshot() });
+  lastSessionData = data;
+  saveLastSessionData(data);
+}
+function downloadSessionData(format = 'csv') {
+  const data = recorder.startedAt !== null ? recorder.exportObject() : lastSessionData;
+  if (!data) throw new Error('No session data is available yet.');
+  const body = format === 'json' ? JSON.stringify(data, null, 2) : new SessionRecorder().toCsv.call({ exportObject: () => data, rows: data.rows || [] });
+  const blob = new Blob([body], { type: format === 'json' ? 'application/json' : 'text/csv' });
+  const url = URL.createObjectURL(blob); const a = document.createElement('a');
+  a.href = url; a.download = 'ctmp-session-' + new Date().toISOString().replace(/[:.]/g,'-') + '.' + format;
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 function safeError(error) {
   return String(error?.message || error || 'The action could not be completed.')
     .replace(/(?:Bearer\s+)?[a-f0-9]{32,}/gi, '[redacted]')
@@ -124,6 +181,12 @@ function makeEngine(isSimulation) {
     onEvent: event => {
       if (instance !== engine) return;
       const state = event.snapshot;
+      if (recorder.active) {
+        recorder.sample(state, {}, event.type === 'edge');
+        if (event.type === 'edge') recorder.event('cutoff', { count: state.edgeCount, cycleSeconds: state.lastCycleSeconds, power: state.outputPercent, outputA: state.outputPercentA, outputB: state.outputPercentB, recoverySeconds: state.recoverySeconds, recoveryBaseSeconds: state.recoveryBaseSeconds, adaptiveMultiplier: state.adaptiveMultiplier, pressure: state.pressure });
+        if (event.type === 'adaptive') recorder.event('adaptive-recovery', { multiplier: state.adaptiveMultiplier, shortStreak: state.shortPhaseStreak, stableStreak: state.stablePhaseStreak });
+      }
+      persistRecovery();
       const changed = state.phase !== lastPhase;
       if (changed || event.type === 'edge') {
         epoch += 1;
@@ -138,7 +201,7 @@ function makeEngine(isSimulation) {
           if (simulation) simulationBest = state.edgeCount;
           else { keepBest(state.edgeCount); queueBestSave(best); }
         }
-        log((simulation ? 'Test' : 'Pressure') + ' cutoff registered. Count ' + state.edgeCount + '.');
+        log((simulation ? 'Test' : 'Pressure') + ' cutoff registered. Count ' + state.edgeCount + ' · cycle ' + (Number.isFinite(state.lastCycleSeconds) ? state.lastCycleSeconds.toFixed(1) + 's' : '—') + ' · recovery ' + (Number(state.recoverySeconds) || 0).toFixed(1) + 's.');
       }
       if (state.phase === 'fault') {
         connectionError = state.reason;
@@ -152,24 +215,48 @@ function makeEngine(isSimulation) {
 
 function updatePressure(pressure, at = Date.now()) {
   if (!engine || simulation) return;
-  engine.updatePressure(pressure, at);
+  const filtered = pressureFilter.push(pressure);
+  engine.updatePressure(filtered, at);
   if (capture && at >= capture.startedAt && at > capture.lastAt) {
-    capture.samples.push(pressure); capture.lastAt = at;
+    capture.samples.push(filtered); capture.lastAt = at;
   }
+  recorder.sample(engine.snapshot(), { rawPressureKpa: pressure, filteredPressureKpa: filtered });
 }
 
 function deviceStatus(name, status) {
   deviceStates = { ...deviceStates, [name]: { ...deviceStates[name], connected: Boolean(status.connected), state: status.state, status: status.message } };
   if (status.message) log(name + ': ' + status.message);
+  if (status.connected) { reconnectAttempts.set(name, 0); const timer = reconnectTimers.get(name); if (timer) clearTimeout(timer); reconnectTimers.delete(name); }
   if (!simulation && (status.state === 'error' || status.state === 'disconnected')) {
     if (name === 'civet' && capture) cancelCapture('Sensor disconnected during calibration.');
     if (ACTIVE.has(engine?.phase)) {
       engine.fault(status.message || name + ' disconnected.');
+      persistRecovery();
       void stopPhysical().catch(error => { connectionError = safeError(error); render(); });
     }
     if (hardwareArmed) { hardwareArmed = false; hardwareGeneration += 1; }
+    scheduleReconnect(name);
   }
   render();
+}
+function scheduleReconnect(name) {
+  if (!drivers?.[name]?.reconnect || reconnectTimers.has(name) || simulation || document.hidden) return;
+  const attempt = (reconnectAttempts.get(name) || 0) + 1;
+  if (attempt > 5) { log(name + ': automatic reconnect paused after 5 attempts. Use Connect if needed.'); return; }
+  reconnectAttempts.set(name, attempt);
+  const timer = setTimeout(async () => {
+    reconnectTimers.delete(name);
+    try {
+      log(name + ': reconnect attempt ' + attempt + '.');
+      await drivers[name].reconnect();
+      connectionError = 'Connection restored. Check devices, then press Resume.';
+      render();
+    } catch (error) {
+      log(name + ': reconnect attempt failed — ' + safeError(error));
+      scheduleReconnect(name);
+    }
+  }, Math.min(8000, 800 * 2 ** (attempt - 1)));
+  reconnectTimers.set(name, timer);
 }
 
 async function stopPhysical() {
@@ -187,6 +274,8 @@ async function stopSession(reason = '') {
   if (engine) engine.stop();
   ui.releaseValves();
   if (reason) log(reason);
+  finalizeSessionData(reason);
+  clearRecovery();
   requestHostSync();
   render();
   await stopPhysical();
@@ -214,7 +303,8 @@ function captureReading(stage) {
   if (!engine.snapshot().sensorFresh) throw new Error('Wait for fresh sensor readings first.');
   if (capture) throw new Error('A reading is already being captured.');
   calibration.complete = false; calibration.step = stage;
-  calibration.status = 'Capturing ' + stage + ' readings for 3 seconds. Hold a steady, comfortable level.';
+  const duration = Math.max(300, Math.min(3000, Number(calibration.autoSampleMs) || 1000));
+  calibration.status = 'Automatic capture: hold ' + stage + ' steady for ' + (duration / 1000).toFixed(duration % 1000 ? 1 : 0) + ' seconds.';
   return new Promise((resolve, reject) => {
     const task = { stage, startedAt: Date.now(), lastAt: 0, samples: [], resolve, reject, timer: null };
     task.timer = setTimeout(() => {
@@ -228,27 +318,51 @@ function captureReading(stage) {
       calibration.values[stage] = { mean, std, range, samples: task.samples.length };
       calibration.status = stage[0].toUpperCase() + stage.slice(1) + ' captured: ' + mean.toFixed(1) + ' kPa. ' + (Object.keys(calibration.values).length === 3 ? 'Select Use calibration to check the ranges.' : 'Continue with the next reading.');
       resolve();
-    }, 3000);
+    }, Math.max(300, Math.min(3000, Number(calibration.autoSampleMs) || 1000)));
     capture = task;
   });
 }
 
+function captureCurrent(stage) {
+  requireInactive();
+  if (!['zero','relaxed','partial','full'].includes(stage)) throw new Error('Unknown calibration point.');
+  const value = engine.snapshot().pressure;
+  if (!Number.isFinite(value)) throw new Error('Wait for a live Civet reading first.');
+  calibration.values[stage] = { mean: Math.round(value * 100) / 100, std: 0, range: 0, samples: 1 };
+  if (stage === 'zero') calibration.zeroed = true;
+  calibration.complete = false;
+  calibration.status = stage + ' set to ' + value.toFixed(2) + ' kPa. Edit it if needed, or capture another point.';
+  persistProfile(false);
+}
+function setCalibrationValue(stage, value) {
+  requireInactive();
+  if (!['zero','relaxed','partial','full'].includes(stage)) throw new Error('Unknown calibration point.');
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < -327.6 || n > 327.6) throw new Error('Enter a valid pressure reading.');
+  calibration.values[stage] = { mean: Math.round(n * 100) / 100, std: 0, range: 0, samples: 1 };
+  if (stage === 'zero') calibration.zeroed = true;
+  calibration.complete = false;
+  persistProfile(false);
+}
 function finishCalibration() {
   requireInactive();
-  const { relaxed, partial, full } = calibration.values;
-  if (!relaxed || !partial || !full) throw new Error('Capture all three readings first.');
-  if (partial.mean - relaxed.mean < Math.max(0.2, 3 * relaxed.std) || full.mean - partial.mean < Math.max(0.2, 2 * partial.std + 2 * full.std)) {
-    calibration.status = 'The readings overlap or are too noisy. Retake the affected captures at clearly different, comfortable levels.';
+  const relaxed = calibration.values.relaxed, partial = calibration.values.partial, full = calibration.values.full;
+  if (!relaxed || !partial || !full) throw new Error('Set relaxed, half-clenched and fully clenched readings first.');
+  const r = calibrationNumber(relaxed), p = calibrationNumber(partial), f = calibrationNumber(full);
+  const rs = Number(relaxed.std) || 0, ps = Number(partial.std) || 0, fs = Number(full.std) || 0;
+  if (p - r < Math.max(0.2, 3 * rs) || f - p < Math.max(0.2, 2 * ps + 2 * fs)) {
+    calibration.status = 'The readings overlap or are too noisy. Adjust or recapture the affected values.';
     throw new Error(calibration.status);
   }
-  const threshold = Math.round(partial.mean * 10) / 10;
-  const resetThreshold = Math.round((relaxed.mean + Math.max(0.1, 2 * relaxed.std)) * 10) / 10;
-  if (resetThreshold >= threshold - 0.1) throw new Error('The relaxed and partial readings need a clearer gap. Retake them.');
+  const threshold = Math.round(p * 10) / 10;
+  const resetThreshold = Math.round((r + Math.max(0.1, 2 * rs)) * 10) / 10;
+  if (resetThreshold >= threshold - 0.1) throw new Error('The relaxed and half-clenched readings need a clearer gap.');
   engine.configure({ threshold, resetThreshold });
   calibration.complete = true; calibration.step = 'complete';
-  calibration.status = 'Calibration ready. The initial cutoff uses your partial reading; adjust it live in 0.1 kPa steps.';
-  log('Calibration accepted. Session-only pressure settings updated.');
-  ui.message('Calibration ready. Open Play to begin.');
+  calibration.status = 'Calibration saved. The cutoff starts at your half-clenched reading and remains editable during play.';
+  persistProfile();
+  log('Calibration accepted and saved.');
+  ui.message('Calibration saved. Open Play to begin.');
 }
 
 async function setSimulation(enabled) {
@@ -552,10 +666,12 @@ async function handleAction(name, payload = {}) {
   if (['configure', 'adjust-cutoff'].includes(name)) {
     if (name === 'configure') {
       const next = {};
-      for (const key of ['startPercent', 'rampSeconds', 'cooldownSeconds', 'maxPercentA', 'maxPercentB']) if (payload[key] !== undefined) next[key] = Number(payload[key]);
+      for (const key of ['startPercent','rampSeconds','maxPercentA','maxPercentB','recoveryMinSeconds','recoveryMaxSeconds','shortPhaseSeconds','shortPhaseCount','stablePhaseSeconds','stablePhaseCount','adaptiveMaxMultiplier','patternSpeedSeconds','phaseOffset','patternMinA','patternMinB']) if (payload[key] !== undefined) next[key] = Number(payload[key]);
+      for (const key of ['adaptiveEnabled']) if (payload[key] !== undefined) next[key] = Boolean(payload[key]);
+      if (payload.opossumPattern !== undefined) next.opossumPattern = payload.opossumPattern;
       if (next.rampSeconds !== undefined && next.rampSeconds < 1) throw new Error('Ramp time must be at least 1 second.');
-      engine.configure(next);
-    } else engine.adjustCutoff(Number(payload.delta));
+      engine.configure(next); persistProfile();
+    } else { engine.adjustCutoff(Number(payload.delta)); persistProfile(); }
     render(); return;
   }
   if (name === 'simulate-pressure') { requireSimulation(); simulatedPressure = Math.max(0, Math.min(60, Number(payload.pressure))); if (!Number.isFinite(simulatedPressure)) throw new Error('Invalid simulated pressure.'); simulatedSensor = true; engine.updatePressure(simulatedPressure); render(); return; }
@@ -578,8 +694,12 @@ async function handleAction(name, payload = {}) {
         if (simulation) { requireDev(); simulatedSensor = true; simulatedPressure = 0; engine.updatePressure(0); }
         else await drivers.civet.zero();
         calibration = { ...emptyCalibration(), zeroed: true, step: 'relaxed', status: simulation ? 'Simulated zero complete. Set test pressure in Debugging, then capture each calibration level.' : 'Zeroed. Fit and inflate comfortably, then capture relaxed pressure.' }; break;
-      case 'calibrate': await captureReading(payload.stage); break;
-      case 'reset-calibration': requireInactive(); calibration = emptyCalibration(); break;
+      case 'calibrate': await captureReading(payload.stage); persistProfile(false); break;
+      case 'capture-calibration-now': captureCurrent(payload.stage); break;
+      case 'calibration-value': setCalibrationValue(payload.stage, payload.value); break;
+      case 'calibration-mode': requireInactive(); calibration.mode = payload.mode === 'automatic' ? 'automatic' : 'manual'; persistProfile(false); break;
+      case 'calibration-sample-ms': requireInactive(); calibration.autoSampleMs = Math.max(300, Math.min(3000, Number(payload.value) || 1000)); persistProfile(false); break;
+      case 'reset-calibration': requireInactive(); calibration = emptyCalibration(); persistProfile(); break;
       case 'finish-calibration': finishCalibration(); break;
       case 'select-toy':
         requireInactive(); if (!TOYS.has(payload.toy)) throw new Error('Unknown output device.');
@@ -592,11 +712,12 @@ async function handleAction(name, payload = {}) {
         engine.configure({ mode: payload.mode }); break;
       case 'start':
         requireReady(); hardwareArmed = false; hardwareGeneration += 1; connectionError = ''; remoteFaulted = false; newRecord = false;
-        engine.setGuestOutput(zeroGuestOutput(engine.config.toy)); engine.start(); requestHostSync(); break;
-      case 'pause': engine.pause(); await stopPhysical(); requestHostSync(); break;
+        recorder.start({ toy: engine.config.toy, mode: engine.config.mode, calibration: profilePayload().calibration, settings: engine.config });
+        engine.setGuestOutput(zeroGuestOutput(engine.config.toy)); engine.start(); armNavigationGuard(); persistRecovery(); requestHostSync(); break;
+      case 'pause': engine.pause(); persistRecovery(); await stopPhysical(); requestHostSync(); break;
       case 'resume':
         requireReady(); if (remote?.owned && hadGuest && !guestConnected) throw new Error('Wait for the guest to reconnect before resuming.');
-        remoteFaulted = false; connectionError = ''; engine.setGuestOutput(zeroGuestOutput(engine.config.toy)); engine.resume(); requestHostSync(); break;
+        remoteFaulted = false; connectionError = ''; engine.setGuestOutput(zeroGuestOutput(engine.config.toy)); engine.resume(); armNavigationGuard(); persistRecovery(); recorder.event('resume'); requestHostSync(); break;
       case 'unlock-dev': await unlock(payload.password); break;
       case 'lock-dev':
         requireDev(); if (remote) await endRemote(); if (simulation) await setSimulation(false);
@@ -624,6 +745,7 @@ async function handleAction(name, payload = {}) {
         if (payload.device === 'guest') guestConnected = false; break;
       case 'run-tests': requireDev(); testResults = runDiagnostics(); log('Self-checks completed: ' + testResults.filter(test => test.passed).length + '/' + testResults.length + ' passed.'); break;
       case 'clear-log': requireDev(); logs = []; break;
+      case 'export-data': downloadSessionData(payload.format === 'json' ? 'json' : 'csv'); break;
       case 'hardware-arm':
         requireDev(); requireInactive(); if (simulation) throw new Error('Hardware tests are disabled in simulation.');
         hardwareArmed = Boolean(payload.enabled); if (!hardwareArmed) { hardwareGeneration += 1; await stopPhysical(); } break;
@@ -669,6 +791,23 @@ function backgroundStop() {
 
 if (hostPage) {
   engine = makeEngine(false);
+  if (storedProfile?.settings) {
+    try { engine.configure(storedProfile.settings); } catch (error) { log('Saved settings could not be fully restored: ' + safeError(error)); }
+  }
+  if (calibration.complete) {
+    const p = calibrationNumber(calibration.values.partial), r = calibrationNumber(calibration.values.relaxed);
+    if (Number.isFinite(p) && Number.isFinite(r)) {
+      try { engine.configure({ threshold: storedProfile?.settings?.threshold ?? Math.round(p * 10) / 10, resetThreshold: storedProfile?.settings?.resetThreshold ?? Math.round((r + 0.1) * 10) / 10 }); } catch {}
+    }
+  }
+  if (recoveryCandidate?.engine) {
+    try {
+      engine.restore(recoveryCandidate.engine);
+      connectionError = 'Previous session restored in paused mode. Reconnect devices, check settings, then press Resume.';
+      best = Math.max(best, score(recoveryCandidate.engine.edgeCount));
+      log('Previous session restored in paused mode.');
+    } catch (error) { clearRecovery(); recoveryCandidate = null; log('Saved session recovery was invalid and was discarded.'); }
+  }
   drivers = {
     civet: new CivetDevice({ onPressure: updatePressure, onStatus: status => deviceStatus('civet', status) }),
     lush: new LushDevice({ onStatus: status => deviceStatus('lush', status) }),
@@ -677,9 +816,24 @@ if (hostPage) {
   };
   void requestWake();
   document.addEventListener('pointerup', () => { void requestWake(); }, { passive: true });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) backgroundStop(); else { void requestWake(); render(); } });
-  window.addEventListener('pagehide', backgroundStop);
-  window.addEventListener('beforeunload', backgroundStop);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) backgroundStop();
+    else {
+      void requestWake();
+      for (const name of ['civet','lush','opossum']) if (!drivers[name].connected && deviceStates[name]?.state === 'disconnected') scheduleReconnect(name);
+      render();
+    }
+  });
+  window.addEventListener('popstate', () => {
+    if (navigationGuard && !['idle','stopped'].includes(engine.phase)) {
+      history.pushState({ ctmpSessionGuard: true }, '', location.href);
+      if (ACTIVE.has(engine.phase)) { engine.pause('Back navigation intercepted. Session paused; confirm before resuming.'); void stopPhysical().catch(()=>{}); persistRecovery(); }
+      ui.message('Session kept open and paused. Press Resume when ready.');
+      render();
+    } else navigationGuard = false;
+  });
+  window.addEventListener('pagehide', () => { persistRecovery(); backgroundStop(); });
+  window.addEventListener('beforeunload', () => { persistRecovery(); backgroundStop(); });
 } else {
   void startGuest();
   document.addEventListener('visibilitychange', () => { if (!document.hidden) void pollGuest(); });
@@ -693,6 +847,7 @@ setInterval(() => {
       if (capture) { capture.samples.push(simulatedPressure); capture.lastAt = Date.now(); }
     }
     engine.tick();
+    if (recorder.active) recorder.sample(engine.snapshot());
     if (remote?.owned && Date.now() - lastHostSync > 5000) remoteFault('Guest service heartbeat was lost. Resume explicitly after reconnection.');
   }
   render();
