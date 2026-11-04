@@ -1,8 +1,8 @@
-import { UI } from './ui.js?v=20261101-dual40';
-import { SessionEngine } from './engine.js?v=20261101-dual40';
-import { CivetDevice, LushDevice, OpossumDevice, VacuGlideDevice } from './devices.js?v=20261101-dual40';
-import { Backend } from './backend.js?v=20261101-dual40';
-import { runDiagnostics } from './diagnostics.js?v=20261101-dual40';
+import { UI } from './ui.js?v=20261104-v21';
+import { SessionEngine } from './engine.js?v=20261104-v21';
+import { CivetDevice, LushDevice, OpossumDevice, VacuGlideDevice } from './devices.js?v=20261104-v21';
+import { Backend } from './backend.js?v=20261104-v21';
+import { runDiagnostics } from './diagnostics.js?v=20261104-v21';
 import { PressureFilter, SessionRecorder, loadProfile, saveProfile, loadRecovery, saveRecovery, clearRecovery, loadLastSessionData, saveLastSessionData } from './session-tools.js?v=20261104-v21';
 
 const ACTIVE = new Set(['running', 'cooldown', 'settling']);
