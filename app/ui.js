@@ -27,7 +27,14 @@ const template = `
             <div id="opossum-solo-settings" hidden><hr class="inset-divider"><div class="dual-channel-grid"><div class="channel-card"><label class="control-title" for="max-percent-a"><span>Channel A maximum</span><output id="max-percent-a-value">100%</output></label><input id="max-percent-a" type="range" min="0" max="100" step="1" value="100"><div class="slider-endpoints"><span>Off</span><span>100%</span></div></div><div class="channel-card"><label class="control-title" for="max-percent-b"><span>Channel B maximum</span><output id="max-percent-b-value">100%</output></label><input id="max-percent-b" type="range" min="0" max="100" step="1" value="100"><div class="slider-endpoints"><span>Off</span><span>100%</span></div></div></div><p class="control-note">Starting power is a fraction of each channel maximum. Both channels share the ramp and cutoff; set either maximum to zero to keep that channel off.</p></div>
             <hr class="inset-divider"><div class="settings-cols"><div class="control-row"><label class="field-label" for="recovery-min">Recovery minimum</label><div class="input-line"><input id="recovery-min" type="number" min="1" max="300" step="1" value="20" inputmode="numeric"><span class="muted" style="font-size:.75rem">sec</span></div></div><div class="control-row"><label class="field-label" for="recovery-max">Recovery maximum</label><div class="input-line"><input id="recovery-max" type="number" min="1" max="300" step="1" value="20" inputmode="numeric"><span class="muted" style="font-size:.75rem">sec</span></div></div></div><p class="control-note">Each cutoff randomly chooses a base recovery inside this range.</p>
             <hr class="inset-divider"><label class="toggle-label"><input type="checkbox" id="adaptive-enabled" checked>Adaptive recovery</label><div id="adaptive-settings"><div class="settings-cols"><div class="control-row"><label class="field-label" for="short-phase-seconds">Short phase below</label><div class="input-line"><input id="short-phase-seconds" type="number" min="1" max="120" step="0.5" value="5"><span class="muted" style="font-size:.75rem">sec</span></div></div><div class="control-row"><label class="field-label" for="short-phase-count">Consecutive short phases</label><input id="short-phase-count" type="number" min="1" max="20" step="1" value="3"></div><div class="control-row"><label class="field-label" for="stable-phase-seconds">Stable phase at least</label><div class="input-line"><input id="stable-phase-seconds" type="number" min="1" max="600" step="0.5" value="12"><span class="muted" style="font-size:.75rem">sec</span></div></div><div class="control-row"><label class="field-label" for="stable-phase-count">Stable phases to step down</label><input id="stable-phase-count" type="number" min="1" max="20" step="1" value="3"></div></div><p class="control-note">When the short-phase rule is met, recovery doubles. Stable phases halve the multiplier until normal recovery returns.</p></div>
-            <div id="opossum-pattern-settings" hidden><hr class="inset-divider"><label class="field-label" for="opossum-pattern">Opossum channel pattern</label><select id="opossum-pattern"><option value="synchronized">Synchronized</option><option value="alternating">Alternating</option><option value="offset-wave">Offset wave</option><option value="pulse">Pulse</option><option value="custom">Custom</option></select><div id="opossum-custom-pattern"><div class="settings-cols" style="margin-top:14px"><div class="control-row"><label class="field-label" for="pattern-speed">Cycle time</label><div class="input-line"><input id="pattern-speed" type="number" min="0.4" max="30" step="0.1" value="4"><span class="muted" style="font-size:.75rem">sec</span></div></div><div class="control-row"><label class="field-label" for="phase-offset">B phase offset</label><input id="phase-offset" type="number" min="0" max="1" step="0.05" value="0.25"></div><div class="control-row"><label class="field-label" for="pattern-min-a">A minimum %</label><input id="pattern-min-a" type="number" min="0" max="100" step="1" value="0"></div><div class="control-row"><label class="field-label" for="pattern-min-b">B minimum %</label><input id="pattern-min-b" type="number" min="0" max="100" step="1" value="0"></div></div></div></div></div>
+            <div id="opossum-pattern-settings" hidden><hr class="inset-divider"><label class="field-label" for="opossum-pattern">How should channels A and B behave?</label><select id="opossum-pattern"><option value="synchronized">Together — both channels move together</option><option value="alternating">Alternating — A rises while B falls</option><option value="offset-wave">Offset wave — same wave, shifted apart</option><option value="pulse">Pulse — both channels pulse together</option><option value="custom">Custom — tune the wave yourself</option></select>
+              <div class="callout" id="pattern-guide" style="margin-top:14px"><div class="callout-title" id="pattern-guide-title">Together</div><p id="pattern-guide-copy">Both channels follow the same ramp at the same time.</p><p class="control-note" id="pattern-example" style="margin-top:8px"></p></div>
+              <div id="pattern-extra-settings"><div class="settings-cols" style="margin-top:14px">
+                <div class="control-row" id="pattern-cycle-setting"><label class="field-label" for="pattern-speed">Time for one full pattern cycle</label><div class="input-line"><input id="pattern-speed" type="number" min="0.4" max="30" step="0.1" value="4"><span class="muted" style="font-size:.75rem">sec</span></div><p class="control-note">Smaller number = faster movement between A and B.</p></div>
+                <div class="control-row" id="pattern-offset-setting"><label class="control-title" for="phase-offset"><span>How far B is shifted from A</span><output id="phase-offset-value">25% of a cycle</output></label><input id="phase-offset" type="range" min="0" max="1" step="0.05" value="0.25"><div class="slider-endpoints"><span>0% · together</span><span>50% · opposite</span><span>100% · together</span></div></div>
+                <div class="control-row" id="pattern-min-a-setting"><label class="field-label" for="pattern-min-a">Lowest Channel A may drop to</label><div class="input-line"><input id="pattern-min-a" type="number" min="0" max="100" step="1" value="0"><span class="muted" style="font-size:.75rem">%</span></div></div>
+                <div class="control-row" id="pattern-min-b-setting"><label class="field-label" for="pattern-min-b">Lowest Channel B may drop to</label><div class="input-line"><input id="pattern-min-b" type="number" min="0" max="100" step="1" value="0"><span class="muted" style="font-size:.75rem">%</span></div></div>
+              </div><p class="control-note" id="pattern-floor-note">The minimums are the floor of the pattern. 0% lets that channel fall all the way to off.</p></div></div></div>
           <div id="guest-host-settings" style="margin-top:18px" hidden><div class="callout"><div class="callout-title" id="guest-host-status">Waiting for your guest</div><p>The guest sets speed, patterns and cooldown. Automatic pressure cutoff stays active. Create a session link in Debugging.</p></div><div class="control-row" style="margin-top:18px;margin-bottom:0"><div class="control-title"><span>Guest selected power</span><output id="host-guest-power">0%</output></div><p class="control-note" id="host-guest-pattern">Steady · 20-second cooldown</p></div></div>
           <p class="control-note" style="margin-top:19px" id="power-cap-note">Displayed 100% is capped at 65% of Lush output.</p>
         </section>
@@ -277,8 +284,52 @@ export class UI {
     this.value('stable-phase-seconds', engine.stablePhaseSeconds ?? 12); this.value('stable-phase-count', engine.stablePhaseCount ?? 3);
     this.hide('adaptive-settings', engine.adaptiveEnabled === false);
     this.hide('opossum-pattern-settings', !opossum);
-    this.value('opossum-pattern', engine.opossumPattern ?? 'synchronized'); this.value('pattern-speed', engine.patternSpeedSeconds ?? 4);
-    this.value('phase-offset', engine.phaseOffset ?? 0.25); this.value('pattern-min-a', engine.patternMinA ?? 0); this.value('pattern-min-b', engine.patternMinB ?? 0);
+    const opossumPattern = engine.opossumPattern ?? 'synchronized';
+    const patternSeconds = number(engine.patternSpeedSeconds, 4);
+    const phaseOffset = number(engine.phaseOffset, 0.25);
+    this.value('opossum-pattern', opossumPattern); this.value('pattern-speed', patternSeconds);
+    this.value('phase-offset', phaseOffset); this.text('phase-offset-value', Math.round(phaseOffset * 100) + '% of a cycle');
+    this.value('pattern-min-a', engine.patternMinA ?? 0); this.value('pattern-min-b', engine.patternMinB ?? 0);
+    const patternHelp = {
+      synchronized: {
+        title: 'Together',
+        copy: 'Channels A and B rise together with the normal solo ramp. The Channel A/B maximum sliders above decide how strong each side can become.',
+        example: 'No extra timing settings are needed for this mode.',
+        cycle: false, offset: false, floors: false,
+      },
+      alternating: {
+        title: 'Alternating',
+        copy: 'As Channel A rises, Channel B falls. Then they swap. This continually moves the stronger output from one channel to the other.',
+        example: 'With ' + patternSeconds + ' sec selected, A and B swap sides every ' + (patternSeconds / 2).toFixed(patternSeconds % 2 ? 1 : 0) + ' sec; a full A → B → A cycle takes ' + patternSeconds + ' sec.',
+        cycle: true, offset: false, floors: true,
+      },
+      'offset-wave': {
+        title: 'Offset wave',
+        copy: 'Both channels follow the same smooth wave, but B is shifted along the cycle instead of matching A exactly.',
+        example: Math.round(phaseOffset * 100) + '% shift on a ' + patternSeconds + ' sec cycle means B is ' + (patternSeconds * phaseOffset).toFixed(1).replace(/\.0$/, '') + ' sec out of phase with A.',
+        cycle: true, offset: true, floors: true,
+      },
+      pulse: {
+        title: 'Pulse',
+        copy: 'Both channels pulse together between their selected maximum and minimum levels.',
+        example: 'One pulse repeats every ' + patternSeconds + ' sec. Set either minimum to 0% if you want that channel to drop fully off between pulses.',
+        cycle: true, offset: false, floors: true,
+      },
+      custom: {
+        title: 'Custom wave',
+        copy: 'This exposes all of the waveform controls: overall speed, how far B is shifted from A, and the lowest level either channel may reach.',
+        example: Math.round(phaseOffset * 100) + '% B shift = ' + (patternSeconds * phaseOffset).toFixed(1).replace(/\.0$/, '') + ' sec of separation on the current ' + patternSeconds + ' sec cycle.',
+        cycle: true, offset: true, floors: true,
+      },
+    }[opossumPattern] || {};
+    this.text('pattern-guide-title', patternHelp.title || 'Pattern');
+    this.text('pattern-guide-copy', patternHelp.copy || '');
+    this.text('pattern-example', patternHelp.example || '');
+    this.hide('pattern-cycle-setting', !patternHelp.cycle);
+    this.hide('pattern-offset-setting', !patternHelp.offset);
+    this.hide('pattern-min-a-setting', !patternHelp.floors);
+    this.hide('pattern-min-b-setting', !patternHelp.floors);
+    this.hide('pattern-floor-note', !patternHelp.floors);
     this.text('power-cap-note', vg ? 'Displayed 100% is capped at 35% of VacuGlide speed.' : opossum ? 'Displayed 100% on either Opossum channel is capped at 40% of its native output.' : 'Displayed 100% is capped at 65% of Lush output.');
     this.hide('pump-panel', !vg); this.disable('stroke-plus', !outputConnected || busy || simulation); this.disable('stroke-minus', !outputConnected || busy || simulation);
     this.node('toy-lush').setAttribute('aria-pressed', String(toy === 'lush')); this.node('toy-opossum').setAttribute('aria-pressed', String(opossum)); this.node('toy-vacuglide').setAttribute('aria-pressed', String(vg));
