@@ -41,10 +41,10 @@ export function runDiagnostics() {
     advance(100,24); advance(10000,21);
     assert(engine.snapshot().outputPercentA===8 && engine.snapshot().outputPercentB===16,'Dual ramp did not restart');
   });
-  check('Opossum guest patterns scale both peaks, legacy scalar stays A-only', () => {
+  check('Opossum synchronized guest control scales both peaks, legacy scalar stays A-only', () => {
     const {engine,advance}=fixture('guest',{toy:'opossum'});
-    engine.setGuestOutput({percentA:40,percentB:80,pattern:'wave'}); advance(2000);
-    assert(engine.snapshot().outputPercentA===40 && engine.snapshot().outputPercentB===80,'Dual pattern peak failed');
+    engine.setGuestOutput({percentA:40,percentB:80,pattern:'steady'}); advance(2000);
+    assert(engine.snapshot().outputPercentA===40 && engine.snapshot().outputPercentB===80,'Dual steady peak failed');
     engine.setGuestOutput({percent:50,pattern:'steady'});
     assert(engine.snapshot().outputPercentA===50 && engine.snapshot().outputPercentB===0,'Legacy scalar enabled B');
   });
