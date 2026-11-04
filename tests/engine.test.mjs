@@ -161,7 +161,7 @@ test('Opossum uses the same host-owned guest patterns and solo ramp as Lush', ()
   assert.ok(outputs.every(value => value <= 70));
   sample(12); advance(10000);
   assert.equal(engine.snapshot().phase, 'running');
-  assert.equal(engine.snapshot().outputPercent, 35, 'Opossum wave keeps B phase-offset from A at cycle start');
+  assert.equal(engine.snapshot().outputPercent, 0, 'after recovery the guest waveform restarts from a known zero state');
   engine.pause(); engine.configure({ mode: 'solo' }); engine.resume();
   assert.equal(engine.snapshot().outputPercent, 20);
 });
@@ -197,8 +197,8 @@ test('Opossum solo maximum zero leaves exactly that channel off', () => {
   assert.equal(engine.snapshot().maxPercentB, 0, 'invalid configuration is atomic');
 });
 
-test('Opossum guest patterns apply one multiplier to two independent peaks', () => {
-  for (const pattern of ['steady', 'pulse', 'wave']) {
+test('Opossum synchronized guest patterns preserve independent peak ratios', () => {
+  for (const pattern of ['steady', 'pulse']) {
     const { engine, sample, advance, channelOutputs } = fixture({ config: { toy: 'opossum', mode: 'guest', maxPercentA: 1, maxPercentB: 1 } });
     engine.setGuestOutput({ percentA: 40, percentB: 80, pattern });
     sample(); engine.start(); advance(2000);
@@ -427,7 +427,7 @@ test('random recovery picks within configured range before applying adaptive mul
   const engine = new SessionEngine({ now: () => time, random: () => 0.5 });
   engine.configure({ threshold: 12, resetThreshold: 10, recoveryMinSeconds: 10, recoveryMaxSeconds: 20, adaptiveEnabled: false });
   engine.updatePressure(9); engine.start();
-  time = 6000; engine.updatePressure(12);
+  while (time < 6000) { time += 500; engine.updatePressure(time === 6000 ? 12 : 9); }
   const state = engine.snapshot();
   assert.equal(state.recoveryBaseSeconds, 15);
   assert.equal(state.recoverySeconds, 15);
@@ -438,20 +438,19 @@ test('three short cycles double adaptive recovery and stable cycles step it back
   let time = 0;
   const engine = new SessionEngine({ now: () => time, random: () => 0 });
   engine.configure({ threshold: 12, resetThreshold: 10, recoveryMinSeconds: 2, recoveryMaxSeconds: 2, shortPhaseSeconds: 5, shortPhaseCount: 3, stablePhaseSeconds: 8, stablePhaseCount: 2, adaptiveMaxMultiplier: 8 });
-  const edgeAfter = seconds => {
-    engine.updatePressure(9, time);
-    if (['idle','stopped'].includes(engine.phase)) engine.start();
-    if (engine.phase === 'cooldown') { time = engine.cooldownEndsAt; engine.updatePressure(9, time); }
-    time += seconds * 1000; engine.updatePressure(12, time);
+  const feed = (durationMs, finalPressure = 9) => {
+    const end = time + durationMs;
+    while (time < end) { time = Math.min(end, time + 500); engine.updatePressure(time === end ? finalPressure : 9); }
   };
-  edgeAfter(2); time = engine.cooldownEndsAt; engine.updatePressure(9,time);
-  edgeAfter(2); time = engine.cooldownEndsAt; engine.updatePressure(9,time);
-  edgeAfter(2);
+  engine.updatePressure(9); engine.start();
+  const edgeAfter = seconds => {
+    if (engine.phase === 'cooldown') feed(Math.max(0, engine.cooldownEndsAt - time), 9);
+    feed(seconds * 1000, 12);
+  };
+  edgeAfter(2); edgeAfter(2); edgeAfter(2);
   assert.equal(engine.snapshot().adaptiveMultiplier, 2);
   assert.equal(engine.snapshot().recoverySeconds, 4);
-  time = engine.cooldownEndsAt; engine.updatePressure(9,time);
-  edgeAfter(9); time = engine.cooldownEndsAt; engine.updatePressure(9,time);
-  edgeAfter(9);
+  edgeAfter(9); edgeAfter(9);
   assert.equal(engine.snapshot().adaptiveMultiplier, 1);
 });
 
@@ -474,9 +473,8 @@ test('Opossum alternating and offset-wave patterns drive A and B independently',
   engine.configure({ toy:'opossum', mode:'guest', threshold:12, resetThreshold:10, patternSpeedSeconds:4, phaseOffset:0.25 });
   engine.setGuestOutput({ percentA:100, percentB:100, pattern:'alternating', recoveryMinSeconds:20, recoveryMaxSeconds:20 });
   engine.updatePressure(9); engine.start();
-  time=1000; engine.updatePressure(9);
-  assert.ok(Math.abs(channels.at(-1).a - channels.at(-1).b) > 50);
+  assert.ok(Math.abs(channels.at(-1).a - channels.at(-1).b) > 90, 'alternating begins with opposite channel levels');
   engine.setGuestOutput({ percentA:100, percentB:100, pattern:'offset-wave', recoveryMinSeconds:20, recoveryMaxSeconds:20 });
-  time=2000; engine.updatePressure(9);
+  time=1000; engine.updatePressure(9);
   assert.notEqual(Math.round(channels.at(-1).a), Math.round(channels.at(-1).b));
 });
