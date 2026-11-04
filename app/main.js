@@ -1,9 +1,9 @@
-import { UI } from './ui.js?v=20261104-v21';
-import { SessionEngine } from './engine.js?v=20261104-v21';
-import { CivetDevice, LushDevice, OpossumDevice, VacuGlideDevice } from './devices.js?v=20261104-v21';
-import { Backend } from './backend.js?v=20261104-v21';
-import { runDiagnostics } from './diagnostics.js?v=20261104-v21';
-import { PressureFilter, SessionRecorder, loadProfile, saveProfile, loadRecovery, saveRecovery, clearRecovery, loadLastSessionData, saveLastSessionData } from './session-tools.js?v=20261104-v21';
+import { UI } from './ui.js?v=20261104-v21b';
+import { SessionEngine } from './engine.js?v=20261104-v21b';
+import { CivetDevice, LushDevice, OpossumDevice, VacuGlideDevice } from './devices.js?v=20261104-v21b';
+import { Backend } from './backend.js?v=20261104-v21b';
+import { runDiagnostics } from './diagnostics.js?v=20261104-v21b';
+import { PressureFilter, SessionRecorder, loadProfile, saveProfile, loadRecovery, saveRecovery, clearRecovery, loadLastSessionData, saveLastSessionData } from './session-tools.js?v=20261104-v21b';
 
 const ACTIVE = new Set(['running', 'cooldown', 'settling']);
 const TOYS = new Set(['lush', 'opossum', 'vacuglide']);
