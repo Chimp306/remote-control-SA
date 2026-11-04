@@ -11,11 +11,13 @@ export const ENGINE_DEFAULTS = Object.freeze({
   recoveryMinSeconds: 20, recoveryMaxSeconds: 20,
   adaptiveEnabled: true, shortPhaseSeconds: 5, shortPhaseCount: 3,
   stablePhaseSeconds: 12, stablePhaseCount: 3, adaptiveMaxMultiplier: 8,
+  opossumPattern: 'synchronized', patternSpeedSeconds: 4, phaseOffset: 0.25,
+  patternMinA: 0, patternMinB: 0,
   threshold: 22.9, resetThreshold: 21.6,
 });
 
 const ACTIVE = new Set(['running', 'cooldown', 'settling']);
-const PATTERNS = new Set(['steady', 'pulse', 'wave']);
+const PATTERNS = new Set(['steady', 'pulse', 'wave', 'synchronized', 'alternating', 'offset-wave', 'custom']);
 const finite = (value, name) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new TypeError(`${name} must be a finite number.`);
   return value;
@@ -95,6 +97,15 @@ export class SessionEngine {
     if (values.stablePhaseCount !== undefined) next.stablePhaseCount = Math.round(clamp(finite(values.stablePhaseCount, 'Stable-phase count'), 1, 20));
     if (values.adaptiveMaxMultiplier !== undefined) next.adaptiveMaxMultiplier = clamp(finite(values.adaptiveMaxMultiplier, 'Maximum adaptive multiplier'), 1, 32);
     if (next.stablePhaseSeconds <= next.shortPhaseSeconds) throw new RangeError('Stable-phase threshold must be above the short-phase threshold.');
+    if (values.opossumPattern !== undefined) {
+      if (!['synchronized','alternating','offset-wave','pulse','custom'].includes(values.opossumPattern)) throw new TypeError('Unsupported Opossum pattern.');
+      next.opossumPattern = values.opossumPattern;
+    }
+    if (values.patternSpeedSeconds !== undefined) next.patternSpeedSeconds = clamp(finite(values.patternSpeedSeconds, 'Pattern speed'), 0.4, 30);
+    if (values.phaseOffset !== undefined) next.phaseOffset = clamp(finite(values.phaseOffset, 'Phase offset'), 0, 1);
+    if (values.patternMinA !== undefined) next.patternMinA = clamp(finite(values.patternMinA, 'Channel A minimum'), 0, 100);
+    if (values.patternMinB !== undefined) next.patternMinB = clamp(finite(values.patternMinB, 'Channel B minimum'), 0, 100);
+    if (next.patternMinA > next.maxPercentA || next.patternMinB > next.maxPercentB) throw new RangeError('Pattern minimum cannot exceed its channel maximum.');
     if (values.threshold !== undefined) next.threshold = pressureLevel(values.threshold, 'Cutoff');
     if (values.resetThreshold !== undefined) next.resetThreshold = pressureLevel(values.resetThreshold, 'Reset threshold');
     if (next.resetThreshold >= next.threshold) throw new RangeError('Reset threshold must be below the cutoff.');
@@ -426,15 +437,36 @@ export class SessionEngine {
       const fraction = this.config.rampSeconds === 0 ? 1 : clamp(elapsed / (this.config.rampSeconds * 1000), 0, 1);
       const rampPercent = this.config.startPercent + (100 - this.config.startPercent) * fraction;
       if (this.config.toy === 'opossum') {
-        return { a: this.config.maxPercentA * rampPercent / 100, b: this.config.maxPercentB * rampPercent / 100 };
+        return this._opossumPattern(elapsed, this.config.maxPercentA * rampPercent / 100, this.config.maxPercentB * rampPercent / 100, this.config.opossumPattern);
       }
       return rampPercent;
     }
     let multiplier = 1;
     if (this.config.toy !== 'vacuglide' && this.pattern === 'pulse') multiplier = elapsed % 2000 < 1000 ? 1 : 0;
     else if (this.config.toy !== 'vacuglide' && this.pattern === 'wave') multiplier = (1 - Math.cos(2 * Math.PI * (elapsed % 4000) / 4000)) / 2;
-    if (this.config.toy === 'opossum') return { a: this.guestPercentA * multiplier, b: this.guestPercentB * multiplier };
+    if (this.config.toy === 'opossum') {
+      const mode = ['alternating','offset-wave','custom'].includes(this.pattern) ? this.pattern : this.pattern === 'pulse' ? 'pulse' : 'synchronized';
+      return this._opossumPattern(elapsed, this.guestPercentA, this.guestPercentB, mode);
+    }
     return clamp(this.guestPercent, 0, 100) * multiplier;
+  }
+
+  _opossumPattern(elapsed, maxA, maxB, mode) {
+    const speedMs = Math.max(400, this.config.patternSpeedSeconds * 1000);
+    const cycle = (elapsed % speedMs) / speedMs;
+    const sine = phase => (1 - Math.cos(2 * Math.PI * ((cycle + phase) % 1))) / 2;
+    const scale = (max, minimum, factor) => {
+      const hi = clamp(max, 0, 100), lo = clamp(Math.min(minimum, hi), 0, hi);
+      return lo + (hi - lo) * clamp(factor, 0, 1);
+    };
+    if (mode === 'alternating') return { a: scale(maxA, this.config.patternMinA, sine(0)), b: scale(maxB, this.config.patternMinB, sine(0.5)) };
+    if (mode === 'offset-wave') return { a: scale(maxA, this.config.patternMinA, sine(0)), b: scale(maxB, this.config.patternMinB, sine(this.config.phaseOffset)) };
+    if (mode === 'pulse') {
+      const on = cycle < 0.45 ? 1 : 0;
+      return { a: scale(maxA, this.config.patternMinA, on), b: scale(maxB, this.config.patternMinB, on) };
+    }
+    if (mode === 'custom') return { a: scale(maxA, this.config.patternMinA, sine(0)), b: scale(maxB, this.config.patternMinB, sine(this.config.phaseOffset)) };
+    return { a: clamp(maxA, 0, 100), b: clamp(maxB, 0, 100) };
   }
 
   _output(percentOrChannels, force = false) {
