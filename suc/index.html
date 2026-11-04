@@ -54,7 +54,7 @@ const ART={"assessment":"data:image/webp;base64,UklGRoC6AQBXRUJQVlA4IHS6AQCQwQWd
 
 // ---- content.js ----
 // SUC Clinic: authored fiction. No story instruction can command hardware.
-const VERSION = '1.2.2';
+const VERSION = '1.2.3';
 const DIFFICULTIES = {
   easy: {name:'Routine Collection',label:'Easy',min:45,max:75,copy:'A shorter appointment. The staff are still rather thorough.'},
   medium: {name:'Extended Collection',label:'Medium',min:95,max:140,copy:'More assessments, more opportunities for your nurse to take an interest.'},
@@ -72,86 +72,98 @@ const INTAKE = {
   denied:'The receptionist checks the previous prescription, then places it at the front of your file for today’s nurse.',
 };
 const NURSES = {
-  evelyn: {
-    name:'Evelyn Hart',short:'Hart',colour:'#557d6c',signature:'Warm, attentive, quietly firm.',
-    intro:'Nurse Evelyn Hart appears at the frosted-glass doors with your chart tucked under one arm. “There you are. I hope reception made you comfortable.” She checks your name and offers you her hand. “Come along.”',
-    manner:[
-      'Hart examines the latest entry, then looks up with a small smile.',
-      '“Still with me?” Hart asks, pausing over the chart.',
-      'Her expression softens as she listens, giving you her full attention.',
-      '“Thank you,” she says, adding the next entry without looking away for long.',
-      'Hart brushes a strand of hair behind her ear. “You are doing splendidly.”',
-      'The counter chimes softly. Hart glances towards it, then returns to your conversation.',
+  "evelyn": {
+    "name": "Evelyn Hart",
+    "short": "Hart",
+    "colour": "#557d6c",
+    "signature": "Warm, attentive, quietly firm in her denial.",
+    "intro": "Nurse Evelyn Hart appears at the frosted-glass doors with your chart tucked under one arm. “There you are. I hope reception left you wanting.” She checks your name, her fingers lingering as she offers her hand. “Come along. We’ll take our time with you.”",
+    "manner": [
+      "Hart examines the latest entry, then looks up with a soft smile, noting how you shift in the chair.",
+      "“Still with me?” Hart asks, pausing over the chart, her eyes flicking down briefly.",
+      "Her expression softens as she listens, giving you her full attention while the tension builds.",
+      "“Thank you,” she says, adding the next entry, her touch light on the page.",
+      "Hart brushes a strand of hair behind her ear. “You’re doing splendidly. So responsive.”",
+      "The counter chimes softly. Hart glances towards it, then back to you with a knowing look."
     ],
-    stages:[
-      '“First, a baseline,” Evelyn explains, settling your file beside a small brass counter. “Each completed edge adds one to the counter.” She turns back to you. “Any questions before we begin?”',
-      'Evelyn leads you into the Meridian Suite, where paired instruments sit beneath frosted glass. She checks the settings before placing your file on the next desk. “Here we are.”',
-      'In the observation room Evelyn opens your chart at the latest entry. She leaves the chair beside her free. “Come and sit here while I look through this.”',
-      'A brass message capsule arrives from administration. Evelyn unfolds the paper, reads it and sets it beside your chart. “They do like to interrupt.” She looks up with a grin. “Where were we?”',
-      'Evelyn brings the final section of your file to the bedside. “The discharge review,” she explains, making space for the prescription beside it.',
+    "stages": [
+      "“First, a baseline,” Evelyn explains, settling your file beside a small brass counter. “Each completed edge adds one. We’ll build you up slowly and carefully.” She turns back to you. “Any questions before we begin?”",
+      "Evelyn leads you into the Meridian Suite, where paired instruments sit beneath frosted glass. She checks the settings, adjusting them with deliberate care. “Here we are. Time to see how you respond.”",
+      "In the observation room Evelyn opens your chart at the latest entry. She leaves the chair beside her free. “Come and sit here while I look through this. I want to see how far we’ve taken you.”",
+      "A brass message capsule arrives from administration. Evelyn unfolds the paper, reads it and sets it beside your chart. “They do like to interrupt.” She looks up with a grin. “Where were we? Still holding for me?”",
+      "Evelyn brings the final section of your file to the bedside. “The discharge review,” she explains, making space for the prescription beside it. “Let’s see what you’ve earned.”"
     ],
-    ending:'Evelyn closes your file with a small smile. “All finished.” She turns the final prescription towards you.',
+    "ending": "Evelyn closes your file with a small, warm smile. “All finished.” She turns the final prescription towards you, her eyes lingering."
   },
-  scarlett: {
-    name:'Scarlett Vale',short:'Vale',colour:'#a86461',signature:'Quick humour. Always ready with an answer.',
-    intro:'Scarlett Vale is laughing at something on her screen when your name is called. “Excellent timing.” She turns the screen away and picks up your registration form. “Shall we?”',
-    manner:[
-      'Vale laughs at her own remark before making the next entry.',
-      '“You may try to persuade me,” she says, setting down her pen to listen.',
-      'Scarlett tilts the ledger so you can see the newest entry—then turns it away before you glimpse the target.',
-      'Scarlett opens her mouth to say something, changes her mind, and smiles instead.',
-      'She makes a show of considering your progress. “Hmm. Do I look like someone in a hurry to finish?”',
-      'Scarlett catches your glance at the clock. One eyebrow rises.',
+  "scarlett": {
+    "name": "Scarlett Vale",
+    "short": "Vale",
+    "colour": "#a86461",
+    "signature": "Quick humour. Loves the tease.",
+    "intro": "Scarlett Vale is laughing at something on her screen when your name is called. “Excellent timing. Already looking eager?” She turns the screen away and picks up your registration form, eyes sparkling. “Shall we? I do enjoy these sessions.”",
+    "manner": [
+      "Vale laughs at her own remark before making the next entry, watching your reaction.",
+      "“You may try to persuade me,” she says, setting down her pen, clearly enjoying the attempt.",
+      "Scarlett tilts the ledger so you can see the newest entry—then turns it away before you glimpse the target, grinning.",
+      "Scarlett opens her mouth to say something filthy, changes her mind, and smiles instead.",
+      "She makes a show of considering your progress. “Hmm. Do I look like someone in a hurry to let you finish?”",
+      "Scarlett catches your glance at the clock. One eyebrow rises. “Impatient already?”"
     ],
-    stages:[
-      '“Let us make this simple,” Scarlett says, positioning the brass tally beside her. “Every completed edge adds one.” She moves the private chart out of view before you can read the last column.',
-      'The paired instruments are waiting in the next room. Scarlett checks their settings and turns the pattern chart towards you. “Something different for this part.”',
-      'Behind the observation glass a supervisor passes without stopping. Scarlett waves cheerfully. “She saw us. She is pretending she did not.”',
-      'Scarlett receives an envelope stamped COLLECTION AUDIT. She opens it, laughs and folds it closed again. “An inspection. That explains the serious faces.”',
-      'At the final station Scarlett arranges the remaining pages in front of her. She puts one finger on the prescription envelope. “I know which part you are waiting for.”',
+    "stages": [
+      "“Let us make this simple,” Scarlett says, positioning the brass tally beside her. “Every completed edge adds one. And I do mean completed.” She moves the private chart out of view before you can read the last column.",
+      "The paired instruments are waiting in the next room. Scarlett checks their settings and turns the pattern chart towards you. “Something different for this part. Let’s see how long you last.”",
+      "Behind the observation glass a supervisor passes without stopping. Scarlett waves cheerfully. “She saw us. She is pretending she did not. Probably jealous.”",
+      "Scarlett receives an envelope stamped COLLECTION AUDIT. She opens it, laughs and folds it closed again. “An inspection. That explains the serious faces. Don’t worry, I won’t behave.”",
+      "At the final station Scarlett arranges the remaining pages in front of her. She puts one finger on the prescription envelope. “I know which part you are waiting for. The one that decides if you get to come.”"
     ],
-    ending:'Scarlett stamps your completed file with a theatrical flourish. “There we are.” She opens the final order. “And now for the part you have been wondering about.”',
+    "ending": "Scarlett stamps your completed file with a theatrical flourish. “There we are.” She opens the final order. “And now for the part you have been aching to hear.”"
   },
-  beatrice: {
-    name:'Beatrice Shaw',short:'Shaw',colour:'#657a88',signature:'Precise, composed, quietly amused.',
-    intro:'Beatrice Shaw checks your details twice before looking up. “Your appointment is with me.” She aligns the folder with the edge of the desk, notices you watching and lets the smallest smile escape. “A habit.”',
-    manner:[
-      'Shaw compares two entries, then adds a precise tick beside the latest one.',
-      'Shaw looks up over the chart. “You were about to ask something?”',
-      'She straightens the next page, notices it was already straight, and leaves it alone.',
-      '“One moment.” Shaw finishes the line she is reading before giving you her attention.',
-      'The clock chimes. Shaw glances towards the corridor, then closes the door against the noise.',
-      'You catch Shaw smiling at the chart before her expression becomes professionally neutral again.',
+  "beatrice": {
+    "name": "Beatrice Shaw",
+    "short": "Shaw",
+    "colour": "#657a88",
+    "signature": "Precise, composed, quietly amused by the denial.",
+    "intro": "Beatrice Shaw checks your details twice before looking up. “Your appointment is with me.” She aligns the folder with the edge of the desk, notices you watching and lets the smallest smile escape. “A habit. You will need to be precise today.”",
+    "manner": [
+      "Shaw compares two entries, then adds a precise tick beside the latest one, expression composed.",
+      "Shaw looks up over the chart. “You were about to ask something? Go on.”",
+      "She straightens the next page, notices it was already straight, and leaves it alone with a faint smile.",
+      "“One moment.” Shaw finishes the line she is reading before giving you her full attention.",
+      "The clock chimes. Shaw glances towards the corridor, then closes the door against the noise, sealing you in.",
+      "You catch Shaw smiling at the chart before her expression becomes professionally neutral again."
     ],
-    stages:[
-      'Shaw seats you beside the enamel counter and opens her fountain pen. “Each completed edge adds one to this counter.” She waits until you are settled before opening the chart.',
-      'In the instrument suite Beatrice checks the settings and places your folder beside the instruments. “This is the next part.” She leaves the chart open while she waits for your question.',
-      'The observation gallery contains a wall of immaculately filed ledgers. Beatrice catches you looking at them. “Yes. They are in order.” Her expression suggests this was never in doubt.',
-      'An inspector’s folder arrives at the consultation desk. Beatrice checks the seal, sets it aside and returns to you. “That can wait a moment.”',
-      'Beatrice opens the final section of your file and places the discharge prescription face down beside it. “Let me finish the review.”',
+    "stages": [
+      "Shaw seats you beside the enamel counter and opens her fountain pen. “Each completed edge adds one to this counter. We will be exact.” She waits until you are settled before opening the chart.",
+      "In the instrument suite Beatrice checks the settings and places your folder beside the instruments. “This is the next part.” She leaves the chart open while she waits for your question.",
+      "The observation gallery contains a wall of immaculately filed ledgers. Beatrice catches you looking at them. “Yes. They are in order. As you will be.” Her expression suggests this was never in doubt.",
+      "An inspector’s folder arrives at the consultation desk. Beatrice checks the seal, sets it aside and returns to you. “That can wait a moment. You cannot.”",
+      "Beatrice opens the final section of your file and places the discharge prescription face down beside it. “Let me finish the review. Then we will see.”"
     ],
-    ending:'Beatrice closes the completed file, signs the discharge documentation and turns it towards you. “Here is the final prescription.”',
+    "ending": "Beatrice closes the completed file, signs the discharge documentation and turns it towards you. “Here is the final prescription.”"
   },
-  victoria: {
-    name:'Victoria Blackwood',short:'Blackwood',colour:'#846a91',signature:'Unhurried, observant, hard to read.',
-    intro:'Victoria Blackwood lets the receptionist finish speaking before taking your registration form. She reads it, gives a small smile and shuts the folder. “We can talk inside.” She opens the door and waits for you.',
-    manner:[
-      'Blackwood makes the next entry without a word, then looks up with a small smile.',
-      '“You are deciding whether to ask me something,” she observes, leaving you time to answer.',
-      'She lets the silence settle before returning to the chart.',
-      'Blackwood notices your glance towards the chart. She leaves it where it is.',
-      'Blackwood turns the page, then pauses to reread the line above it.',
-      '“There are things you cannot learn from a number,” she says, adding another number anyway.',
+  "victoria": {
+    "name": "Victoria Blackwood",
+    "short": "Blackwood",
+    "colour": "#846a91",
+    "signature": "Unhurried, observant, hard to read.",
+    "intro": "Victoria Blackwood lets the receptionist finish speaking before taking your registration form. She reads it, gives a small smile and shuts the folder. “We can talk inside.” She opens the door and waits for you, watching.",
+    "manner": [
+      "Blackwood makes the next entry without a word, then looks up with a small smile, assessing.",
+      "“You are deciding whether to ask me something,” she observes, leaving you time to answer.",
+      "She lets the silence settle before returning to the chart, the air thick.",
+      "Blackwood notices your glance towards the chart. She leaves it where it is.",
+      "Blackwood turns the page, then pauses to reread the line above it, unhurried.",
+      "“There are things you cannot learn from a number,” she says, adding another number anyway."
     ],
-    stages:[
-      'Victoria shows you the polished counter. “One mark for each completed edge.” She places it where you can see it and opens her own chart.',
-      'In the Meridian Suite Victoria studies the instrument settings before taking her seat. She waits for your question without offering one of her own.',
-      'Victoria leads you past the observation window. A brass display hangs on the far wall, but she is watching your reaction to the room.',
-      'The supervisor’s message arrives while Victoria is reading your chart. She finishes the paragraph before opening it, then sets both papers side by side.',
-      'In the final room Victoria sets a sealed envelope beside the ledger. She rests her pen beside it and waits to hear what you will ask.',
+    "stages": [
+      "Victoria shows you the polished counter. “One mark for each completed edge.” She places it where you can see it and opens her own chart.",
+      "In the Meridian Suite Victoria studies the instrument settings before taking her seat. She waits for your question without offering one of her own.",
+      "Victoria leads you past the observation window. A brass display hangs on the far wall, but she is watching your reaction to the room.",
+      "The supervisor’s message arrives while Victoria is reading your chart. She finishes the paragraph before opening it, then sets both papers side by side.",
+      "In the final room Victoria sets a sealed envelope beside the ledger. She rests her pen beside it and waits to hear what you will ask."
     ],
-    ending:'Victoria sets down her pen. “The appointment is complete.” Only now does she open the final envelope and turn the page towards you.',
-  },
+    "ending": "Victoria sets down her pen. “The appointment is complete.” Only now does she open the final envelope and turn the page towards you."
+  }
 };
 const DAYS = {
   generous:{name:'A particularly good mood',adjustment:-6,
@@ -183,30 +195,133 @@ const RULE_CUES={
  fixed:['She checks the next step against the original plan.','The printed schedule has no amendments.','The protocol card remains on top of your file.'],
  request:['The final form includes a line labelled PATIENT REQUEST.','“A request has to be made before I can review it,” she explains.','She keeps the request form beside the final review.'],
 };
-const CHOICES=[
- [['counting','Ask how the clinic measures a collection'],['professional','Comment on her good mood']],
- [['change','Ask why she chose this pattern'],['enjoy','Tell her she seems to be enjoying herself']],
- [['quota','Ask whether she has a collection target'],['smile','Ask what made her smile']],
- [['boss','Ask about her supervisor'],['patience','Say you are hoping the appointment is nearly finished']],
- [['permission','Ask whether the prescription includes an orgasm'],['resolve','Let her finish the collection review']],
+const CHOICES = [
+  [
+    [
+      "counting",
+      "Ask how the clinic measures a collection"
+    ],
+    [
+      "professional",
+      "Comment on her good mood"
+    ],
+    [
+      "custom_tease",
+      "Ask if she enjoys the teasing as much as the patients"
+    ]
+  ],
+  [
+    [
+      "change",
+      "Ask why she chose this pattern"
+    ],
+    [
+      "enjoy",
+      "Tell her she seems to be enjoying herself"
+    ],
+    [
+      "custom_intense",
+      "Comment that this pattern feels more intense"
+    ]
+  ],
+  [
+    [
+      "quota",
+      "Ask whether she has a collection target"
+    ],
+    [
+      "smile",
+      "Ask what made her smile"
+    ],
+    [
+      "custom_close",
+      "Ask how close she plans to bring you"
+    ]
+  ],
+  [
+    [
+      "boss",
+      "Ask about her supervisor"
+    ],
+    [
+      "patience",
+      "Say you are hoping the appointment is nearly finished"
+    ],
+    [
+      "custom_hold",
+      "Say you are struggling to hold back"
+    ]
+  ],
+  [
+    [
+      "permission",
+      "Ask whether the prescription includes an orgasm"
+    ],
+    [
+      "resolve",
+      "Let her finish the collection review"
+    ],
+    [
+      "custom_beg",
+      "Ask if begging would change anything"
+    ]
+  ]
 ];
-const REPLIES={
- counting:'“Each completed edge adds one to the counter,” she explains, pointing to the latest entry.',
- professional:'“Is it that obvious?” She smiles before returning to your chart.',
- change:'“To see what difference a change makes,” she replies, turning to the next part of the pattern chart.',
- enjoy:'“Some days are more interesting than others,” she replies with a small smile.',
- quota:'“Of course there is a quota,” she says. “You will forgive me if I keep the exact number to myself.”',
- smile:'She gives you a brief smile. “Must everything be investigated?”',
- boss:'“She notices everything,” she says, glancing towards the corridor.',
- patience:'She looks at the still-open ledger with an amused smile. “Nearly is such an interesting word. We will see.”',
- permission:'She glances at the final prescription envelope. “An orgasm is a separate authorisation. Completing your collection programme does not automatically earn one.”',
- resolve:'She checks the last page of your file. “Then let me finish the review.”',
+const CHOICE_KINDS = {
+  "counting": "question",
+  "professional": "comment",
+  "custom_tease": "question",
+  "change": "question",
+  "enjoy": "comment",
+  "custom_intense": "comment",
+  "quota": "question",
+  "smile": "question",
+  "custom_close": "question",
+  "boss": "question",
+  "patience": "comment",
+  "custom_hold": "comment",
+  "permission": "question",
+  "resolve": "comment",
+  "custom_beg": "question"
 };
-const REQUEST_LINES={
- mercy:['She studies the chart. “I may be able to finish a little earlier.”','“I hear you,” she says. One of the remaining entries receives a small pencil mark.','“There is a chance,” she says, “that I might not insist on every last item.”'],
- extend:['She laughs, then reaches for another sheet.','“Such enthusiasm,” she says, sliding another page into the folder.','She considers your request before adding a new entry to the plan.'],
- fixed:['She notes your request beside the printed plan. The schedule stays as it is.','She listens without interrupting, then shakes her head.','She smiles as she writes down the request. Nothing else on the page changes.'],
- request:['She sets down her pen. “There. Now I have your request.”','“Yes, I heard you,” she says. “The request is in the file. The review still has to be completed.”','She glances at your earlier request. “I have not forgotten.”'],
+const REPLIES = {
+  "counting": "“Each completed edge adds one to the counter,” she explains, pointing to the latest entry.",
+  "professional": "“Is it that obvious?” She smiles before returning to your chart.",
+  "change": "“To see what difference a change makes,” she replies, turning to the next part of the pattern chart.",
+  "enjoy": "“Some days are more interesting than others,” she replies with a small smile.",
+  "quota": "“Of course there is a quota,” she says. “You will forgive me if I keep the exact number to myself.”",
+  "smile": "She gives you a brief smile. “Must everything be investigated?”",
+  "boss": "“She notices everything,” she says, glancing towards the corridor.",
+  "patience": "She looks at the still-open ledger with an amused smile. “Nearly is such an interesting word. We will see.”",
+  "permission": "She glances at the final prescription envelope. “An orgasm is a separate authorisation. Completing your collection programme does not automatically earn one.”",
+  "resolve": "She checks the last page of your file. “Then let me finish the review.”",
+  "custom_tease": "She considers the question with a small smile. “I do enjoy my work.”",
+  "custom_intense": "She nods. “That was intentional.”",
+  "custom_close": "“Close enough,” she says, leaving the details to the session.",
+  "custom_hold": "She looks at you with quiet amusement. “That is rather the point.”",
+  "custom_beg": "She regards you steadily. “You may try. The review continues.”"
+};
+const REQUEST_LINES = {
+  "mercy": [
+    "She studies the chart. “I may be able to finish a little earlier. You have been very good.”",
+    "“I hear you,” she says. One of the remaining entries receives a small pencil mark. “We shall see.”",
+    "“There is a chance,” she says, “that I might not insist on every last edge.”"
+  ],
+  "extend": [
+    "She laughs softly, then reaches for another sheet. “More? How ambitious.”",
+    "“Such enthusiasm,” she says, sliding another page into the folder. “We can continue.”",
+    "She considers your request before adding a new entry to the plan. “Very well. A little longer.”"
+  ],
+  "fixed": [
+    "She notes your request beside the printed plan. The schedule stays as it is.",
+    "She listens without interrupting, then shakes her head. “The plan remains.”",
+    "She smiles as she writes down the request. Nothing else on the page changes."
+  ],
+  "request": [
+    "She sets down her pen. “There. Now I have your request.”",
+    "“Yes, I heard you,” she says. “The request is in the file. The review still has to be completed.”",
+    "She glances at your earlier request. “I have not forgotten.”"
+  ]
 };
 const VERDICTS={
  permitted:'Orgasm authorised',
@@ -248,314 +363,630 @@ function validPrescription(value,verdict){
 // Dialogue selection is separate from the appointment's mechanics RNG.
 // Every callback describes a supplied, recorded choice; none invents an action.
 const RESPONSES = {
-  evelyn: {
-    counting: [
-      '“Of course. Each recorded result adds one to the counter.” Evelyn turns it slightly towards you. “You should be able to see what we are discussing.”',
-      '“One result, one mark,” Evelyn explains. “A fair question. I would want to know what I was looking at too.”',
+  "evelyn": {
+    "counting": [
+      "“Of course. Each recorded edge adds one to the counter.” Evelyn turns it slightly towards you. “You should be able to see what we are building.”",
+      "“One edge, one mark,” Evelyn explains softly. “A fair question. I would want to know how carefully we are counting your need too.”"
     ],
-    professional: [
-      '“Kind of you to notice,” Evelyn says. “It has been a good afternoon.”',
-      'Evelyn smiles at your comment. “Is it that obvious? I thought I was being quite composed.”',
+    "professional": [
+      "“Kind of you to notice,” Evelyn says. “It has been a good afternoon. You make it easy to stay in a pleasant mood.”",
+      "Evelyn smiles at your comment. “Is it that obvious? I thought I was being quite composed about how much I like this part.”"
     ],
-    change: [
-      '“I wanted a comparison with the first part,” Evelyn explains. “You are right to ask why something changes.”',
-      'Evelyn points to the two entries on the chart. “So I can compare them. I should have explained that before you had to ask.”',
+    "change": [
+      "“I wanted a comparison with the first part,” Evelyn explains. “You are right to ask why something changes. This one lets me see you more clearly.”",
+      "Evelyn points to the two entries on the chart. “So I can compare them. I should have explained that before you had to ask. The difference is… noticeable.”"
     ],
-    enjoy: [
-      '“I am,” Evelyn replies. “Having someone to talk to helps.”',
-      'Evelyn looks up at your remark. “A little conversation makes an afternoon much nicer.”',
+    "enjoy": [
+      "“I am,” Evelyn replies. “Having someone to talk to while we edge you helps. It makes the afternoon much nicer.”",
+      "Evelyn looks up at your remark. “A little conversation makes the waiting sweeter for both of us.”"
     ],
-    quota: [
-      '“Yes, there is a target,” Evelyn answers. “I am keeping that part of the chart private, but I will tell you when the review is complete.”',
-      'Evelyn nods. “There is a number in my plan. I know you would like to see it; that page stays with me for now.”',
+    "quota": [
+      "“Yes, there is a target,” Evelyn answers. “I am keeping that part of the chart private, but I will tell you when the review is complete. Until then, we keep going.”",
+      "Evelyn nods. “There is a number in my plan. I know you would like to see it; that page stays with me for now. The edges continue either way.”"
     ],
-    smile: [
-      '“I was enjoying our conversation,” Evelyn says. “There need not always be a complicated explanation.”',
-      'Evelyn looks briefly amused by the question. “A pleasant conversation. You can take some of the credit.”',
+    "smile": [
+      "“I was enjoying our conversation,” Evelyn says. “And watching how you respond. There need not always be a complicated explanation.”",
+      "Evelyn looks briefly amused by the question. “A pleasant conversation. You can take some of the credit for the smile.”"
     ],
-    boss: [
-      '“She notices the smallest things,” Evelyn says. “I prefer to hear her questions after I have finished answering yours.”',
-      'Evelyn glances towards the corridor. “Very thorough. Sometimes I have to remind her that an appointment also involves a conversation.”',
+    "boss": [
+      "“She notices the smallest things,” Evelyn says. “I prefer to hear her questions after I have finished answering yours. And after you have finished your edges.”",
+      "Evelyn glances towards the corridor. “Very thorough. Sometimes I have to remind her that an appointment also involves watching you struggle so nicely.”"
     ],
-    patience: [
-      '“You are hoping we are nearly finished. I heard you,” Evelyn says. “I have not finished the review yet.”',
-      'Evelyn gives your comment a moment of thought. “I understand. I would rather give you a clear answer than promise a time I have not checked.”',
+    "patience": [
+      "“You are hoping we are nearly finished. I heard you,” Evelyn says gently. “I have not finished the review yet. We still have more to collect.”",
+      "Evelyn gives your comment a moment of thought. “I understand. I would rather give you a clear answer than promise a time I have not checked. The denial is not over.”"
     ],
-    resolve: [
-      '“Thank you,” Evelyn says. “I will finish the review, then explain the result.”',
-      'Evelyn nods at your decision. “I will take it from here for a moment. Then we can look at the final page together.”',
+    "resolve": [
+      "“Thank you,” Evelyn says. “I will finish the review, then explain the result. You have been very patient.”",
+      "Evelyn nods at your decision. “I will take it from here for a moment. Then we can look at the final page together.”"
     ],
+    "custom_tease": [
+      "“Yes,” Evelyn says with a warm smile. “I enjoy watching the need build. It is part of taking care of you properly.”",
+      "Evelyn meets your eyes. “The teasing is half the pleasure. For me as well.”"
+    ],
+    "custom_intense": [
+      "“I chose it for that reason,” Evelyn says. “I wanted to see you closer to the edge. You are doing beautifully.”",
+      "Evelyn checks the current entry. “Yes. More intense. That is the point of the change.”"
+    ],
+    "custom_close": [
+      "“Close enough that you feel it,” Evelyn answers. “Not so close that you lose control. That is the balance I prefer.”",
+      "Evelyn’s voice is soft. “I will bring you as close as the plan allows. You will know when we are there.”"
+    ],
+    "custom_hold": [
+      "“I know,” Evelyn says gently. “That struggle is what we are counting. You are doing well.”",
+      "Evelyn watches you for a moment. “Hold for me a little longer. It makes the record clearer.”"
+    ],
+    "custom_beg": [
+      "“You may ask,” Evelyn says. “Begging is heard, but it does not replace the review. I still need to finish checking.”",
+      "Evelyn’s expression is kind but firm. “I hear the request in your voice. The final page will still decide.”"
+    ]
   },
-  scarlett: {
-    counting: [
-      '“One result, one mark,” Scarlett says. “No bonus points for my handwriting.”',
-      'Scarlett points to the counter. “It counts the recorded results. The arithmetic is the straightforward part.”',
+  "scarlett": {
+    "counting": [
+      "“One edge, one mark,” Scarlett says. “No bonus points for how prettily you twitch.”",
+      "Scarlett points to the counter. “It counts the recorded edges. The arithmetic is the straightforward part. The fun is watching you get there.”"
     ],
-    professional: [
-      '“Already taking notes on me?” Scarlett asks. “I shall have to watch my expressions.”',
-      'Scarlett laughs at your observation. “I was aiming for professional composure. Clearly that needs work.”',
+    "professional": [
+      "“Already taking notes on me?” Scarlett asks. “I shall have to watch my expressions. Or not. I rather like being caught enjoying this.”",
+      "Scarlett laughs at your observation. “I was aiming for professional composure. Clearly that needs work when you look that desperate.”"
     ],
-    change: [
-      '“For a comparison,” Scarlett replies. “I could have said ‘professional judgement’, but you looked as though you wanted an actual answer.”',
-      'Scarlett taps the earlier entry. “I want to compare the two parts. Even my choices occasionally come with an explanation.”',
+    "change": [
+      "“For a comparison,” Scarlett replies. “I could have said ‘professional judgement’, but you looked as though you wanted an actual answer. This pattern makes you leak more.”",
+      "Scarlett taps the earlier entry. “I want to compare the two parts. Even my choices occasionally come with an explanation. This one is simply more fun.”"
     ],
-    enjoy: [
-      '“Well spotted,” Scarlett says. “Do I get a mark for enthusiasm?”',
-      'Scarlett raises an eyebrow. “You make that sound like an accusation. I shall plead cheerful.”',
+    "enjoy": [
+      "“Well spotted,” Scarlett says. “Do I get a mark for enthusiasm? I do love watching you edge.”",
+      "Scarlett raises an eyebrow. “You make that sound like an accusation. I shall plead cheerfully guilty. You make it easy.”"
     ],
-    quota: [
-      '“Of course,” Scarlett replies. “You were not expecting me to leave that page facing upwards, were you?”',
-      'Scarlett covers the last column with her hand. “There is a target. You have managed to find one of my shorter answers.”',
+    "quota": [
+      "“Of course,” Scarlett replies. “You were not expecting me to leave that page facing upwards, were you? The target stays mine.”",
+      "Scarlett covers the last column with her hand. “There is a target. You have managed to find one of my shorter answers. The rest is classified.”"
     ],
-    smile: [
-      '“The conversation,” Scarlett says. “It is considerably more interesting than this form.”',
-      'Scarlett grins. “I was attempting a serious expression. You appear to have caught the attempt failing.”',
+    "smile": [
+      "“The conversation,” Scarlett says. “And the way you keep almost coming. It is considerably more interesting than this form.”",
+      "Scarlett grins. “I was attempting a serious expression. You appear to have caught the attempt failing. Again.”"
     ],
-    boss: [
-      '“She can hear an unchecked box from the other end of the corridor,” Scarlett says. “A remarkable talent.”',
-      'Scarlett glances towards the door. “She likes things done properly. We disagree occasionally about how solemn that requires me to look.”',
+    "boss": [
+      "“She can hear an unchecked box from the other end of the corridor,” Scarlett says. “A remarkable talent. She has not yet learned to enjoy the view.”",
+      "Scarlett glances towards the door. “She likes things done properly. We disagree occasionally about how solemn that requires me to look while I edge you.”"
     ],
-    patience: [
-      '“An optimistic estimate,” Scarlett says. “I have heard it, but I have not signed it off.”',
-      'Scarlett gives your hopeful comment a thoughtful nod. “I admire the optimism. The review is still open.”',
+    "patience": [
+      "“An optimistic estimate,” Scarlett says. “I have heard it, but I have not signed it off. We are not finished collecting.”",
+      "Scarlett gives your hopeful comment a thoughtful nod. “I admire the optimism. The review is still open. And so are you.”"
     ],
-    resolve: [
-      '“You are letting me finish a sentence and a review?” Scarlett says. “I shall make the most of that.”',
-      'Scarlett nods. “Very well. I will get to the last page without another running commentary.”',
+    "resolve": [
+      "“You are letting me finish a sentence and a review?” Scarlett says. “I shall make the most of that. No more commentary… for a minute.”",
+      "Scarlett nods. “Very well. I will get to the last page without another running commentary. Try not to distract me.”"
     ],
+    "custom_tease": [
+      "“Oh, absolutely,” Scarlett says, grinning. “Watching you struggle not to come is one of the better parts of the job.”",
+      "Scarlett tilts her head. “I enjoy it more than most patients realise. You are doing a fine job of entertaining me.”"
+    ],
+    "custom_intense": [
+      "“Good,” Scarlett says. “That was the idea. I wanted to see you closer to breaking. You look excellent like that.”",
+      "Scarlett checks the chart. “More intense, yes. I do like the results.”"
+    ],
+    "custom_close": [
+      "“Close enough to make you beg,” Scarlett replies. “Not close enough to let you finish. I have standards.”",
+      "Scarlett smirks. “As close as I feel like bringing you. Which is usually quite close.”"
+    ],
+    "custom_hold": [
+      "“Struggling already?” Scarlett asks, delighted. “Perfect. That is exactly what the counter is for.”",
+      "Scarlett leans back. “Hold it. I want to see how long that lasts.”"
+    ],
+    "custom_beg": [
+      "“You can beg,” Scarlett says. “I might even enjoy it. The review still has to be finished first.”",
+      "Scarlett raises an eyebrow. “Begging is noted. It does not rewrite the page.”"
+    ]
   },
-  beatrice: {
-    counting: [
-      '“Each recorded result is counted once,” Beatrice replies. “The total is exact.”',
-      'Beatrice indicates the latest entry. “One entry, one count. I do not estimate.”',
+  "beatrice": {
+    "counting": [
+      "“Each recorded edge is counted once,” Beatrice replies. “The total is exact. As it should be.”",
+      "Beatrice indicates the latest entry. “One edge, one count. I do not estimate how close you were.”"
     ],
-    professional: [
-      '“I am in a good mood,” Beatrice confirms. “Please do not look quite so surprised.”',
-      'Beatrice pauses at your observation. “Correct. My expression is occasionally informative.”',
+    "professional": [
+      "“I am in a good mood,” Beatrice confirms. “Please do not look quite so surprised. The work is… satisfying.”",
+      "Beatrice pauses at your observation. “Correct. My expression is occasionally informative. Today it indicates approval of your responses.”"
     ],
-    change: [
-      '“For a comparison with the previous part,” Beatrice says. “It was a deliberate choice.”',
-      'Beatrice checks the earlier entry. “A comparison requires a change. That is why I chose it.”',
+    "change": [
+      "“For a comparison with the previous part,” Beatrice says. “It was a deliberate choice. This pattern elicits a clearer reaction.”",
+      "Beatrice checks the earlier entry. “A comparison requires a change. That is why I chose it. The difference is measurable.”"
     ],
-    enjoy: [
-      '“I can enjoy a conversation without announcing it,” Beatrice replies. A brief smile rather undermines her point.',
-      'Beatrice looks up. “Your observation is accurate. I see no reason to make a speech about it.”',
+    "enjoy": [
+      "“I can enjoy a conversation without announcing it,” Beatrice replies. A brief smile rather undermines her point. “And I can enjoy the observation.”",
+      "Beatrice looks up. “Your observation is accurate. I see no reason to make a speech about it.”"
     ],
-    quota: [
-      '“Yes. It is recorded in the private plan,” Beatrice says. “I will not quote the figure.”',
-      'Beatrice closes the final column from view. “There is a target. Its existence and its value are separate questions.”',
+    "quota": [
+      "“Yes. It is recorded in the private plan,” Beatrice says. “I will not quote the figure. The edges continue regardless.”",
+      "Beatrice closes the final column from view. “There is a target. Its existence and its value are separate questions.”"
     ],
-    smile: [
-      '“A private thought,” Beatrice answers. “You can allow me one.”',
-      'Beatrice lets the smile return briefly. “I was amused. A detailed account would rather spoil it.”',
+    "smile": [
+      "“A private thought,” Beatrice answers. “You can allow me one. It concerned your last edge.”",
+      "Beatrice lets the smile return briefly. “I was amused. A detailed account would rather spoil it.”"
     ],
-    boss: [
-      '“She expects an accurate record,” Beatrice replies. “So do I. We generally get along.”',
-      'Beatrice gives the question some consideration. “Thorough. We agree on the value of doing things properly.”',
+    "boss": [
+      "“She expects an accurate record,” Beatrice replies. “So do I. We generally get along. She understands the value of proper denial.”",
+      "Beatrice gives the question some consideration. “Thorough. We agree on the value of doing things properly. Including this.”"
     ],
-    patience: [
-      '“You would like us to be nearly finished,” Beatrice says. “I understand the distinction between that hope and a completed review.”',
-      'Beatrice acknowledges your comment with a small nod. “I heard you. The review is still in progress.”',
+    "patience": [
+      "“You would like us to be nearly finished,” Beatrice says. “I understand the distinction between that hope and a completed review.”",
+      "Beatrice acknowledges your comment with a small nod. “I heard you. The review is still in progress. So is the collection.”"
     ],
-    resolve: [
-      '“Very well,” Beatrice says. “I will finish the review and give you the result.”',
-      'Beatrice nods once. “Then I shall complete it.”',
+    "resolve": [
+      "“Very well,” Beatrice says. “I will finish the review and give you the result.”",
+      "Beatrice nods once. “Then I shall complete it.”"
     ],
+    "custom_tease": [
+      "“Yes,” Beatrice says precisely. “The controlled denial is professionally satisfying. I do not pretend otherwise.”",
+      "Beatrice allows a small smile. “I find the process agreeable. Your reactions confirm the method.”"
+    ],
+    "custom_intense": [
+      "“Intentionally so,” Beatrice replies. “A stronger stimulus produces clearer data. You are responding as expected.”",
+      "Beatrice aligns the entries. “More intense. That was the purpose of the change.”"
+    ],
+    "custom_close": [
+      "“Within the parameters of the plan,” Beatrice says. “Close enough to register. Not close enough to conclude.”",
+      "Beatrice meets your eyes briefly. “I will bring you to the required proximity. No further.”"
+    ],
+    "custom_hold": [
+      "“That is the expected state,” Beatrice notes. “The struggle is recorded. Continue.”",
+      "Beatrice returns to the chart. “Holding is part of the measurement. You are performing adequately.”"
+    ],
+    "custom_beg": [
+      "“You may express the request,” Beatrice says. “It will be noted. It will not alter the review process.”",
+      "Beatrice’s tone remains even. “Begging is heard. The final determination remains with the completed record.”"
+    ]
   },
-  victoria: {
-    counting: [
-      '“It tells you how many results have been recorded,” Victoria says. “It does not tell you what I think of them.”',
-      'Victoria turns the counter towards you. “A record of what has happened. It is sensible to ask what a number means.”',
+  "victoria": {
+    "counting": [
+      "“It tells you how many edges have been recorded,” Victoria says. “It does not tell you what I think of them. Or how close you were.”",
+      "Victoria turns the counter towards you. “A record of what has happened. It is sensible to ask what a number means when it is your need being counted.”"
     ],
-    professional: [
-      '“You noticed,” Victoria says. “I had wondered whether you would.”',
-      'Victoria considers your observation before answering. “I am. I have no objection to you noticing.”',
+    "professional": [
+      "“You noticed,” Victoria says. “I had wondered whether you would. The mood is… favourable.”",
+      "Victoria considers your observation before answering. “I am. I have no objection to you noticing. It changes nothing about the pace.”"
     ],
-    change: [
-      '“I wanted to compare this part with the first,” Victoria says. “You are watching the changes closely.”',
-      'Victoria places the two entries beside each other. “A comparison. I was waiting to hear which part you would ask about.”',
+    "change": [
+      "“I wanted to compare this part with the first,” Victoria says. “You are watching the changes closely. This one shows more of you.”",
+      "Victoria places the two entries beside each other. “A comparison. I was waiting to hear which part you would ask about.”"
     ],
-    enjoy: [
-      '“I have not complained, have I?” Victoria replies. The small smile stays.',
-      'Victoria gives your observation a quiet nod. “You are paying attention to more than the counter.”',
+    "enjoy": [
+      "“I have not complained, have I?” Victoria replies. The small smile stays. “The observation is… interesting.”",
+      "Victoria gives your observation a quiet nod. “You are paying attention to more than the counter. So am I.”"
     ],
-    quota: [
-      '“Yes,” Victoria says. “I was wondering when you would ask about that.” She leaves the private chart closed.',
-      'Victoria answers after a brief pause. “There is a target. I am keeping its number to myself.”',
+    "quota": [
+      "“Yes,” Victoria says. “I was wondering when you would ask about that.” She leaves the private chart closed.",
+      "Victoria answers after a brief pause. “There is a target. I am keeping its number to myself. The edges continue.”"
     ],
-    smile: [
-      '“I was thinking about our conversation,” Victoria says. “Some thoughts can stay private.”',
-      'Victoria considers the question. “Something amused me. I am content to leave it there for now.”',
+    "smile": [
+      "“I was thinking about our conversation,” Victoria says. “And about how you looked on the last edge. Some thoughts can stay private.”",
+      "Victoria considers the question. “Something amused me. I am content to leave it there for now.”"
     ],
-    boss: [
-      '“She asks questions and waits for complete answers,” Victoria says. “I appreciate the second part.”',
-      'Victoria looks towards the corridor. “Observant. She usually sees more than she chooses to mention.”',
+    "boss": [
+      "“She asks questions and waits for complete answers,” Victoria says. “I appreciate the second part. She understands patience.”",
+      "Victoria looks towards the corridor. “Observant. She usually sees more than she chooses to mention. Including this.”"
     ],
-    patience: [
-      '“You are thinking about the end,” Victoria observes. “I heard you. I am still considering the review.”',
-      'Victoria lets your hopeful comment settle before answering. “I know you would like a conclusion. I am not ready to give one yet.”',
+    "patience": [
+      "“You are thinking about the end,” Victoria observes. “I heard you. I am still considering the review. The collection is not finished.”",
+      "Victoria lets your hopeful comment settle before answering. “I know you would like a conclusion. I am not ready to give one yet.”"
     ],
-    resolve: [
-      'Victoria nods. “Then I will finish the review before we discuss its result.”',
-      '“You would like to hear it when it is complete,” Victoria says. “Very well.”',
+    "resolve": [
+      "Victoria nods. “Then I will finish the review before we discuss its result.”",
+      "“You would like to hear it when it is complete,” Victoria says. “Very well.”"
     ],
-  },
+    "custom_tease": [
+      "“I do,” Victoria says quietly. “Watching the need accumulate is part of the work. I do not hurry it.”",
+      "Victoria’s gaze is steady. “The teasing has its own value. I am in no rush to end it.”"
+    ],
+    "custom_intense": [
+      "“Yes,” Victoria agrees. “I chose the stronger pattern. I wanted to see the difference in you.”",
+      "Victoria studies the entries. “More intense. The comparison is clearer now.”"
+    ],
+    "custom_close": [
+      "“As close as the session requires,” Victoria says. “You will feel the limit. I will not cross it.”",
+      "Victoria leaves a pause. “Close enough. The rest is observation.”"
+    ],
+    "custom_hold": [
+      "“I see,” Victoria says. “The struggle is visible. That is useful.”",
+      "Victoria continues the entry. “Hold. I am still recording.”"
+    ],
+    "custom_beg": [
+      "“You may ask,” Victoria says. “I will hear it. The review will still be completed first.”",
+      "Victoria regards you. “Begging is noted. It does not change what the page will say.”"
+    ]
+  }
 };
 
 const PERMISSION_MANNER = {
-  evelyn: ['Evelyn gives your question her full attention.', 'Evelyn answers directly.'],
-  scarlett: ['Scarlett sets the joking aside to answer.', 'Scarlett gives you a matter-of-fact answer.'],
-  beatrice: ['Beatrice answers precisely.', 'Beatrice gives the question a small, acknowledging nod.'],
-  victoria: ['Victoria takes a moment before answering.', 'Victoria considers the question before replying.'],
+  "evelyn": [
+    "Evelyn gives your question her full attention.",
+    "Evelyn answers directly, her voice gentle."
+  ],
+  "scarlett": [
+    "Scarlett sets the joking aside to answer.",
+    "Scarlett gives you a matter-of-fact answer."
+  ],
+  "beatrice": [
+    "Beatrice answers precisely.",
+    "Beatrice gives the question a small, acknowledging nod."
+  ],
+  "victoria": [
+    "Victoria takes a moment before answering.",
+    "Victoria considers the question before replying."
+  ]
 };
 
 // These are deliberately valid in any later scene, including the final review.
 const CALLBACKS = {
-  evelyn: {
-    counting: ['Evelyn puts the running record where you can see it. “It is easier when we are looking at the same thing.”', '“The total tells us what has been recorded,” Evelyn says. “The review gives it some context.”'],
-    professional: ['“A good mood survives a little paperwork,” Evelyn says, moving the chart aside for a moment.', 'Evelyn abandons her attempt at a solemn expression. “I was never particularly convincing, was I?”'],
-    change: ['Evelyn places the earlier and current entries side by side. “This is the comparison I meant.”', '“A change only helps if we look at the difference,” Evelyn explains, checking the two entries together.'],
-    enjoy: ['“The conversation certainly helps,” Evelyn says, taking a moment away from the paperwork.', 'Evelyn gives a small laugh. “There are worse ways to spend an afternoon.”'],
-    quota: ['Evelyn turns the current record towards you while keeping the final column covered. “This part we can look at together.”', '“I can explain the record without giving away the target,” Evelyn says. “That seems a fair place to start.”'],
-    smile: ['“A pleasant conversation,” Evelyn says. “Sometimes the explanation really is that simple.”', 'Evelyn smiles again. “Must that one come with an explanation as well?”'],
-    boss: ['“A careful review need not crowd out a conversation,” Evelyn says. “My supervisor and I occasionally discuss that.”', 'Evelyn considers what her supervisor would ask. “Probably whether I have explained things clearly.”'],
-    patience: ['“I would rather be clear than turn a hope into a promise,” Evelyn says, checking the next part of the review.', 'Evelyn takes a moment over the remaining pages. “I can explain where we are, even when I cannot give you the answer you hoped for.”'],
-    permission: ['“The final prescription will give you a definite answer,” Evelyn says. “I will explain it plainly.”', 'Evelyn checks the place reserved for the final decision. “That part should be clear when you leave.”'],
-    resolve: ['Evelyn works through the next part of the review without filling the pause with more questions.', '“I will explain the result when I have finished checking it,” Evelyn says, returning to the review.'],
+  "evelyn": {
+    "counting": [
+      "Evelyn puts the running record where you can see it. “It is easier when we are looking at the same thing. Each mark is an edge you held.”",
+      "“The total tells us what has been recorded,” Evelyn says. “The review gives it some context. You have been very good.”"
+    ],
+    "professional": [
+      "“A good mood survives a little paperwork,” Evelyn says, moving the chart aside for a moment. “Especially when the patient is this responsive.”",
+      "Evelyn abandons her attempt at a solemn expression. “I was never particularly convincing, was I? Not when I am enjoying this.”"
+    ],
+    "change": [
+      "Evelyn places the earlier and current entries side by side. “This is the comparison I meant. You can see the difference in how close you got.”",
+      "“A change only helps if we look at the difference,” Evelyn explains, checking the two entries together."
+    ],
+    "enjoy": [
+      "“The conversation certainly helps,” Evelyn says, taking a moment away from the paperwork. “So does watching you edge so carefully.”",
+      "Evelyn gives a small laugh. “There are worse ways to spend an afternoon.”"
+    ],
+    "quota": [
+      "Evelyn turns the current record towards you while keeping the final column covered. “This part we can look at together. The target stays private.”",
+      "“I can explain the record without giving away the target,” Evelyn says. “That seems a fair place to start.”"
+    ],
+    "smile": [
+      "“A pleasant conversation,” Evelyn says. “Sometimes the explanation really is that simple. And sometimes it is just you.”",
+      "Evelyn smiles again. “Must that one come with an explanation as well?”"
+    ],
+    "boss": [
+      "“A careful review need not crowd out a conversation,” Evelyn says. “My supervisor and I occasionally discuss that. And the value of proper denial.”",
+      "Evelyn considers what her supervisor would ask. “Probably whether I have explained things clearly. And whether you are still holding.”"
+    ],
+    "patience": [
+      "“I would rather be clear than turn a hope into a promise,” Evelyn says, checking the next part of the review.",
+      "Evelyn takes a moment over the remaining pages. “I can explain where we are, even when I cannot give you the answer you hoped for.”"
+    ],
+    "permission": [
+      "“The final prescription will give you a definite answer,” Evelyn says. “I will explain it plainly. Whether it includes release or not.”",
+      "Evelyn checks the place reserved for the final decision. “That part should be clear when you leave.”"
+    ],
+    "resolve": [
+      "Evelyn works through the next part of the review without filling the pause with more questions.",
+      "“I will explain the result when I have finished checking it,” Evelyn says, returning to the review."
+    ],
+    "custom_tease": [
+      "“The teasing continues,” Evelyn says softly. “I do enjoy it. You make it easy.”",
+      "Evelyn glances at the counter. “Each mark is another moment of that enjoyment.”"
+    ],
+    "custom_intense": [
+      "Evelyn compares the entries again. “Still more intense. You handled it well.”",
+      "“The stronger pattern is showing,” Evelyn notes. “Exactly as intended.”"
+    ],
+    "custom_close": [
+      "“We stayed within the limit,” Evelyn says. “Close, but controlled. That is what I wanted.”",
+      "Evelyn checks the latest mark. “You felt it. That was the point.”"
+    ],
+    "custom_hold": [
+      "“You are still holding,” Evelyn observes. “Good. The record stays clean.”",
+      "Evelyn makes the next entry. “The struggle is noted. Keep going.”"
+    ],
+    "custom_beg": [
+      "“I heard the question,” Evelyn says. “The review is what decides. Not the asking.”",
+      "Evelyn returns to the page. “Begging is noted. The process continues.”"
+    ]
   },
-  scarlett: {
-    counting: ['“The arithmetic is still behaving,” Scarlett says. “I refuse to make the same claim about my handwriting.”', 'Scarlett turns the running record towards you. “The number is public. My margin notes are considerably less so.”'],
-    professional: ['Scarlett arranges her features into a solemn expression. It lasts perhaps a second.', '“I shall stop trying to look solemn,” Scarlett says. “You have already ruined the illusion.”'],
-    change: ['Scarlett puts the two entries side by side. “There. My method, exposed to daylight.”', '“The old entry stays beside the new one,” Scarlett explains. “Otherwise I would be comparing the result with my imagination.”'],
-    enjoy: ['Scarlett studies the serious stationery and grins. “This place makes it surprisingly difficult to maintain the appropriate expression.”', '“I could look bored, if that would help the professional image,” Scarlett says. Her expression suggests the attempt would be brief.'],
-    quota: ['Scarlett turns the chart just far enough to show the current entry. “That last column is not going to wander into view by accident.”', '“The target’s existence was the public part,” Scarlett says. “I have been uncharacteristically concise about the rest.”'],
-    smile: ['Scarlett demonstrates her serious face again. “There. Clearly unsuitable.”', '“I could give you a tedious explanation,” Scarlett says. “But that would defeat the purpose of the smile.”'],
-    boss: ['“My supervisor would call this an informal discussion,” Scarlett says. “I call it talking.”', 'Scarlett adopts an impressively solemn tone for a few words, then gives it up. “A poor impression. She is much better at it.”'],
-    patience: ['“Nearly is a famously elastic word,” Scarlett says. “I prefer an actual conclusion.”', 'Scarlett glances at the open review. “Optimism is welcome. It does not do the reading for me, unfortunately.”'],
-    permission: ['“The answer on the final page will be plain enough,” Scarlett says. “Even I know when to stop being cryptic.”', 'Scarlett sets the final form squarely beside the review. “That page will get a straight answer.”'],
-    resolve: ['Scarlett starts another remark, decides against it and gives the review her attention.', '“Right. The last page deserves my attention,” Scarlett says, setting the conversation aside for a moment.'],
+  "scarlett": {
+    "counting": [
+      "“The arithmetic is still behaving,” Scarlett says. “I refuse to make the same claim about my handwriting. Or about how close you keep getting.”",
+      "Scarlett turns the running record towards you. “The number is public. My margin notes about your twitching are considerably less so.”"
+    ],
+    "professional": [
+      "Scarlett arranges her features into a solemn expression. It lasts perhaps a second.",
+      "“I shall stop trying to look solemn,” Scarlett says. “You have already ruined the illusion. You look too good like this.”"
+    ],
+    "change": [
+      "Scarlett puts the two entries side by side. “There. My method, exposed to daylight. This one makes you leak more. I checked.”",
+      "“The old entry stays beside the new one,” Scarlett explains. “Otherwise I would be comparing the result with my imagination.”"
+    ],
+    "enjoy": [
+      "Scarlett studies the serious stationery and grins. “This place makes it surprisingly difficult to maintain the appropriate expression. Especially when you are edging so nicely.”",
+      "“I could look bored, if that would help the professional image,” Scarlett says. Her expression suggests the attempt would be brief."
+    ],
+    "quota": [
+      "Scarlett turns the chart just far enough to show the current entry. “That last column is not going to wander into view by accident. The target stays mine.”",
+      "“The target’s existence was the public part,” Scarlett says. “I have been uncharacteristically concise about the rest.”"
+    ],
+    "smile": [
+      "Scarlett demonstrates her serious face again. “There. Clearly unsuitable. Especially when you look like that.”",
+      "“I could give you a tedious explanation,” Scarlett says. “But that would defeat the purpose of the smile.”"
+    ],
+    "boss": [
+      "“My supervisor would call this an informal discussion,” Scarlett says. “I call it talking. And watching you suffer beautifully.”",
+      "Scarlett adopts an impressively solemn tone for a few words, then gives it up. “A poor impression. She is much better at it.”"
+    ],
+    "patience": [
+      "“Nearly is a famously elastic word,” Scarlett says. “I prefer an actual conclusion. And a few more edges.”",
+      "Scarlett glances at the open review. “Optimism is welcome. It does not do the reading for me, unfortunately.”"
+    ],
+    "permission": [
+      "“The answer on the final page will be plain enough,” Scarlett says. “Even I know when to stop being cryptic. Come or not, it will be clear.”",
+      "Scarlett sets the final form squarely beside the review. “That page will get a straight answer.”"
+    ],
+    "resolve": [
+      "Scarlett starts another remark, decides against it and gives the review her attention.",
+      "“Right. The last page deserves my attention,” Scarlett says, setting the conversation aside for a moment."
+    ],
+    "custom_tease": [
+      "“Still enjoying it,” Scarlett confirms. “You keep making it worth the effort.”",
+      "Scarlett grins at the counter. “Another mark. Another moment I get to watch.”"
+    ],
+    "custom_intense": [
+      "Scarlett taps the stronger entry. “Still working. You are closer than last time. I like that.”",
+      "“The intensity is holding,” Scarlett notes. “Good choice, if I do say so.”"
+    ],
+    "custom_close": [
+      "“We stayed right on the line,” Scarlett says. “Close enough to frustrate. Perfect.”",
+      "Scarlett checks the page. “You felt every bit of it. That was deliberate.”"
+    ],
+    "custom_hold": [
+      "“Still struggling?” Scarlett asks, pleased. “Excellent. Keep it up.”",
+      "Scarlett makes a show of noting it. “The hold is recorded. Continue suffering.”"
+    ],
+    "custom_beg": [
+      "“The begging was noted,” Scarlett says. “The review is what matters. Nice try.”",
+      "Scarlett returns to the form. “Asking does not rewrite the page. Shame.”"
+    ]
   },
-  beatrice: {
-    counting: ['“The count is exact; the review still requires reading,” Beatrice says, separating the two parts of the record.', 'Beatrice rules a line beneath the latest entry. “There. Easier to follow.”'],
-    professional: ['Beatrice catches herself straightening the folder. “Apparently a good mood does not cure every habit.”', '“You may add ‘occasionally cheerful’ to your assessment,” Beatrice says. “Occasionally.”'],
-    change: ['Beatrice places the earlier entry before the current one. “In order. Then compare.”', '“The difference between the entries is what interests me,” Beatrice says, keeping the two pages together.'],
-    enjoy: ['The formality remains. So does the small smile.', '“Enjoyment and concentration are quite compatible,” Beatrice says, returning to the page.'],
-    quota: ['“The target exists, and the target remains private,” Beatrice says. “Those answers are perfectly consistent.”', 'Beatrice leaves the current count visible and the final column covered. “A distinction worth maintaining.”'],
-    smile: ['“Some observations can remain uncatalogued,” Beatrice says, allowing the smile to return.', 'Beatrice permits herself another brief smile. “That one was intentional.”'],
-    boss: ['“We agree about accurate records,” Beatrice says. “The rest is largely a matter of style.”', '“If my supervisor has a question, I will answer it properly,” Beatrice says. “I expect the same courtesy in return.”'],
-    patience: ['“A hope is not an estimate,” Beatrice says. “I would rather make that distinction than give you an unreliable answer.”', 'Beatrice checks the next page before speaking. “I will give you a conclusion when there is one to give.”'],
-    permission: ['“The final decision will be written plainly,” Beatrice says. “There is no value in an ambiguous conclusion.”', 'Beatrice sets the final form beside the review. “The answer belongs here, when the review is complete.”'],
-    resolve: ['Beatrice continues reading, giving the review the uninterrupted attention it requires.', '“Then I shall check it properly,” Beatrice says, working through the next entry.'],
+  "beatrice": {
+    "counting": [
+      "“The count is exact; the review still requires reading,” Beatrice says, separating the two parts of the record.",
+      "Beatrice rules a line beneath the latest entry. “There. Easier to follow. Each mark is a completed edge.”"
+    ],
+    "professional": [
+      "Beatrice catches herself straightening the folder. “Apparently a good mood does not cure every habit.”",
+      "“You may add ‘occasionally cheerful’ to your assessment,” Beatrice says. “Occasionally. When the results are this clear.”"
+    ],
+    "change": [
+      "Beatrice places the earlier entry before the current one. “In order. Then compare. The stronger pattern produced a clearer response.”",
+      "“The difference between the entries is what interests me,” Beatrice says, keeping the two pages together."
+    ],
+    "enjoy": [
+      "The formality remains. So does the small smile.",
+      "“Enjoyment and concentration are quite compatible,” Beatrice says, returning to the page."
+    ],
+    "quota": [
+      "“The target exists, and the target remains private,” Beatrice says. “Those answers are perfectly consistent.”",
+      "Beatrice leaves the current count visible and the final column covered. “A distinction worth maintaining.”"
+    ],
+    "smile": [
+      "“Some observations can remain uncatalogued,” Beatrice says, allowing the smile to return.",
+      "Beatrice permits herself another brief smile. “That one was intentional.”"
+    ],
+    "boss": [
+      "“We agree about accurate records,” Beatrice says. “The rest is largely a matter of style. She understands proper collection.”",
+      "“If my supervisor has a question, I will answer it properly,” Beatrice says. “I expect the same courtesy in return.”"
+    ],
+    "patience": [
+      "“A hope is not an estimate,” Beatrice says. “I would rather make that distinction than give you an unreliable answer.”",
+      "Beatrice checks the next page before speaking. “I will give you a conclusion when there is one to give.”"
+    ],
+    "permission": [
+      "“The final decision will be written plainly,” Beatrice says. “There is no value in an ambiguous conclusion. Release or denial will be clear.”",
+      "Beatrice sets the final form beside the review. “The answer belongs here, when the review is complete.”"
+    ],
+    "resolve": [
+      "Beatrice continues reading, giving the review the uninterrupted attention it requires.",
+      "“Then I shall check it properly,” Beatrice says, working through the next entry."
+    ],
+    "custom_tease": [
+      "“The process remains agreeable,” Beatrice notes. “Your responses confirm it.”",
+      "Beatrice allows the small smile again. “The denial continues to be satisfactory.”"
+    ],
+    "custom_intense": [
+      "Beatrice aligns the entries once more. “The intensity difference is recorded. Useful data.”",
+      "“The stronger pattern performed as expected,” Beatrice says."
+    ],
+    "custom_close": [
+      "“Proximity was maintained within limits,” Beatrice confirms. “No deviation.”",
+      "Beatrice checks the mark. “You registered the limit. That is sufficient.”"
+    ],
+    "custom_hold": [
+      "“The hold is noted,” Beatrice says. “Continue as required.”",
+      "Beatrice returns to the precise entry. “The struggle is part of the record.”"
+    ],
+    "custom_beg": [
+      "“The request was expressed,” Beatrice says. “The review proceeds independently.”",
+      "Beatrice continues reading. “Noted. It does not alter the process.”"
+    ]
   },
-  victoria: {
-    counting: ['Victoria turns the running record towards you, leaving her own notes on the other side.', '“Numbers answer the question they are built to answer,” Victoria says. “Sometimes we ask rather more of them.”'],
-    professional: ['Victoria makes no attempt to hide the next smile. “Perhaps I was being unnecessarily mysterious.”', 'Victoria lets the small smile remain instead of turning immediately back to the chart.'],
-    change: ['Victoria considers each entry separately before placing them together. “Now we can compare them.”', '“There is more to see with the two entries side by side,” Victoria says, leaving you a moment to look.'],
-    enjoy: ['“I find the conversation worth listening to,” Victoria says, taking her time before returning to the chart.', 'Victoria leaves a little more space for the conversation instead of immediately filling it with paperwork.'],
-    quota: ['“The current count and the private target are different pieces of information,” Victoria says. She leaves only the former in view.', 'Victoria keeps the final column covered while turning the rest of the record towards you. “Some of the picture, then.”'],
-    smile: ['Victoria makes no attempt to account for the next smile. “I need not explain every thought.”', '“A private thought,” Victoria says. “You can see its effect without the full transcript.”'],
-    boss: ['“A good supervisor knows when to speak,” Victoria says. “And when to let someone finish.”', 'Victoria considers the question of supervision. “I value a complete answer more than a quick one. So does she.”'],
-    patience: ['“I understand why you are looking for the end,” Victoria says. “I prefer to arrive at a conclusion rather than announce one early.”', 'Victoria gives the open review her full attention. “A quick answer would be simpler. It would not necessarily be better.”'],
-    permission: ['“The final page will answer that directly,” Victoria says. “There will be no need to interpret my expression.”', 'Victoria leaves the final form beside the review. “That answer should stand on its own.”'],
-    resolve: ['Victoria lets the quiet continue while she works through the review.', '“Then I will give you the whole answer when it is ready,” Victoria says, turning back to the page.'],
-  },
+  "victoria": {
+    "counting": [
+      "Victoria turns the running record towards you, leaving her own notes on the other side.",
+      "“Numbers answer the question they are built to answer,” Victoria says. “Sometimes we ask rather more of them. Like how close you were.”"
+    ],
+    "professional": [
+      "Victoria makes no attempt to hide the next smile. “Perhaps I was being unnecessarily mysterious.”",
+      "Victoria lets the small smile remain instead of turning immediately back to the chart."
+    ],
+    "change": [
+      "Victoria considers each entry separately before placing them together. “Now we can compare them. The difference is visible.”",
+      "“There is more to see with the two entries side by side,” Victoria says, leaving you a moment to look."
+    ],
+    "enjoy": [
+      "“I find the conversation worth listening to,” Victoria says, taking her time before returning to the chart.",
+      "Victoria leaves a little more space for the conversation instead of immediately filling it with paperwork."
+    ],
+    "quota": [
+      "“The current count and the private target are different pieces of information,” Victoria says. She leaves only the former in view.",
+      "Victoria keeps the final column covered while turning the rest of the record towards you. “Some of the picture, then.”"
+    ],
+    "smile": [
+      "Victoria makes no attempt to account for the next smile. “I need not explain every thought.”",
+      "“A private thought,” Victoria says. “You can see its effect without the full transcript.”"
+    ],
+    "boss": [
+      "“A good supervisor knows when to speak,” Victoria says. “And when to let someone finish. She understands the value of patience.”",
+      "Victoria considers the question of supervision. “I value a complete answer more than a quick one. So does she.”"
+    ],
+    "patience": [
+      "“I understand why you are looking for the end,” Victoria says. “I prefer to arrive at a conclusion rather than announce one early.”",
+      "Victoria gives the open review her full attention. “A quick answer would be simpler. It would not necessarily be better.”"
+    ],
+    "permission": [
+      "“The final page will answer that directly,” Victoria says. “There will be no need to interpret my expression. The authorisation will be plain.”",
+      "Victoria leaves the final form beside the review. “That answer should stand on its own.”"
+    ],
+    "resolve": [
+      "Victoria lets the quiet continue while she works through the review.",
+      "“Then I will give you the whole answer when it is ready,” Victoria says, turning back to the page."
+    ],
+    "custom_tease": [
+      "“The observation continues,” Victoria says. “I am in no hurry.”",
+      "Victoria leaves the counter visible. “Each mark is another moment of it.”"
+    ],
+    "custom_intense": [
+      "Victoria places the entries together again. “The stronger pattern is still clearer. You felt it.”",
+      "“The intensity remains useful,” Victoria notes."
+    ],
+    "custom_close": [
+      "“We stayed at the required distance,” Victoria says. “Close. Controlled.”",
+      "Victoria checks the entry. “You registered the limit. That was sufficient.”"
+    ],
+    "custom_hold": [
+      "“The hold is visible,” Victoria observes. “Continue.”",
+      "Victoria makes the next mark. “The struggle is recorded.”"
+    ],
+    "custom_beg": [
+      "“I heard the question,” Victoria says. “The review will still decide.”",
+      "Victoria returns to the page. “Noted. The process is unchanged.”"
+    ]
+  }
 };
 
 const OBSERVATIONS = {
-  evelyn: {
-    counting:'Evelyn leaves the running record facing you while she makes the next entry.',
-    professional:'Evelyn’s attempt at a formal expression gives way to another small smile.',
-    change:'Evelyn checks the current entry against the earlier one instead of reading it alone.',
-    enjoy:'Evelyn makes room for a little conversation alongside the paperwork.',
-    quota:'Evelyn separates the visible record from the private target column.',
-    smile:'“That one needs no explanation,” Evelyn says with another small smile.',
-    boss:'Evelyn checks the record carefully, then gives the conversation equal attention.',
-    patience:'“I will be precise about where we are,” Evelyn says, checking the next page.',
-    permission:'Evelyn checks the final form’s place in the review before continuing.',
-    resolve:'Evelyn works through the next entry without adding another question.',
+  "evelyn": {
+    "counting": "Evelyn leaves the running record facing you while she makes the next entry.",
+    "professional": "Evelyn’s attempt at a formal expression gives way to another small smile.",
+    "change": "Evelyn checks the current entry against the earlier one instead of reading it alone.",
+    "enjoy": "Evelyn makes room for a little conversation alongside the paperwork.",
+    "quota": "Evelyn separates the visible record from the private target column.",
+    "smile": "“That one needs no explanation,” Evelyn says with another small smile.",
+    "boss": "Evelyn checks the record carefully, then gives the conversation equal attention.",
+    "patience": "“I will be precise about where we are,” Evelyn says, checking the next page.",
+    "permission": "Evelyn checks the final form’s place in the review before continuing.",
+    "resolve": "Evelyn works through the next entry without adding another question.",
+    "custom_tease": "Evelyn’s smile lingers as she returns to the chart.",
+    "custom_intense": "Evelyn compares the two entries once more before continuing.",
+    "custom_close": "Evelyn notes the latest edge carefully, keeping the limit clear.",
+    "custom_hold": "Evelyn watches you for a moment longer before making the next mark.",
+    "custom_beg": "Evelyn acknowledges the question with a nod and continues the review."
   },
-  scarlett: {
-    counting:'Scarlett makes the next entry with exaggeratedly careful handwriting.',
-    professional:'Scarlett tries for solemnity again and abandons it almost immediately.',
-    change:'Scarlett places the earlier entry beside the current one, making the comparison visible.',
-    enjoy:'Scarlett’s expression remains a poor match for the very serious stationery.',
-    quota:'Scarlett keeps the private column neatly beneath her hand while turning the rest of the page.',
-    smile:'Scarlett demonstrates a stern expression; the grin wins.',
-    boss:'Scarlett briefly adopts a more formal manner, then shakes her head at the effort.',
-    patience:'“The reading is resisting my considerable charm,” Scarlett says, turning the next page.',
-    permission:'Scarlett puts the final form where it will not be lost among the other pages.',
-    resolve:'Scarlett lets a remark go unsaid and gives the next part of the review her attention.',
+  "scarlett": {
+    "counting": "Scarlett makes the next entry with exaggeratedly careful handwriting.",
+    "professional": "Scarlett tries for solemnity again and abandons it almost immediately.",
+    "change": "Scarlett places the earlier entry beside the current one, making the comparison visible.",
+    "enjoy": "Scarlett’s expression remains a poor match for the very serious stationery.",
+    "quota": "Scarlett keeps the private column neatly beneath her hand while turning the rest of the page.",
+    "smile": "Scarlett demonstrates a stern expression; the grin wins.",
+    "boss": "Scarlett briefly adopts a more formal manner, then shakes her head at the effort.",
+    "patience": "“The reading is resisting my considerable charm,” Scarlett says, turning the next page.",
+    "permission": "Scarlett puts the final form where it will not be lost among the other pages.",
+    "resolve": "Scarlett lets a remark go unsaid and gives the next part of the review her attention.",
+    "custom_tease": "Scarlett’s grin stays as she turns the page.",
+    "custom_intense": "Scarlett taps the stronger entry with clear satisfaction.",
+    "custom_close": "Scarlett keeps the private notes covered while showing the current mark.",
+    "custom_hold": "Scarlett watches the struggle with obvious enjoyment before continuing.",
+    "custom_beg": "Scarlett notes the question with a raised eyebrow and returns to the form."
   },
-  beatrice: {
-    counting:'Beatrice checks that the latest entry and the running total agree.',
-    professional:'Beatrice straightens the folder once, then leaves it alone with a small smile.',
-    change:'Beatrice aligns the earlier and current entries before comparing them.',
-    enjoy:'A brief smile survives Beatrice’s return to the page.',
-    quota:'Beatrice leaves the current record visible and the target column covered.',
-    smile:'Beatrice allows the next small smile to pass without an explanation.',
-    boss:'Beatrice checks her own work with the same care she expects from an inspector.',
-    patience:'Beatrice reads the next entry before offering any estimate.',
-    permission:'Beatrice places the final form separately so its conclusion will be easy to find.',
-    resolve:'Beatrice gives the review a stretch of uninterrupted attention.',
+  "beatrice": {
+    "counting": "Beatrice checks that the latest entry and the running total agree.",
+    "professional": "Beatrice straightens the folder once, then leaves it alone with a small smile.",
+    "change": "Beatrice aligns the earlier and current entries before comparing them.",
+    "enjoy": "A brief smile survives Beatrice’s return to the page.",
+    "quota": "Beatrice leaves the current record visible and the target column covered.",
+    "smile": "Beatrice allows the next small smile to pass without an explanation.",
+    "boss": "Beatrice checks her own work with the same care she expects from an inspector.",
+    "patience": "Beatrice reads the next entry before offering any estimate.",
+    "permission": "Beatrice places the final form separately so its conclusion will be easy to find.",
+    "resolve": "Beatrice gives the review a stretch of uninterrupted attention.",
+    "custom_tease": "Beatrice permits the small smile to remain as she continues.",
+    "custom_intense": "Beatrice aligns the entries precisely before moving on.",
+    "custom_close": "Beatrice confirms the limit was observed and continues the record.",
+    "custom_hold": "Beatrice notes the hold with a precise tick.",
+    "custom_beg": "Beatrice records the question and returns to the review without further comment."
   },
-  victoria: {
-    counting:'Victoria lets the running record remain in view while keeping her notes to herself.',
-    professional:'Victoria lets the next smile linger instead of immediately turning away.',
-    change:'Victoria considers the two entries separately, then looks at them together.',
-    enjoy:'Victoria gives the conversation another moment before returning to the chart.',
-    quota:'Victoria turns the current entry towards you while leaving the final column concealed.',
-    smile:'Victoria offers no commentary on the small smile that follows.',
-    boss:'Victoria takes her time over an entry rather than supplying a quick answer for an imagined inspection.',
-    patience:'“I would rather give you a considered answer,” Victoria says, continuing the review.',
-    permission:'Victoria keeps the final form distinct from the working notes.',
-    resolve:'Victoria uses the quiet to continue through the review.',
-  },
+  "victoria": {
+    "counting": "Victoria lets the running record remain in view while keeping her notes to herself.",
+    "professional": "Victoria lets the next smile linger instead of immediately turning away.",
+    "change": "Victoria considers the two entries separately, then looks at them together.",
+    "enjoy": "Victoria gives the conversation another moment before returning to the chart.",
+    "quota": "Victoria turns the current entry towards you while leaving the final column concealed.",
+    "smile": "Victoria offers no commentary on the small smile that follows.",
+    "boss": "Victoria takes her time over an entry rather than supplying a quick answer for an imagined inspection.",
+    "patience": "“I would rather give you a considered answer,” Victoria says, continuing the review.",
+    "permission": "Victoria keeps the final form distinct from the working notes.",
+    "resolve": "Victoria uses the quiet to continue through the review.",
+    "custom_tease": "Victoria leaves a brief pause, the smile remaining.",
+    "custom_intense": "Victoria studies the stronger entry a moment longer.",
+    "custom_close": "Victoria confirms the proximity with a glance at the counter.",
+    "custom_hold": "Victoria observes the struggle in silence before continuing.",
+    "custom_beg": "Victoria notes the question and returns to the page without further remark."
+  }
 };
 
 const CLOSING = {
-  evelyn: {
-    permission:'“You asked about the final prescription, and I owe you a clear answer,” Evelyn says.',
-    resolve:'“Thank you for letting me finish the review,” Evelyn says. “Now you should see the result.”',
+  "evelyn": {
+    "permission": "“You asked about the final prescription, and I owe you a clear answer,” Evelyn says.",
+    "resolve": "“Thank you for letting me finish the review,” Evelyn says. “Now you should see the result.”",
+    "custom_beg": "“You asked whether begging would change anything,” Evelyn says. “The review is complete. Here is the result.”"
   },
-  scarlett: {
-    permission:'“You wanted the answer on the final page,” Scarlett says. “Here it is.”',
-    resolve:'“You gave me the floor, and I have reached the last page,” Scarlett says. “Here is the result.”',
+  "scarlett": {
+    "permission": "“You wanted the answer on the final page,” Scarlett says. “Here it is.”",
+    "resolve": "“You gave me the floor, and I have reached the last page,” Scarlett says. “Here is the result.”",
+    "custom_beg": "“You asked about begging,” Scarlett says. “The page is finished. Here is what it says.”"
   },
-  beatrice: {
-    permission:'“Your question about the final prescription now has an answer,” Beatrice says.',
-    resolve:'“You left me to complete the review,” Beatrice says. “It is complete.”',
+  "beatrice": {
+    "permission": "“Your question about the final prescription now has an answer,” Beatrice says.",
+    "resolve": "“You left me to complete the review,” Beatrice says. “It is complete.”",
+    "custom_beg": "“Your question about begging has been noted,” Beatrice says. “The review is finished.”"
   },
-  victoria: {
-    permission:'“You asked about the final decision before we reached it,” Victoria says. “Now we have.”',
-    resolve:'“You chose to hear the whole review,” Victoria says. “It is ready.”',
-  },
+  "victoria": {
+    "permission": "“You asked about the final decision before we reached it,” Victoria says. “Now we have.”",
+    "resolve": "“You chose to hear the whole review,” Victoria says. “It is ready.”",
+    "custom_beg": "“You asked whether begging would change the outcome,” Victoria says. “The review is complete.”"
+  }
 };
 
 const QUESTION_ACKNOWLEDGEMENTS = {
-  evelyn: {
-    recorded:'“I have your request,” Evelyn says. “You do not need to explain it again.”',
-    permission:'“You asked how the final prescription works,” Evelyn says. “I answered that question, but I have not taken it as a request.”',
-    other:'“I have heard your questions,” Evelyn says. “If you want me to review a request as well, I need to hear it.”',
-    none:'“If you have a request for the review, I am listening,” Evelyn says.',
+  "evelyn": {
+    "recorded": "“I have your request,” Evelyn says. “You do not need to explain it again.”",
+    "permission": "“You asked how the final prescription works,” Evelyn says. “I answered that question, but I have not taken it as a request.”",
+    "other": "“I have heard your questions,” Evelyn says. “If you want me to review a request as well, I need to hear it.”",
+    "none": "“If you have a request for the review, I am listening,” Evelyn says."
   },
-  scarlett: {
-    recorded:'“Your request reached me,” Scarlett says. “I was listening, despite appearances.”',
-    permission:'“You asked what the final prescription might say,” Scarlett recalls. “That was a question. I have not assumed it was your request.”',
-    other:'“We have had questions,” Scarlett says. “I am still waiting to hear whether you have a request.”',
-    none:'“Was there a request you wanted me to consider?” Scarlett asks.',
+  "scarlett": {
+    "recorded": "“Your request reached me,” Scarlett says. “I was listening, despite appearances.”",
+    "permission": "“You asked what the final prescription might say,” Scarlett recalls. “That was a question. I have not assumed it was your request.”",
+    "other": "“We have had questions,” Scarlett says. “I am still waiting to hear whether you have a request.”",
+    "none": "“Was there a request you wanted me to consider?” Scarlett asks."
   },
-  beatrice: {
-    recorded:'“Your request is recorded,” Beatrice confirms. “It has not been overlooked.”',
-    permission:'“Your earlier question concerned the prescription,” Beatrice says. “I recorded it as a question. A request is still outstanding.”',
-    other:'“I have answered the questions you raised,” Beatrice says. “No request has yet been recorded.”',
-    none:'“There is no request recorded for the final review,” Beatrice says.',
+  "beatrice": {
+    "recorded": "“Your request is recorded,” Beatrice confirms. “It has not been overlooked.”",
+    "permission": "“Your earlier question concerned the prescription,” Beatrice says. “I recorded it as a question. A request is still outstanding.”",
+    "other": "“I have answered the questions you raised,” Beatrice says. “No request has yet been recorded.”",
+    "none": "“There is no request recorded for the final review,” Beatrice says."
   },
-  victoria: {
-    recorded:'“I heard your request,” Victoria says. “The quiet answer did not mean I missed it.”',
-    permission:'“We have discussed the final decision,” Victoria says. “Now tell me what you would like me to consider.”',
-    other:'“You have asked questions,” Victoria says. “I am waiting to hear what you would like me to consider.”',
-    none:'“Is there a request you would like me to consider?” Victoria asks.',
-  },
+  "victoria": {
+    "recorded": "“I heard your request,” Victoria says. “The quiet answer did not mean I missed it.”",
+    "permission": "“We have discussed the final decision,” Victoria says. “Now tell me what you would like me to consider.”",
+    "other": "“You have asked questions,” Victoria says. “I am waiting to hear what you would like me to consider.”",
+    "none": "“Is there a request you would like me to consider?” Victoria asks."
+  }
 };
 
 function voice(s){
@@ -594,6 +1025,9 @@ function choiceReply(s,id){
     const manner=chooseLine(s,`reply:${id}`,PERMISSION_MANNER[voice(s)]);
     return `${manner} ${REPLIES.permission}`;
   }
+  // In the supplied pack, the second variant of this informational question
+  // acknowledges an actual request. Use it only when that action has occurred.
+  if(id==='custom_beg'&&!s.requested)return RESPONSES[voice(s)][id][0];
   return chooseLine(s,`reply:${id}`,RESPONSES[voice(s)][id]);
 }
 
@@ -619,7 +1053,7 @@ function closingCallback(s,choices){
 function questionAcknowledgement(s){
   const choices=Array.isArray(s?.choices)?s.choices:[];
   const askedPermission=!!s?.flags?.permission||choices.some(c=>c?.id==='permission');
-  const askedQuestion=!!s?.flags?.questions||!!s?.flags?.ask||choices.some(c=>['counting','change','quota','smile','boss'].includes(c?.id));
+  const askedQuestion=!!s?.flags?.questions||!!s?.flags?.ask||choices.some(c=>CHOICE_KINDS[c?.id]==='question');
   const kind=s?.requested?'recorded':askedPermission?'permission':askedQuestion?'other':'none';
   return QUESTION_ACKNOWLEDGEMENTS[voice(s)][kind];
 }
@@ -1504,7 +1938,7 @@ fillSettings();render(true);
 </div><div class="row"><button type="button" id="save-calibration" class="button primary">Save calibration</button><button type="button" id="import-calibration" class="button secondary">Copy CTMP calibration</button></div><p id="cal-saved" class="note">No calibration saved for SUC yet.</p><div class="two"><label>Cutoff pressure · kPa<input name="threshold" type="number" step="0.1" required></label><label>Reset pressure · kPa<input name="resetThreshold" type="number" step="0.1" required></label></div></fieldset>
 <fieldset><legend>Session settings</legend><label class="check"><input name="randomTreatment" type="checkbox">Let the nurse vary each treatment cycle</label><p class="note">New combinations of ramps and patterns are chosen after each registered edge. Her style and the day’s circumstances influence the surprises. Your configured power caps, Civet cutoff and automatic recovery always apply. Switch this off to use the fixed setup below.</p><div class="two"><label>Starting level · %<input name="startPercent" type="number" min="0" max="100" required></label><label>Ramp time · seconds<input name="rampSeconds" type="number" min="1" max="3600" required></label></div><p class="note">A fresh ramp begins after recovery. Opossum’s starting level is a fraction of each channel maximum.</p><div class="two" id="channel-settings"><label>Channel A maximum · %<input name="maxPercentA" type="number" min="0" max="100" required></label><label>Channel B maximum · %<input name="maxPercentB" type="number" min="0" max="100" required></label></div><div class="two"><label>Recovery minimum · seconds<input name="recoveryMinSeconds" type="number" min="1" max="300" required></label><label>Recovery maximum · seconds<input name="recoveryMaxSeconds" type="number" min="1" max="300" required></label></div><label class="check"><input name="adaptiveEnabled" type="checkbox">Adapt recovery after repeated short phases</label><details><summary>Adaptive recovery details</summary><div class="two"><label>Shorter than · seconds<input name="shortPhaseSeconds" type="number" min="1" max="120" step="0.5"></label><label>Consecutive short phases<input name="shortPhaseCount" type="number" min="1" max="20"></label><label>Stable at least · seconds<input name="stablePhaseSeconds" type="number" min="1" max="600"></label><label>Stable phases to reduce recovery<input name="stablePhaseCount" type="number" min="1" max="20"></label><label>Maximum recovery multiplier<input name="adaptiveMaxMultiplier" type="number" min="1" max="32"></label></div></details>
 <div id="pattern-settings"><label class="check"><input name="chapterPatterns" type="checkbox">Use the room’s Opossum pattern when nurse variation is off</label><p class="note">The manual pattern below is a fallback. Nurse variation changes the pattern and ramp for each cycle, not your maximum channel strength or cutoff.</p><label>Manual pattern<select name="opossumPattern"><option value="synchronized">Together</option><option value="alternating">Alternating · A rises as B falls</option><option value="offset-wave">Offset wave · shifted waves</option><option value="pulse">Pulse · both channels together</option><option value="custom">Custom wave</option></select></label><div class="two"><label>Full pattern cycle · seconds<input name="patternSpeedSeconds" type="number" min="0.4" max="30" step="0.1"></label><label>B shift · fraction of a cycle<input name="phaseOffset" type="number" min="0" max="1" step="0.05"></label><label>Channel A floor · %<input name="patternMinA" type="number" min="0" max="100"></label><label>Channel B floor · %<input name="patternMinB" type="number" min="0" max="100"></label></div><p class="note">A shift of 0.25 means a quarter-cycle. 0.5 makes the waves opposite. Floors do not affect Together mode.</p></div></fieldset>
-<div class="sticky-save"><button type="submit" class="button primary">Save settings</button><button type="button" id="disconnect" class="button secondary">Disconnect devices</button></div></form><p class="fineprint">SUC 1.2.2 · Fictional interactive story, not medical care. Settings and visits stay in this browser. Clearing site data removes them; CTMP uses separate records.</p></dialog>
+<div class="sticky-save"><button type="submit" class="button primary">Save settings</button><button type="button" id="disconnect" class="button secondary">Disconnect devices</button></div></form><p class="fineprint">SUC 1.2.3 · Fictional interactive story, not medical care. Settings and visits stay in this browser. Clearing site data removes them; CTMP uses separate records.</p></dialog>
 <dialog id="journal-dialog" class="sheet"><div class="sheet-head"><div><span class="eyebrow">YOUR OBSERVATIONS</span><h2>Appointment journal</h2></div><button class="close-button" data-close="journal-dialog" aria-label="Close journal">×</button></div><div id="journal-content"></div></dialog>
 <dialog id="stop-dialog" class="small-dialog"><span class="eyebrow">OUTPUT PAUSED</span><h2>Appointment paused</h2><div class="stack"><button data-end="stopped" class="button secondary">End appointment</button><button data-close="stop-dialog" class="button quiet">Keep appointment paused</button></div></dialog>
 <div id="toast" class="toast" role="status" hidden></div>
