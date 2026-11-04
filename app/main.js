@@ -835,6 +835,21 @@ if (hostPage) {
     vacuglide: new VacuGlideDevice({ onStatus: status => deviceStatus('vacuglide', status) }),
   };
   void requestWake();
+  if (recoveryCandidate?.engine) {
+    setTimeout(async () => {
+      const names = ['civet', ...(engine.config.toy === 'vacuglide' ? [] : [engine.config.toy])];
+      for (const name of [...new Set(names)]) {
+        try {
+          await drivers[name].reconnect();
+          log(name + ': automatically reconnected after session recovery.');
+        } catch (error) {
+          log(name + ': automatic recovery connection unavailable — ' + safeError(error));
+        }
+      }
+      connectionError = 'Recovered session is paused. Check the connections and press Resume when ready.';
+      render();
+    }, 0);
+  }
   document.addEventListener('pointerup', () => { void requestWake(); }, { passive: true });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) backgroundStop();
