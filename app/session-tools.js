@@ -94,6 +94,19 @@ export class SessionRecorder {
     this.meta = clone(meta);
     this.event('session-start', meta);
   }
+  restore(data) {
+    if (!data || data.version !== 1 || !data.startedAt) return false;
+    const started = Date.parse(data.startedAt);
+    if (!Number.isFinite(started)) return false;
+    this.startedAt = started;
+    this.endedAt = null;
+    this.meta = clone(data.meta || {});
+    this.rows = Array.isArray(data.rows) ? clone(data.rows).slice(-this.maxRows) : [];
+    this.events = Array.isArray(data.events) ? clone(data.events).slice(-5000) : [];
+    this.lastSampleAt = this.rows.length ? Date.parse(this.rows.at(-1).at) || 0 : 0;
+    this.event('session-restored');
+    return true;
+  }
   get active() { return this.startedAt !== null && this.endedAt === null; }
   get runtimeMs() {
     if (this.startedAt === null) return 0;
@@ -159,8 +172,8 @@ export class SessionRecorder {
     };
   }
   toJson() { return JSON.stringify(this.exportObject(), null, 2); }
-  toCsv() {
-    const rows = this.rows;
+  toCsv(data = null) {
+    const rows = data?.rows || this.rows;
     const headers = rows.length ? Object.keys(rows.reduce((all, row) => Object.assign(all, row), {})) : ['at', 'elapsedSeconds'];
     return [headers.join(','), ...rows.map(row => headers.map(key => csvValue(row[key])).join(','))].join('\n');
   }
