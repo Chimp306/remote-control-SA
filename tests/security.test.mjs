@@ -6,6 +6,7 @@ import { runInNewContext } from 'node:vm';
 import { SessionEngine } from '../app/engine.js';
 import { runDiagnostics } from '../app/diagnostics.js';
 import { PressureFilter, SessionRecorder } from '../app/session-tools.js';
+import { buildFinishReport } from '../app/finish-report.js';
 import {
   PATTERNS, PHASES, isToken, isClient, isCode, normalizeCode,
   sanitizeState, sanitizeCommand, hash, randomToken, randomCode,
@@ -828,7 +829,7 @@ async function makeHostHarness() {
   const windowListeners = new Map();
   const documentListeners = new Map();
   const scope = {
-    UI: FakeUI, SessionEngine, PressureFilter, SessionRecorder,
+    UI: FakeUI, SessionEngine, PressureFilter, SessionRecorder, buildFinishReport,
     loadProfile: () => null, saveProfile: () => true, loadRecovery: () => null, saveRecovery: () => true, clearRecovery: () => true, loadLastSessionData: () => null, saveLastSessionData: () => true,
     Backend: FakeBackend, CivetDevice: FakeDevice,
     LushDevice: FakeDevice, OpossumDevice: FakeDevice, VacuGlideDevice: FakeDevice,
@@ -845,6 +846,8 @@ async function makeHostHarness() {
       syncHost, remoteFault, endRemote, handleAction, applyGuestState, unlock,
       queueGuestCommand, flushGuestCommand,
       get engine() { return engine; }, get drivers() { return drivers; },
+      get recorder() { return recorder; }, get finishReport() { return finishReport; },
+      get best() { return best; }, get rendered() { return ui.view; },
       get backend() { return backend; }, get epoch() { return epoch; },
       get remote() { return remote; }, get guestNewRecord() { return guestNewRecord; },
       get guestDesired() { return guestDesired; }, get guestPending() { return guestPending; },
@@ -1333,4 +1336,32 @@ test('all twelve built-in diagnostic checks pass without hardware', () => {
   const checks = runDiagnostics();
   assert.equal(checks.length, 12);
   for (const check of checks) assert.equal(check.passed, true, `${check.name}: ${check.message || ''}`);
+});
+
+
+test('Orgasm finish stops both requested channels, records outcome and keeps permanent best intact', async () => {
+  const host = await makeHostHarness();
+  host.drivers.opossum.connected = true;
+  host.engine.configure({ toy: 'opossum', threshold: 12, resetThreshold: 10, maxPercentA: 40, maxPercentB: 70 });
+  host.recorder.start({ toy:'opossum', mode:'solo' });
+  host.engine.updatePressure(9);
+  host.engine.start();
+  host.engine.updatePressure(12);
+  assert.equal(host.engine.snapshot().edgeCount, 1);
+  const scoreBeforeFinish = host.best;
+  await host.handleAction('finish-orgasm');
+  assert.equal(host.engine.phase,'stopped');
+  assert.equal(host.engine.snapshot().outputPercent,0);
+  assert.equal(host.engine.snapshot().outputPercentA,0);
+  assert.equal(host.engine.snapshot().outputPercentB,0);
+  assert.ok(host.drivers.opossum.stops >= 1);
+  assert.equal(host.best,scoreBeforeFinish);
+  assert.equal(host.finishReport?.outcome,'orgasm');
+  assert.equal(host.finishReport?.count,1);
+  assert.equal(host.finishReport?.personalBest,scoreBeforeFinish);
+  assert.equal(host.rendered.finishReport?.outcome,'orgasm');
+  assert.equal(host.recorder.exportObject().events.some(event=>event.type==='orgasm-reported'),true);
+  assert.equal(host.recorder.active,false);
+  await host.handleAction('close-finish-report');
+  assert.equal(host.finishReport,null);
 });
