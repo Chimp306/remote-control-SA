@@ -3,7 +3,8 @@ import { SessionEngine } from './engine.js?v=20261104-v21b';
 import { CivetDevice, LushDevice, OpossumDevice, VacuGlideDevice } from './devices.js?v=20261104-v21b';
 import { Backend } from './backend.js?v=20261104-v21b';
 import { runDiagnostics } from './diagnostics.js?v=20261104-v21b';
-import { PressureFilter, SessionRecorder, loadProfile, saveProfile, loadRecovery, saveRecovery, clearRecovery, loadLastSessionData, saveLastSessionData } from './session-tools.js?v=20261104-v21b';
+import { PressureFilter, SessionRecorder, loadProfile, saveProfile, loadRecovery, saveRecovery, clearRecovery, loadLastSessionData, saveLastSessionData } from './session-tools.js?v=20261104-v21c';
+import { buildFinishReport } from './finish-report.js?v=20261104-v21c';
 
 const ACTIVE = new Set(['running', 'cooldown', 'settling']);
 const TOYS = new Set(['lush', 'opossum', 'vacuglide']);
@@ -15,6 +16,8 @@ const recorder = new SessionRecorder();
 const storedProfile = loadProfile();
 let recoveryCandidate = loadRecovery();
 let lastSessionData = loadLastSessionData();
+let finishReport = null;
+let finishStopError = '';
 const ui = new UI({ onAction: handleAction });
 const match = location.pathname.match(CODE);
 const hostPage = location.pathname === '/' || location.pathname === '/index.html';
@@ -264,6 +267,50 @@ async function stopPhysical() {
   const results = await Promise.allSettled(['lush', 'opossum', 'vacuglide'].filter(name => drivers[name] && (drivers[name].connected || deviceStates[name]?.state === 'error')).map(name => drivers[name].stop()));
   const failures = results.filter(result => result.status === 'rejected');
   if (failures.length) throw new Error('Stop could not be confirmed on a device. Use its physical stop, then reconnect.');
+}
+
+async function finishReportedSession() {
+  if (!engine || !recorder.active || ['idle','stopped'].includes(engine.phase)) throw new Error('Start a session before reporting its finish.');
+  if (finishReport) return;
+  const beforeStop = engine.snapshot();
+  recorder.event('orgasm-reported', {
+    count: beforeStop.edgeCount,
+    cycleSeconds: beforeStop.cycleElapsedSeconds,
+    outputPercent: beforeStop.outputPercent,
+    channelA: beforeStop.outputPercentA,
+    channelB: beforeStop.outputPercentB,
+  });
+  // stopSession synchronously zeroes engine output and finalizes the recorder
+  // before awaiting the physical stop acknowledgement.
+  const stopTask = stopSession('Session finished — orgasm reported.').then(() => null, error => error);
+  finishReport = buildFinishReport({
+    data: lastSessionData,
+    state: beforeStop,
+    best: simulation ? simulationBest : best,
+    simulation,
+  });
+  finishStopError = '';
+  render();
+  // End any remote control link as well. Do not make a lost network connection
+  // prevent local stop or report display.
+  const revokeTask = remote?.owned && backend.ownerToken
+    ? backend.call('session-end', { sessionId: remote.sessionId }).then(() => {
+        remote = null; guestConnected = false; hadGuest = false;
+        lastCommandSeq = 0; remoteFaulted = false;
+        return null;
+      }, error => error)
+    : Promise.resolve(null);
+  const [stopError, revokeError] = await Promise.all([stopTask, revokeTask]);
+  if (stopError || revokeError) {
+    finishStopError = stopError
+      ? 'Output stop could not be confirmed. Use the physical device stop and check its state.'
+      : 'The session stopped, but the guest link could not be revoked. End it in Debugging.';
+    log(finishStopError);
+    render();
+    throw stopError || revokeError;
+  }
+  log('Finished session report saved. Personal best was not changed by the finish action.');
+  render();
 }
 
 async function stopSession(reason = '') {
@@ -675,6 +722,8 @@ async function handleAction(name, payload = {}) {
     return;
   }
   if (name === 'stop') { await stopSession('Stopped manually.'); render(); return; }
+  if (name === 'finish-orgasm') { await finishReportedSession(); return; }
+  if (name === 'close-finish-report') { finishReport = null; finishStopError = ''; render(); return; }
   if (name === 'valve') {
     if (payload.open) {
       if (simulation || engine.config.toy !== 'vacuglide' || !drivers.vacuglide.connected) throw new Error('Connect VacuGlide before using its valve controls.');
@@ -730,7 +779,8 @@ async function handleAction(name, payload = {}) {
         if (remote && payload.mode !== engine.config.mode) await endRemote();
         engine.configure({ mode: payload.mode }); break;
       case 'start':
-        requireReady(); hardwareArmed = false; hardwareGeneration += 1; connectionError = ''; remoteFaulted = false; newRecord = false;
+        requireReady(); finishReport = null; finishStopError = '';
+        hardwareArmed = false; hardwareGeneration += 1; connectionError = ''; remoteFaulted = false; newRecord = false;
         recorder.start({ toy: engine.config.toy, mode: engine.config.mode, calibration: profilePayload().calibration, settings: engine.config });
         engine.setGuestOutput(zeroGuestOutput(engine.config.toy)); engine.start(); armNavigationGuard(); persistRecovery(); requestHostSync(); break;
       case 'pause': engine.pause(); persistRecovery(); await stopPhysical(); requestHostSync(); break;
@@ -791,7 +841,7 @@ function render() {
   }
   if (!engine) return;
   if (previewOverlay && previewEndsAt) previewOverlay = { ...previewOverlay, remainingCooldown: Math.max(0, (previewEndsAt - Date.now()) / 1000) };
-  ui.render({ screen: 'host', engine: engine.snapshot(), toy: engine.config.toy, mode: engine.config.mode, devices: deviceStates, best: simulation ? simulationBest : best, newRecord, devUnlocked: Boolean(backend.ownerToken), simulation, calibration, link: remote, guestConnected, networkStatus: remote?.owned ? lastHostSync && Date.now() - lastHostSync < 5000 ? 'connected' : 'offline' : 'idle', logs, testResults, hardwareArmed, busy, connectionError, wakeStatus, guestPreview, previewOverlay, dataRuntimeMs: recorder.runtimeMs, hasSessionData: recorder.startedAt !== null || Boolean(lastSessionData) });
+  ui.render({ screen: 'host', engine: engine.snapshot(), toy: engine.config.toy, mode: engine.config.mode, devices: deviceStates, best: simulation ? simulationBest : best, newRecord, devUnlocked: Boolean(backend.ownerToken), simulation, calibration, link: remote, guestConnected, networkStatus: remote?.owned ? lastHostSync && Date.now() - lastHostSync < 5000 ? 'connected' : 'offline' : 'idle', logs, testResults, hardwareArmed, busy, connectionError, wakeStatus, guestPreview, previewOverlay, dataRuntimeMs: recorder.runtimeMs, hasSessionData: recorder.startedAt !== null || Boolean(lastSessionData), finishReport, finishStopError });
 }
 
 function backgroundStop() {
