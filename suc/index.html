@@ -42,9 +42,13 @@ const ART={"reception":"data:image/webp;base64,UklGRqBAAQBXRUJQVlA4IJRAAQDQ8ASdA
 
 
 
+
+
+
+
 // ---- content.js ----
 // SUC Clinic: authored fiction. No story instruction can command hardware.
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const DIFFICULTIES = {
   easy: {name:'Routine Collection',label:'Easy',min:45,max:75,copy:'A shorter appointment. The staff are still rather thorough.'},
   medium: {name:'Extended Collection',label:'Medium',min:95,max:140,copy:'More assessments, more opportunities for your nurse to take an interest.'},
@@ -404,10 +408,102 @@ function csv(events){
 }
 
 
+// ---- treatments.js ----
+/**
+ * SUC story-owned treatment sequences. A pure, deterministic plan is derived
+ * from the saved appointment and completed edge count. This module never
+ * connects to hardware, decides pressure cutoffs, or raises physical caps.
+ */
+const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+const r1=v=>Math.round(v*10)/10;
+const hash=value=>{
+  let h=2166136261;
+  for(const c of String(value)){h=Math.imul(h^c.charCodeAt(0),16777619);}
+  return h>>>0;
+};
+const randomFrom=seed=>{
+  let x=seed>>>0;
+  return ()=>{
+    x=(x+0x6D2B79F5)>>>0;
+    let t=x;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);
+    return ((t^t>>>14)>>>0)/4294967296;
+  };
+};
+const STYLES=Object.freeze({
+  measured:{name:'Measured assessment',pattern:'synchronized',ramp:1,tempo:1,start:1,modulation:'steady'},
+  gradual:{name:'Slow collection',pattern:'offset-wave',ramp:1.6,tempo:1.25,start:0.55,modulation:'wave'},
+  brisk:{name:'Quick collection',pattern:'alternating',ramp:0.62,tempo:0.8,start:0.92,modulation:'steady'},
+  pulse:{name:'Interrupted pulses',pattern:'pulse',ramp:1.1,tempo:0.78,start:0.6,modulation:'pulse'},
+  drift:{name:'Offset sequence',pattern:'custom',ramp:1.25,tempo:1.35,start:0.76,modulation:'wave'},
+  patience:{name:'Prolonged buildup',pattern:'synchronized',ramp:1.8,tempo:1.1,start:0.5,modulation:'steady'},
+  stagger:{name:'Staggered bursts',pattern:'alternating',ramp:0.83,tempo:1.6,start:0.73,modulation:'stagger'},
+});
+const BASE_WEIGHTS=Object.freeze({
+  evelyn:{measured:4,gradual:4,brisk:1,pulse:1,drift:3,patience:3,stagger:1},
+  scarlett:{measured:1,gradual:1,brisk:4,pulse:5,drift:3,patience:1,stagger:5},
+  beatrice:{measured:6,gradual:1,brisk:4,pulse:1,drift:1,patience:3,stagger:1},
+  victoria:{measured:1,gradual:4,brisk:2,pulse:2,drift:5,patience:5,stagger:3},
+});
+const weighted=(weights,rand)=>{
+  const entries=Object.entries(weights).filter(([,weight])=>weight>0);
+  let target=rand()*entries.reduce((sum,[,weight])=>sum+weight,0);
+  for(const [key,weight] of entries){target-=weight;if(target<0)return key;}
+  return entries.at(-1)[0];
+};
+function weightsFor({nurse,day,difficulty}){
+  const weights={...(BASE_WEIGHTS[nurse]||BASE_WEIGHTS.evelyn)};
+  if(day==='quota'){weights.brisk+=3;weights.stagger+=2;}
+  if(day==='inspection'){weights.measured+=6;weights.brisk+=2;weights.pulse=Math.max(1,weights.pulse-1);}
+  if(day==='generous'){weights.gradual+=3;weights.measured+=2;}
+  if(day==='efficient')weights.patience+=2;
+  if(difficulty==='hard'){weights.stagger+=2;weights.drift+=1;}
+  return weights;
+}
+function styleFor(visit,ordinal){
+  const weights=weightsFor(visit);
+  const draw=n=>weighted(weights,randomFrom(hash(`${visit.id}|${visit.nurse}|${visit.day}|${visit.difficulty}|${visit.stage}|${n}|treatment`)));
+  let selected=draw(ordinal);
+  if(ordinal>1&&selected===draw(ordinal-1)){
+    const others=Object.keys(weights).filter(key=>weights[key]>0&&key!==selected);
+    selected=others[hash(`${visit.id}|${visit.stage}|${ordinal}|alternate`)%others.length];
+  }
+  return selected;
+}
+function treatmentPlan({visit,ordinal,config}={}){
+  if(!visit||!Number.isSafeInteger(ordinal)||ordinal<1||!config)throw new TypeError('A saved visit, cycle number and user settings are required.');
+  const style=styleFor(visit,ordinal),t=STYLES[style];
+  const rand=randomFrom(hash(`${visit.id}|${visit.stage}|${ordinal}|details`));
+  const jitter=0.94+rand()*0.12;
+  // Stay within the user's speed/strength settings, with a bounded variation
+  // to the pace. No physical output maximum or Civet threshold is modified.
+  const rampSeconds=r1(clamp(config.rampSeconds*t.ramp*jitter,1,3600));
+  const patternSpeedSeconds=r1(clamp(config.patternSpeedSeconds*t.tempo*(0.86+rand()*.28),0.4,30));
+  const phaseOffset=r1(clamp(style==='drift'||style==='gradual'?0.15+rand()*.35:config.phaseOffset,0,1));
+  const startPercent=r1(clamp(config.startPercent*t.start,0,config.startPercent));
+  return Object.freeze({
+    ordinal,stage:visit.stage,style,label:t.name,
+    opossumPattern:t.pattern,
+    rampSeconds,patternSpeedSeconds,phaseOffset,startPercent,
+    modulation:t.modulation,
+    // Kept only for audit; it cannot be passed as a driver output limit.
+    nurse:visit.nurse,
+  });
+}
+function scalarTreatmentFactor(elapsedMs,plan){
+  if(!plan||!Number.isFinite(elapsedMs))return 1;
+  const speed=Math.max(400,plan.patternSpeedSeconds*1000);
+  const phase=((Math.max(0,elapsedMs)%speed)/speed);
+  if(plan.modulation==='pulse')return phase<0.45?1:0.12;
+  if(plan.modulation==='wave')return 0.2+0.8*((1-Math.cos(2*Math.PI*phase))/2);
+  if(plan.modulation==='stagger')return phase<0.32?1:phase<0.57?0.2:phase<0.82?0.75:0;
+  return 1;
+}
+
+
 // ---- hardware.js ----
 // UI-independent adapter around CTMP's existing device drivers and session engine.
 // No pairing or output on import. No network service, remote links or AI controls.
-const DEFAULTS={toy:'opossum',startPercent:10,rampSeconds:60,maxPercentA:100,maxPercentB:100,recoveryMinSeconds:20,recoveryMaxSeconds:20,adaptiveEnabled:true,shortPhaseSeconds:5,shortPhaseCount:3,stablePhaseSeconds:12,stablePhaseCount:3,adaptiveMaxMultiplier:8,opossumPattern:'synchronized',patternSpeedSeconds:4,phaseOffset:.25,patternMinA:0,patternMinB:0,threshold:22.9,resetThreshold:21.6,chapterPatterns:true};
+const DEFAULTS={toy:'opossum',startPercent:10,rampSeconds:60,maxPercentA:100,maxPercentB:100,recoveryMinSeconds:20,recoveryMaxSeconds:20,adaptiveEnabled:true,shortPhaseSeconds:5,shortPhaseCount:3,stablePhaseSeconds:12,stablePhaseCount:3,adaptiveMaxMultiplier:8,opossumPattern:'synchronized',patternSpeedSeconds:4,phaseOffset:.25,patternMinA:0,patternMinB:0,threshold:22.9,resetThreshold:21.6,chapterPatterns:true,randomTreatment:true};
 const ACTIVE=new Set(['running','cooldown','settling']);
 const bounds={startPercent:[0,100],rampSeconds:[1,3600],maxPercentA:[0,100],maxPercentB:[0,100],recoveryMinSeconds:[1,300],recoveryMaxSeconds:[1,300],shortPhaseSeconds:[1,120],shortPhaseCount:[1,20],stablePhaseSeconds:[1,600],stablePhaseCount:[1,20],adaptiveMaxMultiplier:[1,32],patternSpeedSeconds:[.4,30],phaseOffset:[0,1],patternMinA:[0,100],patternMinB:[0,100],threshold:[-327.6,327.6],resetThreshold:[-327.6,327.6]};
 function settings(input={}){
@@ -415,7 +511,7 @@ function settings(input={}){
   if(input.toy!==undefined){if(!['lush','opossum','vacuglide'].includes(input.toy))throw Error('Choose an available device.');s.toy=input.toy;}
   for(const [k,[lo,hi]] of Object.entries(bounds))if(input[k]!==undefined){const n=Number(input[k]);if(!Number.isFinite(n)||n<lo||n>hi)throw Error(`Invalid ${k}: expected ${lo}–${hi}.`);s[k]=n;}
   for(const k of ['shortPhaseCount','stablePhaseCount'])if(!Number.isInteger(s[k]))throw Error('Phase counts must be whole numbers.');
-  for(const k of ['adaptiveEnabled','chapterPatterns'])if(input[k]!==undefined)s[k]=input[k]===true;
+  for(const k of ['adaptiveEnabled','chapterPatterns','randomTreatment'])if(input[k]!==undefined)s[k]=input[k]===true;
   if(input.opossumPattern!==undefined){if(!['synchronized','alternating','offset-wave','pulse','custom'].includes(input.opossumPattern))throw Error('Unknown pattern.');s.opossumPattern=input.opossumPattern;}
   if(s.resetThreshold>=s.threshold)throw Error('Reset pressure must be below cutoff pressure.');
   if(s.recoveryMaxSeconds<s.recoveryMinSeconds)throw Error('Maximum recovery must not be smaller than minimum recovery.');
@@ -429,13 +525,37 @@ function calibration(values){
   return out;
 }
 class Hardware {
-  constructor({onState=()=>{},onEdge=()=>{},onError=()=>{},modules=null,now=()=>Date.now(),visible=()=>!globalThis.document?.hidden}={}){
-    Object.assign(this,{onState,onEdge,onError,modules,now,visible});this.engine=null;this.drivers=null;this.config=settings();this.raw=null;this.rawAt=null;this.blocked=true;this.initialized=false;this.statuses={};this.retries={};this.timers={};this.wasConnected={};this.manual=false;this.generation=0;this.releaseLock=null;this.stopError='';this.beforePressure=null;this.faultSeen=false;
+  constructor({onState=()=>{},onEdge=()=>{},onError=()=>{},onTreatment=()=>{},modules=null,now=()=>Date.now(),visible=()=>!globalThis.document?.hidden}={}){
+    Object.assign(this,{onState,onEdge,onError,onTreatment,modules,now,visible});this.visit=null;this.cyclePlan=null;this.cyclePlanKey=null;this.engine=null;this.drivers=null;this.config=settings();this.raw=null;this.rawAt=null;this.blocked=true;this.initialized=false;this.statuses={};this.retries={};this.timers={};this.wasConnected={};this.manual=false;this.generation=0;this.releaseLock=null;this.stopError='';this.beforePressure=null;this.faultSeen=false;
   }
   async load(){
     if(this.initialized)return this;
     const m=this.modules||Object.assign({},...await Promise.all([import('../app/engine.js?v=20261104-v21c'),import('../app/devices.js?v=20261104-v21c')]));
-    this.engine=new m.SessionEngine({now:this.now,onOutput:(v,p)=>this.output(v,p),onEvent:e=>this.event(e)});
+    // SUC-only extension of the existing CTMP state machine. We select a
+    // deterministic treatment before _settle issues the first output of each
+    // cycle. CTMP's pressure stop, recovery and hardware driver caps are intact.
+    const owner=this;
+    class SUCEngine extends m.SessionEngine {
+      _settle(at){
+        const fresh=this._fresh(at);
+        const recovered=this.cooldownEndsAt===null||this.pressureAt>=this.cooldownEndsAt;
+        if(this.phase==='settling'&&fresh&&recovered&&this.pressure<this.config.resetThreshold){
+          try{owner.prepareCycle(this);}catch{
+            owner.blocked=true;
+            this.fault('Treatment sequence could not be prepared. Check settings, then resume explicitly.');
+            return;
+          }
+        }
+        return super._settle(at);
+      }
+      _requestedOutput(at){
+        const base=super._requestedOutput(at);
+        if(owner.config.toy!=='lush'||!owner.cyclePlan||this._cycleStartedAt===null||this.config.mode!=='solo')return base;
+        const factor=scalarTreatmentFactor(Math.max(0,at-this._cycleStartedAt),owner.cyclePlan);
+        return Math.max(0,Math.min(base,base*factor));
+      }
+    }
+    this.engine=new SUCEngine({now:this.now,onOutput:(v,p)=>this.output(v,p),onEvent:e=>this.event(e)});
     this.drivers={civet:new m.CivetDevice({onPressure:(p,t)=>this.pressure(p,t),onStatus:s=>this.status('civet',s)}),lush:new m.LushDevice({onStatus:s=>this.status('lush',s)}),opossum:new m.OpossumDevice({onStatus:s=>this.status('opossum',s)}),vacuglide:new m.VacuGlideDevice({onStatus:s=>this.status('vacuglide',s)})};
     this.initialized=true;this.engine.configure({...this.config,mode:'solo'});return this;
   }
@@ -474,6 +594,17 @@ class Hardware {
     if(!device?.connected)throw Error('Output device disconnected.');
     return this.config.toy==='opossum'?device.setLevels({a:levels.a,b:levels.b}):device.setOutput(v);
   }
+  prepareCycle(engine){
+    if(!this.config.randomTreatment||!this.visit){this.cyclePlan=null;return;}
+    const key=`${this.visit.id}:${this.visit.stage}:${engine.edgeCount+1}`;
+    if(this.cyclePlanKey===key)return;
+    const plan=treatmentPlan({visit:this.visit,ordinal:engine.edgeCount+1,config:this.config});
+    this.cyclePlanKey=key;this.cyclePlan=plan;
+    // Only the per-cycle timing and pattern change. Never mutate the original
+    // user's settings, cutoff, reset pressure, recovery or max output levels.
+    for(const field of ['startPercent','rampSeconds','opossumPattern','patternSpeedSeconds','phaseOffset'])engine.config[field]=plan[field];
+    try{this.onTreatment(plan);}catch{/* Telemetry must not affect output or cutoffs. */}
+  }
   event(e){
     if(e.type==='edge'){
       const pre=this.beforePressure||{};this.onEdge(e.snapshot.edgeCount,{cycleSeconds:e.snapshot.lastCycleSeconds,powerA:pre.outputPercentA,powerB:pre.outputPercentB,pressure:e.snapshot.pressure,recoverySeconds:e.snapshot.recoverySeconds});
@@ -499,8 +630,9 @@ class Hardware {
     if(this.releaseLock||!globalThis.navigator?.locks)return;
     await new Promise((resolve,reject)=>{navigator.locks.request('suc-clinic-live-output',{ifAvailable:true},async lock=>{if(!lock){reject(Error('Another SUC tab controls the devices. Close it before starting here.'));return;}await new Promise(release=>{this.releaseLock=release;resolve();});}).catch(reject);});
   }
-  async run({restore=null,pattern=null,count=0}={}){
+  async run({restore=null,pattern=null,count=0,visit=null}={}){
     this.ready();await this.acquire();this.ready();
+    this.visit=visit;this.cyclePlanKey=null;this.cyclePlan=null;
     if(restore&&['idle','stopped'].includes(this.engine.phase))this.engine.restore({...restore,...this.config,mode:'solo',edgeCount:count});
     if(this.config.toy==='opossum'&&pattern&&this.config.chapterPatterns)this.engine.configure({opossumPattern:pattern});
     this.blocked=false;this.faultSeen=false;this.stopError='';
@@ -520,7 +652,7 @@ class Hardware {
     if(results.some(r=>r.status==='rejected'))throw Error('Output stop was not confirmed. Use the physical device controls.');
   }
   async stop(){
-    this.blocked=true;this.generation++;this.manual=true;Object.values(this.timers).forEach(clearTimeout);this.timers={};this.engine?.stop();
+    this.blocked=true;this.generation++;this.manual=true;Object.values(this.timers).forEach(clearTimeout);this.timers={};this.engine?.stop();this.visit=null;this.cyclePlan=null;this.cyclePlanKey=null;
     try{await this.stopPhysical();}catch(e){this.failure(e);throw e;}finally{this.releaseLock?.();this.releaseLock=null;this.onState();}
   }
   async disconnect(){
@@ -547,7 +679,26 @@ let game=null, stored=read(KEYS.game), route='home', selecting=null, checkinStep
 let prefs=DEFAULTS, savedCal=null;
 const storedSettings=read(KEYS.settings);
 try{prefs=settings(storedSettings?.config||{});if(storedSettings?.calibration)savedCal=calibration(storedSettings.calibration);}catch{prefs=settings();}
-const hw=new Hardware({onState:()=>updateVitals(),onEdge:(sequence,meta)=>edge(sequence,meta),onError:text=>{showAlert(text);message(text);save();updateVitals();}});
+const hw=new Hardware({
+  onState:()=>updateVitals(),
+  onEdge:(sequence,meta)=>edge(sequence,meta),
+  onTreatment:plan=>{
+    // The programme is secret during play, but every chosen sequence is
+    // recorded for the final export; a reload deterministically picks the
+    // same treatment for this appointment and completed-edge count.
+    if(game&&!game.s.preview&&game.s.phase==='running')game.record('treatment','',{
+      cycle:plan.ordinal,stage:plan.stage,style:plan.style,
+      pattern:plan.opossumPattern,rampSeconds:plan.rampSeconds,
+      patternSpeedSeconds:plan.patternSpeedSeconds,phaseOffset:plan.phaseOffset,
+      startPercent:plan.startPercent,
+    });
+  },
+  onError:text=>{showAlert(text);message(text);save();updateVitals();}
+});
+function currentVisit(){
+  if(!game)return null;
+  return {id:game.s.id,nurse:game.s.nurse,day:game.s.day,difficulty:game.s.difficulty,stage:game.s.stage};
+}
 function message(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('toast').hidden=true,6000);}
 function showAlert(text){$('alert').textContent=text||'';$('alert').hidden=!text;}
 function save(){
@@ -702,14 +853,14 @@ async function begin(){
   await loadHardware();
   try{hw.ready();}catch(e){message(e.message);await openSettings();return;}
   game.beginStage();
-  try{await hw.run({restore:restoreEngine||{edgeCount:game.s.count},pattern:STAGES[game.s.stage].pattern,count:game.s.count});restoreEngine=null;}catch(e){game.s.phase='scene';showAlert(e.message);save();render();return;}
+  try{await hw.run({restore:restoreEngine||{edgeCount:game.s.count},pattern:STAGES[game.s.stage].pattern,count:game.s.count,visit:currentVisit()});restoreEngine=null;}catch(e){game.s.phase='scene';showAlert(e.message);save();render();return;}
   armBackGuard();void requestWake();save();render();
 }
 async function resume(){
   if(!game||game.s.phase!=='running')return;
   if(game.s.preview){previewPaused=false;render();return;}
   if(!savedCal||calDirty){await openSettings();return;}
-  await loadHardware();try{await hw.run({restore:restoreEngine||{edgeCount:game.s.count},pattern:STAGES[game.s.stage].pattern,count:game.s.count});restoreEngine=null;showAlert('');armBackGuard();void requestWake();save();render();}catch(e){showAlert(e.message);await openSettings();}
+  await loadHardware();try{await hw.run({restore:restoreEngine||{edgeCount:game.s.count},pattern:STAGES[game.s.stage].pattern,count:game.s.count,visit:currentVisit()});restoreEngine=null;showAlert('');armBackGuard();void requestWake();save();render();}catch(e){showAlert(e.message);await openSettings();}
 }
 async function request(){
   if(!game||game.s.phase!=='running'||game.s.count===0||game.s.lastRequest===game.s.count)return;
@@ -865,9 +1016,9 @@ fillSettings();render(true);
 <label>Half contraction<input id="cal-half" type="number" step="0.01" inputmode="decimal"><button type="button" data-capture="half">Capture now</button></label>
 <label>Full contraction<input id="cal-full" type="number" step="0.01" inputmode="decimal"><button type="button" data-capture="full">Capture now</button></label>
 </div><div class="row"><button type="button" id="save-calibration" class="button primary">Save calibration</button><button type="button" id="import-calibration" class="button secondary">Copy CTMP calibration</button></div><p id="cal-saved" class="note">No calibration saved for SUC yet.</p><div class="two"><label>Cutoff pressure · kPa<input name="threshold" type="number" step="0.1" required></label><label>Reset pressure · kPa<input name="resetThreshold" type="number" step="0.1" required></label></div></fieldset>
-<fieldset><legend>Session settings</legend><div class="two"><label>Starting level · %<input name="startPercent" type="number" min="0" max="100" required></label><label>Ramp time · seconds<input name="rampSeconds" type="number" min="1" max="3600" required></label></div><p class="note">A fresh ramp begins after recovery. Opossum’s starting level is a fraction of each channel maximum.</p><div class="two" id="channel-settings"><label>Channel A maximum · %<input name="maxPercentA" type="number" min="0" max="100" required></label><label>Channel B maximum · %<input name="maxPercentB" type="number" min="0" max="100" required></label></div><div class="two"><label>Recovery minimum · seconds<input name="recoveryMinSeconds" type="number" min="1" max="300" required></label><label>Recovery maximum · seconds<input name="recoveryMaxSeconds" type="number" min="1" max="300" required></label></div><label class="check"><input name="adaptiveEnabled" type="checkbox">Adapt recovery after repeated short phases</label><details><summary>Adaptive recovery details</summary><div class="two"><label>Shorter than · seconds<input name="shortPhaseSeconds" type="number" min="1" max="120" step="0.5"></label><label>Consecutive short phases<input name="shortPhaseCount" type="number" min="1" max="20"></label><label>Stable at least · seconds<input name="stablePhaseSeconds" type="number" min="1" max="600"></label><label>Stable phases to reduce recovery<input name="stablePhaseCount" type="number" min="1" max="20"></label><label>Maximum recovery multiplier<input name="adaptiveMaxMultiplier" type="number" min="1" max="32"></label></div></details>
-<div id="pattern-settings"><label class="check"><input name="chapterPatterns" type="checkbox">Use the chapter’s Opossum pattern</label><p class="note">Only pattern selection changes with the room. Your channel limits, ramp, cutoff and recovery rules stay in force.</p><label>Manual pattern<select name="opossumPattern"><option value="synchronized">Together</option><option value="alternating">Alternating · A rises as B falls</option><option value="offset-wave">Offset wave · shifted waves</option><option value="pulse">Pulse · both channels together</option><option value="custom">Custom wave</option></select></label><div class="two"><label>Full pattern cycle · seconds<input name="patternSpeedSeconds" type="number" min="0.4" max="30" step="0.1"></label><label>B shift · fraction of a cycle<input name="phaseOffset" type="number" min="0" max="1" step="0.05"></label><label>Channel A floor · %<input name="patternMinA" type="number" min="0" max="100"></label><label>Channel B floor · %<input name="patternMinB" type="number" min="0" max="100"></label></div><p class="note">A shift of 0.25 means a quarter-cycle. 0.5 makes the waves opposite. Floors do not affect Together mode.</p></div></fieldset>
-<div class="sticky-save"><button type="submit" class="button primary">Save settings</button><button type="button" id="disconnect" class="button secondary">Disconnect devices</button></div></form><p class="fineprint">SUC 1.1 · Fictional interactive story, not medical care. Settings and visits stay in this browser. Clearing site data removes them; CTMP uses separate records.</p></dialog>
+<fieldset><legend>Session settings</legend><label class="check"><input name="randomTreatment" type="checkbox">Let the nurse vary each treatment cycle</label><p class="note">New combinations of ramps and patterns are chosen after each registered edge. Her style and the day’s circumstances influence the surprises. Your configured power caps, Civet cutoff and automatic recovery always apply. Switch this off to use the fixed setup below.</p><div class="two"><label>Starting level · %<input name="startPercent" type="number" min="0" max="100" required></label><label>Ramp time · seconds<input name="rampSeconds" type="number" min="1" max="3600" required></label></div><p class="note">A fresh ramp begins after recovery. Opossum’s starting level is a fraction of each channel maximum.</p><div class="two" id="channel-settings"><label>Channel A maximum · %<input name="maxPercentA" type="number" min="0" max="100" required></label><label>Channel B maximum · %<input name="maxPercentB" type="number" min="0" max="100" required></label></div><div class="two"><label>Recovery minimum · seconds<input name="recoveryMinSeconds" type="number" min="1" max="300" required></label><label>Recovery maximum · seconds<input name="recoveryMaxSeconds" type="number" min="1" max="300" required></label></div><label class="check"><input name="adaptiveEnabled" type="checkbox">Adapt recovery after repeated short phases</label><details><summary>Adaptive recovery details</summary><div class="two"><label>Shorter than · seconds<input name="shortPhaseSeconds" type="number" min="1" max="120" step="0.5"></label><label>Consecutive short phases<input name="shortPhaseCount" type="number" min="1" max="20"></label><label>Stable at least · seconds<input name="stablePhaseSeconds" type="number" min="1" max="600"></label><label>Stable phases to reduce recovery<input name="stablePhaseCount" type="number" min="1" max="20"></label><label>Maximum recovery multiplier<input name="adaptiveMaxMultiplier" type="number" min="1" max="32"></label></div></details>
+<div id="pattern-settings"><label class="check"><input name="chapterPatterns" type="checkbox">Use the room’s Opossum pattern when nurse variation is off</label><p class="note">The manual pattern below is a fallback. Nurse variation changes the pattern and ramp for each cycle, not your maximum channel strength or cutoff.</p><label>Manual pattern<select name="opossumPattern"><option value="synchronized">Together</option><option value="alternating">Alternating · A rises as B falls</option><option value="offset-wave">Offset wave · shifted waves</option><option value="pulse">Pulse · both channels together</option><option value="custom">Custom wave</option></select></label><div class="two"><label>Full pattern cycle · seconds<input name="patternSpeedSeconds" type="number" min="0.4" max="30" step="0.1"></label><label>B shift · fraction of a cycle<input name="phaseOffset" type="number" min="0" max="1" step="0.05"></label><label>Channel A floor · %<input name="patternMinA" type="number" min="0" max="100"></label><label>Channel B floor · %<input name="patternMinB" type="number" min="0" max="100"></label></div><p class="note">A shift of 0.25 means a quarter-cycle. 0.5 makes the waves opposite. Floors do not affect Together mode.</p></div></fieldset>
+<div class="sticky-save"><button type="submit" class="button primary">Save settings</button><button type="button" id="disconnect" class="button secondary">Disconnect devices</button></div></form><p class="fineprint">SUC 1.2 · Fictional interactive story, not medical care. Settings and visits stay in this browser. Clearing site data removes them; CTMP uses separate records.</p></dialog>
 <dialog id="journal-dialog" class="sheet"><div class="sheet-head"><div><span class="eyebrow">YOUR OBSERVATIONS</span><h2>Appointment journal</h2></div><button class="close-button" data-close="journal-dialog" aria-label="Close journal">×</button></div><div id="journal-content"></div></dialog>
 <dialog id="stop-dialog" class="small-dialog"><span class="eyebrow">OUTPUT PAUSED</span><h2>You’re in control.</h2><p>The equipment is paused. You can return to your appointment or end the collection early.</p><div class="stack"><p class="note">If an accidental orgasm occurred, use the dedicated “I came” button during the appointment. This ends the game as a loss.</p><button data-end="stopped" class="button secondary">End appointment without finishing</button><button data-close="stop-dialog" class="button quiet">Keep appointment paused</button></div></dialog>
 <div id="toast" class="toast" role="status" hidden></div>
