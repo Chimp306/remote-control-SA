@@ -116,7 +116,7 @@ function finalizeSessionData(reason = '') {
 function downloadSessionData(format = 'csv') {
   const data = recorder.startedAt !== null ? recorder.exportObject() : lastSessionData;
   if (!data) throw new Error('No session data is available yet.');
-  const body = format === 'json' ? JSON.stringify(data, null, 2) : new SessionRecorder().toCsv.call({ exportObject: () => data, rows: data.rows || [] });
+  const body = format === 'json' ? JSON.stringify(data, null, 2) : recorder.toCsv(data);
   const blob = new Blob([body], { type: format === 'json' ? 'application/json' : 'text/csv' });
   const url = URL.createObjectURL(blob); const a = document.createElement('a');
   a.href = url; a.download = 'ctmp-session-' + new Date().toISOString().replace(/[:.]/g,'-') + '.' + format;
@@ -824,6 +824,7 @@ if (hostPage) {
       engine.restore(recoveryCandidate.engine);
       connectionError = 'Previous session restored in paused mode. Reconnect devices, check settings, then press Resume.';
       best = Math.max(best, score(recoveryCandidate.engine.edgeCount));
+      if (recoveryCandidate.recorder) recorder.restore(recoveryCandidate.recorder);
       log('Previous session restored in paused mode.');
     } catch (error) { clearRecovery(); recoveryCandidate = null; log('Saved session recovery was invalid and was discarded.'); }
   }
