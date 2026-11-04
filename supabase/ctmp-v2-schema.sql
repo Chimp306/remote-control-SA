@@ -7,6 +7,7 @@ create table if not exists public.ctmp_v2_settings (
   password_hash text not null,
   iterations integer not null check (iterations >= 600000),
   best integer not null default 0 check (best >= 0),
+  profile jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
 create table if not exists public.ctmp_v2_owner_tokens (
