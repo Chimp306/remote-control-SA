@@ -8,7 +8,7 @@ export const SENSOR_FRESH_MS = 1000;
 export const ENGINE_DEFAULTS = Object.freeze({
   toy: 'lush', mode: 'solo', startPercent: 10, rampSeconds: 60,
   maxPercentA: 100, maxPercentB: 100,
-  recoveryMinSeconds: 20, recoveryMaxSeconds: 20,
+  cooldownSeconds: 20, recoveryMinSeconds: 20, recoveryMaxSeconds: 20,
   adaptiveEnabled: true, shortPhaseSeconds: 5, shortPhaseCount: 3,
   stablePhaseSeconds: 12, stablePhaseCount: 3, adaptiveMaxMultiplier: 8,
   opossumPattern: 'synchronized', patternSpeedSeconds: 4, phaseOffset: 0.25,
@@ -83,12 +83,14 @@ export class SessionEngine {
     if (values.maxPercentB !== undefined) next.maxPercentB = clamp(finite(values.maxPercentB, 'Channel B maximum'), 0, 100);
     if (values.rampSeconds !== undefined) next.rampSeconds = clamp(finite(values.rampSeconds, 'Ramp duration'), 0, 3600);
     if (values.cooldownSeconds !== undefined) {
-      const legacy = clamp(finite(values.cooldownSeconds, 'Recovery duration'), 1, 300);
+      const legacy = clamp(finite(values.cooldownSeconds, 'Cooldown duration'), 10, 30);
+      next.cooldownSeconds = legacy;
       next.recoveryMinSeconds = legacy;
       next.recoveryMaxSeconds = legacy;
     }
     if (values.recoveryMinSeconds !== undefined) next.recoveryMinSeconds = clamp(finite(values.recoveryMinSeconds, 'Minimum recovery'), 1, 300);
     if (values.recoveryMaxSeconds !== undefined) next.recoveryMaxSeconds = clamp(finite(values.recoveryMaxSeconds, 'Maximum recovery'), 1, 300);
+    if (values.recoveryMinSeconds !== undefined || values.recoveryMaxSeconds !== undefined) next.cooldownSeconds = next.recoveryMinSeconds;
     if (next.recoveryMaxSeconds < next.recoveryMinSeconds) throw new RangeError('Maximum recovery must be at least the minimum recovery.');
     if (values.adaptiveEnabled !== undefined) next.adaptiveEnabled = Boolean(values.adaptiveEnabled);
     if (values.shortPhaseSeconds !== undefined) next.shortPhaseSeconds = clamp(finite(values.shortPhaseSeconds, 'Short-phase threshold'), 1, 120);
@@ -309,7 +311,7 @@ export class SessionEngine {
     }
     const nextPattern = pattern === undefined ? this.pattern : pattern;
     if (!PATTERNS.has(nextPattern)) throw new TypeError('Unsupported pattern.');
-    const legacy = cooldownSeconds === undefined ? null : clamp(finite(cooldownSeconds, 'Recovery duration'), 1, 300);
+    const legacy = cooldownSeconds === undefined ? null : clamp(finite(cooldownSeconds, 'Cooldown duration'), 10, 30);
     const nextMin = recoveryMinSeconds === undefined ? (legacy ?? this.config.recoveryMinSeconds) : clamp(finite(recoveryMinSeconds, 'Minimum recovery'), 1, 300);
     const nextMax = recoveryMaxSeconds === undefined ? (legacy ?? this.config.recoveryMaxSeconds) : clamp(finite(recoveryMaxSeconds, 'Maximum recovery'), 1, 300);
     if (nextMax < nextMin) throw new RangeError('Maximum recovery must be at least the minimum recovery.');
@@ -319,6 +321,7 @@ export class SessionEngine {
     this.pattern = this.config.toy === 'vacuglide' ? 'steady' : nextPattern;
     this.config.recoveryMinSeconds = nextMin;
     this.config.recoveryMaxSeconds = nextMax;
+    this.config.cooldownSeconds = legacy ?? nextMin;
     this.tick();
     this._emit('state');
     return this.snapshot();
@@ -330,7 +333,7 @@ export class SessionEngine {
     const cycleElapsedSeconds = this.phase === 'running' && this._cycleStartedAt !== null ? Math.max(0, (at - this._cycleStartedAt) / 1000) : this.lastCycleSeconds;
     return {
       ...this.config,
-      cooldownSeconds: this.recoverySeconds,
+      cooldownSeconds: this.config.cooldownSeconds,
       phase: this.phase, pressure: this.pressure, pressureAt: this.pressureAt,
       sensorFresh: this._fresh(at), edgeCount: this.edgeCount, outputPercent: this.outputPercent,
       outputPercentA: this.outputPercentA, outputPercentB: this.outputPercentB,
