@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { SessionEngine } from '../app/engine.js';
 import { runDiagnostics } from '../app/diagnostics.js';
+import { PressureFilter, SessionRecorder } from '../app/session-tools.js';
 import {
   PATTERNS, PHASES, isToken, isClient, isCode, normalizeCode,
   sanitizeState, sanitizeCommand, hash, randomToken, randomCode,
@@ -60,8 +61,9 @@ test('public telemetry is an explicit projection, never the source object', () =
     'resetThreshold', 'edgeCount', 'newRecord', 'outputPercent', 'guestPercent',
     'outputPercentA', 'outputPercentB', 'guestPercentA', 'guestPercentB',
     'maxPercentA', 'maxPercentB',
-    'pattern', 'cooldownSeconds', 'cooldownEndsAt', 'remainingCooldown',
-    'epoch', 'reason',
+    'pattern', 'cooldownSeconds', 'recoveryMinSeconds', 'recoveryMaxSeconds',
+    'recoveryBaseSeconds', 'recoverySeconds', 'adaptiveMultiplier', 'lastCycleSeconds',
+    'cooldownEndsAt', 'remainingCooldown', 'epoch', 'reason',
   ].sort());
   assert.equal(state.toy, 'lush');
   assert.equal(state.mode, 'guest');
@@ -132,7 +134,7 @@ test('host telemetry clamps display ranges and enforces the selected toy pattern
   assert.equal(state.resetThreshold, -100);
   assert.equal(state.edgeCount, 3);
   assert.equal(state.cooldownSeconds, 30);
-  assert.equal(state.remainingCooldown, 30);
+  assert.equal(state.remainingCooldown, 999);
   assert.equal(state.reason.length, 120);
   assert.equal(state.pattern, 'steady');
   assert.equal(state.epoch, 0);
@@ -826,10 +828,13 @@ async function makeHostHarness() {
   const windowListeners = new Map();
   const documentListeners = new Map();
   const scope = {
-    UI: FakeUI, SessionEngine, Backend: FakeBackend, CivetDevice: FakeDevice,
+    UI: FakeUI, SessionEngine, PressureFilter, SessionRecorder,
+    loadProfile: () => null, saveProfile: () => true, loadRecovery: () => null, saveRecovery: () => true, clearRecovery: () => true, loadLastSessionData: () => null, saveLastSessionData: () => true,
+    Backend: FakeBackend, CivetDevice: FakeDevice,
     LushDevice: FakeDevice, OpossumDevice: FakeDevice, VacuGlideDevice: FakeDevice,
     runDiagnostics: () => [], Date, crypto: globalThis.crypto,
-    location: { pathname: '/', origin: 'https://ctmp.uk' }, navigator: {},
+    location: { pathname: '/', origin: 'https://ctmp.uk', href: 'https://ctmp.uk/' }, navigator: {},
+    history: { pushState() {} }, Blob: globalThis.Blob, URL: globalThis.URL,
     document: { hidden: false, addEventListener(name, listener) { if (!documentListeners.has(name)) documentListeners.set(name, []); documentListeners.get(name).push(listener); } },
     window: { addEventListener(name, listener) { if (!windowListeners.has(name)) windowListeners.set(name, []); windowListeners.get(name).push(listener); } },
     localStorage: storage(), sessionStorage: storage(),
