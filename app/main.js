@@ -519,7 +519,7 @@ async function syncHost() {
     if (zero && engine.phase !== 'running') engine.setGuestOutput(zeroGuestOutput(engine.config.toy));
     else {
       const levels = commandLevels(command);
-      engine.setGuestOutput({ percent: command.percent, ...(engine.config.toy === 'opossum' ? { percentA: levels.a, percentB: levels.b } : {}), pattern: command.pattern, recoveryMinSeconds: command.recoveryMinSeconds, recoveryMaxSeconds: command.recoveryMaxSeconds });
+      engine.setGuestOutput({ percent: command.percent, ...(engine.config.toy === 'opossum' ? { percentA: levels.a, percentB: levels.b } : {}), pattern: command.pattern, ...(command.cooldownSeconds !== undefined ? { cooldownSeconds: command.cooldownSeconds } : { recoveryMinSeconds: command.recoveryMinSeconds, recoveryMaxSeconds: command.recoveryMaxSeconds }) });
     }
   } catch (error) {
     if (!remote || remote.sessionId !== sessionId) return;
