@@ -178,9 +178,7 @@ class Appointment {
     if(this.s.phase!=='waiting'||!['paperwork','door','board'].includes(id)) return false;
     this.s.flags[id]=true;
     const lines={paperwork:'The final page contains a section headed Requests for review. It is separate from the printed programme. You keep that distinction in mind.',door:'Through the inner door you hear a single quiet exchange: “The room is ready.” “And the file?” A pause. “That depends on who is asking.”',board:'The board lists departments, not appointment lengths. Someone has carefully removed the column that might have told you more.'};
-    this.record('narration',this.s.currentText); this.record('choice',lines[id],{choice:id}); this.s.currentText=this.nurse.intro+'
-
-'+lines[id]; this.s.phase='intro';return true;
+    this.record('narration',this.s.currentText); this.record('choice',lines[id],{choice:id}); this.s.currentText=this.nurse.intro+'\n\n'+lines[id]; this.s.phase='intro';return true;
   }
   introduction(id){
     if(this.s.phase!=='intro'||!['questions','observe'].includes(id))return false;
@@ -192,9 +190,7 @@ class Appointment {
     this.s.choiceDone=true;this.s.flags[id]=true;this.s.choices.push({stage:this.s.stage,id,count:this.s.count});
     this.s.currentText=REPLIES[id];this.record('choice',this.s.currentText,{choice:id});
     if(id==='review'||id==='discharge')this.request(true);
-    if(id==='paperwork'&&this.s.flags.paperwork)this.s.currentText+='
-
-“You read the final page in the waiting room,” she says. “Most people do not.”';
+    if(id==='paperwork'&&this.s.flags.paperwork)this.s.currentText+='\n\n“You read the final page in the waiting room,” she says. “Most people do not.”';
     return true;
   }
   beginStage(){
@@ -273,11 +269,8 @@ function updateRecords(game,storage=globalThis.localStorage){
 }
 function csv(events){
   const fields=['type','at','count','elapsedMs','cycleSeconds','intervalSeconds','powerA','powerB','pressure','recoverySeconds','delta','text'];
-  const safe=value=>{let t=value==null?'':String(value);if(/^[=+@\-	
-]/.test(t))t="'"+t;return '"'+t.replaceAll('"','""')+'"';};
-  return fields.join(',')+'
-'+events.map(row=>fields.map(k=>safe(row[k])).join(',')).join('
-');
+  const safe=value=>{let t=value==null?'':String(value);if(/^[=+@\-\t\r]/.test(t))t="'"+t;return '"'+t.replaceAll('"','""')+'"';};
+  return fields.join(',')+'\r\n'+events.map(row=>fields.map(k=>safe(row[k])).join(',')).join('\r\n');
 }
 
 // ---- hardware.js ----
