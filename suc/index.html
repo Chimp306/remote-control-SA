@@ -129,7 +129,7 @@ const ART={"assessment":"data:image/webp;base64,UklGRuCDAQBXRUJQVlA4INSDAQCQ1Qad
 
 // ---- content.js ----
 // SUC Clinic: authored fiction. No story instruction can command hardware.
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 const DIFFICULTIES = {
   easy: {name:'Routine Collection',label:'Easy',min:105,max:135,copy:'A shorter appointment. The staff are still rather thorough.'},
   medium: {name:'Extended Collection',label:'Medium',min:135,max:165,copy:'More assessments, more opportunities for your nurse to take an interest.'},
@@ -2094,6 +2094,165 @@ function scalarTreatmentFactor(elapsedMs,plan){
 }
 
 
+// ---- connections.js ----
+// SUC connection ownership only. Protocol writes and output limits stay in the
+// existing shared drivers. A cancelled attempt never owns the next connection.
+const clinicBluetoothLeases=new WeakMap();
+const clinicConnectionNames={civet:'Civet',opossum:'Opossum',lush:'Lush'};
+function clinicConnectionAbort(){const error=new Error('Connection cancelled.');error.name='AbortError';return error;}
+
+class ClinicBluetoothConnection {
+  constructor(Driver,{name,onStatus=()=>{},onPressure=()=>{},onReset=()=>{},now=()=>Date.now(),bluetooth=globalThis.navigator?.bluetooth,connectTimeoutMs=15000,firstSampleTimeoutMs=5000,...options}={}){
+    Object.assign(this,{Driver,name,onStatus,onPressure,onReset,now,bluetooth,connectTimeoutMs,firstSampleTimeoutMs,options});
+    this._driver=null;this._owner=null;this._pending=null;this._lastDevice=null;this._readingAt=null;this._staleReported=false;this._disconnectPromise=null;this._message='Not connected';
+  }
+  get connected(){return !!this._driver?.connected;}
+  get connecting(){return !!(this._pending||this._disconnectPromise);}
+  get fresh(){const at=this.now();return this.connected&&Number.isFinite(this._readingAt)&&at>=this._readingAt&&at-this._readingAt<=1000;}
+  sensorState(){
+    const connected=this.connected,fresh=this.fresh,connecting=this.connecting;
+    const message=connecting?this._message:fresh?'Civet connected · live pressure':connected?'Civet connected, but no fresh readings. Reconnect Civet.':this._message;
+    return {connected,fresh,connecting,message};
+  }
+  _emit(state,message,extra={}){
+    this._message=message;
+    try{this.onStatus({state,connected:this.connected,message,...extra});}catch{/* Observer only. */}
+  }
+  _resetReading(){this._readingAt=null;this._staleReported=false;try{this.onReset();}catch{/* Observer only. */}}
+  _owns(attempt){return this._owner===attempt&&!attempt.retired;}
+  _claim(attempt,device){
+    if(!this._owns(attempt))throw clinicConnectionAbort();
+    attempt.device=device;this._lastDevice=device;
+    if(device&&typeof device==='object')clinicBluetoothLeases.set(device,attempt);
+    return device;
+  }
+  _retire(attempt){
+    if(!attempt)return;
+    // Each attempt has its own driver, so late async assignments cannot change
+    // the current driver. Only the current lease may disconnect a shared GATT.
+    if(!attempt.retired){
+      attempt.retired=true;
+      if(!attempt.device||clinicBluetoothLeases.get(attempt.device)===attempt){
+        try{if(attempt.driver?._detach)attempt.driver._detach();else Promise.resolve(attempt.driver?.disconnect()).catch(()=>{});}catch{/* Best effort teardown. */}
+      }
+    }
+    if(attempt.device&&clinicBluetoothLeases.get(attempt.device)===attempt&&attempt.device.gatt?.connected){
+      try{attempt.device.gatt.disconnect();}catch{/* A later retry can use the retained permission. */}
+    }
+  }
+  _settle(attempt,error=null){
+    if(this._pending!==attempt)return;
+    clearTimeout(attempt.timer);this._pending=null;
+    if(error){
+      this._retire(attempt);this._owner=null;this._driver=null;this._resetReading();
+      this._emit(error.name==='AbortError'?'disconnected':'error',error.message,{error});attempt.reject(error);
+    }else{
+      this._emit('connected',this.name==='civet'?'Civet connected · live pressure':attempt.connectedMessage||`${clinicConnectionNames[this.name]} connected.`);
+      attempt.resolve(this);
+    }
+  }
+  _status(attempt,status){
+    if(!this._owns(attempt))return;
+    if(status.state==='connected'){
+      attempt.connectedMessage=status.message;
+      if(this.name==='civet'&&!this.fresh)this._emit('connecting','Civet connected. Waiting for live pressure…');
+      // Connection completion, including the first pressure frame, is owned by
+      // _complete. Do not call an unresponsive transport a successful retry.
+      return;
+    }
+    if(status.state==='error'||status.state==='disconnected'){
+      this._resetReading();
+      if(this._pending===attempt){this._settle(attempt,status.error||new Error(status.message||'Bluetooth connection was lost.'));return;}
+    }
+    this._emit(status.state,status.message,status.error?{error:status.error}:{});
+  }
+  _pressure(attempt,value,at){
+    if(!this._owns(attempt)||!Number.isFinite(value)||!Number.isFinite(at)||at>this.now()||(this._readingAt!==null&&at<this._readingAt))return;
+    const wasStale=this._staleReported;this._readingAt=at;this._staleReported=false;
+    try{this.onPressure(value,at);}catch{/* Observer only. */}
+    if(attempt.ready&&this._pending===attempt&&this.fresh)this._settle(attempt);
+    else if(wasStale&&this.fresh)this._emit('connected','Civet connected · live pressure');
+  }
+  _complete(attempt){
+    if(!this._owns(attempt)){this._retire(attempt);return;}
+    attempt.ready=true;
+    if(this.name!=='civet'||this.fresh){this._settle(attempt);return;}
+    clearTimeout(attempt.timer);
+    this._emit('connecting','Civet connected. Waiting for live pressure…');
+    attempt.timer=setTimeout(()=>this._settle(attempt,new Error('Civet connected but sent no pressure readings. Check the sensor, then reconnect Civet.')),this.firstSampleTimeoutMs);
+  }
+  _begin(automatic){
+    if(this._pending)return this._pending.promise;
+    if(this._disconnectPromise)return Promise.reject(new Error('Disconnection is still finishing. Try Connect again.'));
+    if(this.connected&&(this.name!=='civet'||this.fresh))return Promise.resolve(this);
+    this._retire(this._owner);this._owner=null;this._driver=null;this._resetReading();
+    const attempt={ready:false,retired:false,device:null,driver:null,timer:null};
+    attempt.promise=new Promise((resolve,reject)=>Object.assign(attempt,{resolve,reject}));
+    this._owner=attempt;this._pending=attempt;
+    const bluetooth=this.bluetooth;
+    const guardedBluetooth=bluetooth?.requestDevice?{
+      // Call requestDevice synchronously: the browser's click activation must
+      // reach the chooser before any permission lookup or teardown await.
+      requestDevice:options=>Promise.resolve(bluetooth.requestDevice(options)).then(device=>this._claim(attempt,device)),
+    }:bluetooth;
+    attempt.driver=new this.Driver({...this.options,bluetooth:guardedBluetooth,now:this.now,onStatus:status=>this._status(attempt,status),onPressure:(value,at)=>this._pressure(attempt,value,at)});
+    this._driver=attempt.driver;
+    this._emit('connecting',`${automatic?'Reconnecting':'Connecting'} ${clinicConnectionNames[this.name]}…`);
+    attempt.timer=setTimeout(()=>this._settle(attempt,new Error(`${clinicConnectionNames[this.name]} connection timed out. Try Connect again.`)),this.connectTimeoutMs);
+    const start=device=>{
+      if(!this._owns(attempt))throw clinicConnectionAbort();
+      if(device)this._claim(attempt,device);
+      // _connect contains the unchanged discovery, notification, zero-output
+      // handshake and protocol commands. New attempts never reuse its queue.
+      return typeof attempt.driver._connect==='function'?attempt.driver._connect(device||null):attempt.driver.connect();
+    };
+    let work;
+    try{
+      if(this._lastDevice)work=start(this._lastDevice);
+      else if(automatic){
+        work=Promise.resolve(typeof bluetooth?.getDevices==='function'?bluetooth.getDevices():[]).then(devices=>{
+          if(!this._owns(attempt))throw clinicConnectionAbort();
+          const device=devices.find(item=>this.name==='civet'?(item?.name==='47L124000'||item?.name?.startsWith('Civet')):this.name==='opossum'?(item?.name==='47L127000'||item?.name?.startsWith('Opossum')):(item?.name?.startsWith('LVS-')||item?.name?.startsWith('LOVE-')));
+          if(!device)throw new Error(`${clinicConnectionNames[this.name]} permission is unavailable. Press Connect.`);
+          return start(device);
+        });
+      }else work=start(null);
+    }catch(error){work=Promise.reject(error);}
+    Promise.resolve(work).then(()=>this._complete(attempt),error=>{
+      if(this._pending===attempt)this._settle(attempt,error);else this._retire(attempt);
+    });
+    return attempt.promise;
+  }
+  connect(){return this._begin(false);}
+  reconnect(){return this._begin(true);}
+  cancelPending(){if(this._pending)this._settle(this._pending,clinicConnectionAbort());}
+  checkHealth(){
+    if(this.name!=='civet'||!this.connected||this.connecting||this.fresh||this._staleReported)return;
+    this._staleReported=true;this._emit('error','Civet pressure readings stopped. Reconnecting without resuming output.');
+  }
+  stop(){
+    if(!this._driver?.stop)return Promise.resolve();
+    return Promise.resolve(this._driver.stop()).then(result=>{if(result?.sent===false)throw new Error('Output stop was not confirmed.');return result;});
+  }
+  setOutput(value){return this._driver?.setOutput(value)??Promise.reject(new Error('Device is not connected.'));}
+  setLevels(value){return this._driver?.setLevels(value)??Promise.reject(new Error('Device is not connected.'));}
+  zero(){this._resetReading();return this._driver?.zero()??Promise.reject(new Error('Civet is not connected.'));}
+  disconnect(){
+    this.cancelPending();
+    if(this._disconnectPromise)return this._disconnectPromise;
+    const owner=this._owner;
+    if(!owner){this._emit('disconnected',`${clinicConnectionNames[this.name]} disconnected.`);return Promise.resolve();}
+    this._resetReading();
+    const work=Promise.resolve(owner.driver.disconnect()).finally(()=>{
+      this._retire(owner);
+      if(this._owner===owner){this._owner=null;this._driver=null;}
+      this._disconnectPromise=null;this._emit('disconnected',`${clinicConnectionNames[this.name]} disconnected.`);
+    });
+    this._disconnectPromise=work;this._emit('disconnecting',`Disconnecting ${clinicConnectionNames[this.name]}…`);return work;
+  }
+}
+
+
 // ---- hardware.js ----
 // UI-independent adapter around CTMP's existing device drivers and session engine.
 // No pairing or output on import. No network service, remote links or AI controls.
@@ -2119,8 +2278,8 @@ function calibration(values){
   return out;
 }
 class Hardware {
-  constructor({onState=()=>{},onEdge=()=>{},onError=()=>{},onTreatment=()=>{},modules=null,now=()=>Date.now(),visible=()=>!globalThis.document?.hidden}={}){
-    Object.assign(this,{onState,onEdge,onError,onTreatment,modules,now,visible});this.visit=null;this.cyclePlan=null;this.cyclePlanKey=null;this.engine=null;this.drivers=null;this.config=settings();this.raw=null;this.rawAt=null;this.blocked=true;this.initialized=false;this.statuses={};this.retries={};this.timers={};this.wasConnected={};this.manual=false;this.generation=0;this.releaseLock=null;this.stopError='';this.beforePressure=null;this.faultSeen=false;
+  constructor({onState=()=>{},onEdge=()=>{},onError=()=>{},onTreatment=()=>{},modules=null,connectionOptions={},now=()=>Date.now(),visible=()=>!globalThis.document?.hidden}={}){
+    Object.assign(this,{onState,onEdge,onError,onTreatment,modules,connectionOptions,now,visible});this.visit=null;this.cyclePlan=null;this.cyclePlanKey=null;this.engine=null;this.drivers=null;this.config=settings();this.raw=null;this.rawAt=null;this.civetStableSince=null;this.blocked=true;this.initialized=false;this.statuses={};this.retries={};this.timers={};this.wasConnected={};this.manual=false;this.generation=0;this.releaseLock=null;this.lockRequest=null;this._stopPromise=null;this.stopError='';this.beforePressure=null;this.faultSeen=false;this.disconnecting=false;
   }
   async load(){
     if(this.initialized)return this;
@@ -2150,21 +2309,30 @@ class Hardware {
       }
     }
     this.engine=new SUCEngine({now:this.now,onOutput:(v,p)=>this.output(v,p),onEvent:e=>this.event(e)});
-    this.drivers={civet:new m.CivetDevice({onPressure:(p,t)=>this.pressure(p,t),onStatus:s=>this.status('civet',s)}),lush:new m.LushDevice({onStatus:s=>this.status('lush',s)}),opossum:new m.OpossumDevice({onStatus:s=>this.status('opossum',s)}),vacuglide:new m.VacuGlideDevice({onStatus:s=>this.status('vacuglide',s)})};
+    const bluetoothDriver=(Driver,name)=>new ClinicBluetoothConnection(Driver,{...this.connectionOptions,name,now:this.now,onStatus:s=>this.status(name,s),...(name==='civet'?{onPressure:(p,t)=>this.pressure(p,t),onReset:()=>this.resetPressure()}:{})});
+    this.drivers={civet:bluetoothDriver(m.CivetDevice,'civet'),lush:bluetoothDriver(m.LushDevice,'lush'),opossum:bluetoothDriver(m.OpossumDevice,'opossum'),vacuglide:new m.VacuGlideDevice({onStatus:s=>this.status('vacuglide',s)})};
     this.initialized=true;this.engine.configure({...this.config,mode:'solo'});return this;
   }
   snapshot(){return this.engine?.snapshot()||{phase:'idle',outputPercent:0,edgeCount:0};}
+  sensorState(){const state=this.drivers?.civet.sensorState()||{connected:false,fresh:false,connecting:false,message:'Connect Civet to receive live pressure.'};return this._stopPromise||this.disconnecting?{...state,connecting:true}:state;}
+  connecting(name){return !!(this._stopPromise||this.disconnecting||this.drivers?.[name]?.connecting||this.drivers?.[name]?._connectPromise);}
+  resetPressure(){this.raw=null;this.rawAt=null;this.civetStableSince=null;this.beforePressure=null;if(this.engine){this.engine.pressure=null;this.engine.pressureAt=null;}}
   async connect(name,token){
     if(!this.initialized)throw Error('Device tools are still loading. Try Connect again.');
     if(!this.drivers[name])throw Error('Unknown device.');
-    this.manual=false;const gen=this.generation;
+    if(this._stopPromise)throw Error('Output is still stopping. Try Connect again when it finishes.');
+    if(this.disconnecting)throw Error('Disconnection is still finishing. Try Connect again.');
+    this.manual=false;clearTimeout(this.timers[name]);delete this.timers[name];this.retries[name]=0;const gen=this.generation;
+    this.blocked=true;this.engine?.pause('Paused for equipment connection.');
+    // Do not await before connect: a first-time Bluetooth chooser needs the
+    // originating click's user activation. Retried devices reuse permission.
     await this.drivers[name].connect(token);
-    if(gen!==this.generation){await this.drivers[name].stop?.();return;}
+    if(gen!==this.generation){const error=Error('Connection cancelled.');error.name='AbortError';throw error;}
     this.onState();
   }
   status(name,s){
     this.statuses[name]=s;
-    if(s.connected){this.wasConnected[name]=true;this.retries[name]=0;clearTimeout(this.timers[name]);delete this.timers[name];}
+    if(s.connected&&(name!=='civet'||(this.sensorState().fresh&&!this.connecting(name)))){this.wasConnected[name]=true;if(name!=='civet')this.retries[name]=0;clearTimeout(this.timers[name]);delete this.timers[name];}
     if(['error','disconnected'].includes(s.state)&&!this.manual&&(name==='civet'||name===this.config.toy)){
       if(ACTIVE.has(this.engine?.phase)){this.blocked=true;this.engine.fault(s.message||'Connection interrupted.');void this.stopPhysical().catch(e=>this.failure(e));}
       if(this.wasConnected[name])this.reconnect(name);
@@ -2172,11 +2340,16 @@ class Hardware {
     this.onState();
   }
   reconnect(name){
-    if(this.manual||!this.visible()||this.timers[name]||!this.drivers?.[name]?.reconnect)return;
+    if(this.manual||!this.visible()||this.timers[name]||this.connecting(name)||!this.drivers?.[name]?.reconnect)return;
     const n=(this.retries[name]||0)+1;if(n>3)return;this.retries[name]=n;
-    this.timers[name]=setTimeout(async()=>{delete this.timers[name];if(this.manual)return;try{await this.drivers[name].reconnect();this.onState();}catch{this.reconnect(name);}},Math.min(5000,1000*2**(n-1)));
+    const gen=this.generation;
+    this.timers[name]=setTimeout(async()=>{delete this.timers[name];if(this.manual||gen!==this.generation||!this.visible())return;try{await this.drivers[name].reconnect();if(gen===this.generation)this.onState();}catch(error){if(error?.name!=='AbortError'&&gen===this.generation)this.reconnect(name);}},Math.min(5000,1000*2**(n-1)));
   }
   pressure(p,at=this.now()){
+    const continuous=Number.isFinite(this.rawAt)&&at>=this.rawAt&&at-this.rawAt<=1000;
+    this.civetStableSince=continuous?(this.civetStableSince??at):at;
+    // One isolated frame must not reset every retry and create a reconnect loop.
+    if(at-this.civetStableSince>=5000)this.retries.civet=0;
     this.raw=p;this.rawAt=at;this.beforePressure=this.snapshot();
     // Feed raw sensor data to cutoff logic; display smoothing must not delay cutoff.
     this.engine?.updatePressure(p,at);this.onState();
@@ -2217,19 +2390,25 @@ class Hardware {
     if(!this.initialized)throw Error('Device tools have not loaded.');
     if(!this.visible())throw Error('Open the control page before starting.');
     if(!this.drivers.civet.connected||!this.drivers[this.config.toy].connected)throw Error('Connect Civet and your selected device first.');
-    if(!this.snapshot().sensorFresh)throw Error('Wait for fresh Civet readings.');
+    if(!this.sensorState().fresh||!this.snapshot().sensorFresh)throw Error('Wait for fresh Civet readings. Reconnect Civet if readings have stopped.');
     if(this.snapshot().pressure>=this.config.resetThreshold)throw Error('Wait for the live pressure to fall below the reset level before resuming.');
   }
   async acquire(){
     if(this.releaseLock||!globalThis.navigator?.locks)return;
-    await new Promise((resolve,reject)=>{navigator.locks.request('suc-clinic-live-output',{ifAvailable:true},async lock=>{if(!lock){reject(Error('Another SUC tab controls the devices. Close it before starting here.'));return;}await new Promise(release=>{this.releaseLock=release;resolve();});}).catch(reject);});
+    await new Promise((resolve,reject)=>{
+      const request=navigator.locks.request('suc-clinic-live-output',{ifAvailable:true},async lock=>{if(!lock){reject(Error('Another SUC tab controls the devices. Close it before starting here.'));return;}await new Promise(release=>{this.releaseLock=release;resolve();});});
+      this.lockRequest=request;request.catch(reject).finally(()=>{if(this.lockRequest===request)this.lockRequest=null;});
+    });
   }
   async run({restore=null,pattern=null,count=0,visit=null}={}){
-    this.ready();await this.acquire();this.ready();
+    if(this._stopPromise||this.disconnecting)throw Error('Wait for output to finish stopping before starting.');
+    const gen=this.generation;this.ready();await this.acquire();
+    if(gen!==this.generation){this.releaseLock?.();this.releaseLock=null;const error=Error('Start cancelled.');error.name='AbortError';throw error;}
+    this.ready();
     this.visit=visit;this.cyclePlanKey=null;this.cyclePlan=null;
     if(restore&&['idle','stopped'].includes(this.engine.phase))this.engine.restore({...restore,...this.config,mode:'solo',edgeCount:count});
     if(this.config.toy==='opossum'&&pattern&&this.config.chapterPatterns)this.engine.configure({opossumPattern:pattern});
-    this.blocked=false;this.faultSeen=false;this.stopError='';
+    this.manual=false;this.blocked=false;this.faultSeen=false;this.stopError='';
     try{
       if(['paused','fault'].includes(this.engine.phase))this.engine.resume();else if(!ACTIVE.has(this.engine.phase))this.engine.start();
       if(this.engine.phase==='fault')throw Error(this.engine.reason);
@@ -2245,14 +2424,30 @@ class Hardware {
     const results=await Promise.allSettled(['lush','opossum','vacuglide'].filter(n=>this.drivers[n].connected||this.statuses[n]?.state==='error').map(n=>this.drivers[n].stop()));
     if(results.some(r=>r.status==='rejected'))throw Error('Output stop was not confirmed. Use the physical device controls.');
   }
-  async stop(){
-    this.blocked=true;this.generation++;this.manual=true;Object.values(this.timers).forEach(clearTimeout);this.timers={};this.engine?.stop();this.visit=null;this.cyclePlan=null;this.cyclePlanKey=null;
-    try{await this.stopPhysical();}catch(e){this.failure(e);throw e;}finally{this.releaseLock?.();this.releaseLock=null;this.onState();}
+  stop(){
+    if(this._stopPromise)return this._stopPromise;
+    let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});this._stopPromise=promise;
+    // Claim the stop before callbacks run. The entire physical stop and lock
+    // release owns this promise; a newer start cannot reuse its held lock.
+    (async()=>{
+      this.blocked=true;this.generation++;this.manual=true;Object.values(this.timers).forEach(clearTimeout);this.timers={};
+      for(const driver of Object.values(this.drivers||{}))driver.cancelPending?.();
+      this.engine?.stop();this.visit=null;this.cyclePlan=null;this.cyclePlanKey=null;this.onState();
+      try{await this.stopPhysical();}catch(e){this.failure(e);throw e;}finally{
+        this.releaseLock?.();this.releaseLock=null;if(this.lockRequest)await this.lockRequest.catch(()=>{});
+        if(this._stopPromise===promise)this._stopPromise=null;this.onState();
+      }
+    })().then(resolve,reject);
+    return promise;
   }
   async disconnect(){
-    let stopFailure=null;try{await this.stop();}catch(e){stopFailure=e;}
-    const results=await Promise.allSettled(Object.values(this.drivers||{}).map(d=>d.disconnect()));
-    this.onState();if(stopFailure||results.some(r=>r.status==='rejected'))throw stopFailure||Error('A disconnect could not be confirmed. Check the physical device.');
+    if(this.disconnecting)return;
+    this.disconnecting=true;this.onState();
+    try{
+      let stopFailure=null;try{await this.stop();}catch(e){stopFailure=e;}
+      const results=await Promise.allSettled(Object.values(this.drivers||{}).map(d=>d.disconnect()));
+      if(stopFailure||results.some(r=>r.status==='rejected'))throw stopFailure||Error('A disconnect could not be confirmed. Check the physical device.');
+    }finally{this.disconnecting=false;this.onState();}
   }
   async zero(){
     await this.pause('Paused for calibration.');if(!this.drivers?.civet.connected)throw Error('Connect Civet first.');await this.drivers.civet.zero();this.raw=null;this.rawAt=null;
@@ -2261,7 +2456,7 @@ class Hardware {
     if(this.config.toy!=='vacuglide'||!this.drivers?.vacuglide.connected)throw Error('Connect VacuGlide to use stroke controls.');
     return this.drivers.vacuglide.setValve(kind,open);
   }
-  tick(){this.engine?.tick();}
+  tick(){this.engine?.tick();if(!this.manual&&this.visible())this.drivers?.civet.checkHealth();}
 }
 
 
@@ -2509,7 +2704,7 @@ function momentReport({appointment,version='unknown',output=null}={}){
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clock=s=>{if(s===null||s===undefined||!Number.isFinite(s))return '—';const n=Math.max(0,Math.floor(s));return n>=3600?`${Math.floor(n/3600)}:${String(Math.floor(n/60)%60).padStart(2,'0')}:${String(n%60).padStart(2,'0')}`:`${Math.floor(n/60)}:${String(n%60).padStart(2,'0')}`;};
-let game=null, stored=read(KEYS.game), route='home', selecting=null, checkinStep=0, returning=null, previousPrescription=null, savedPrescription=null, renderKey='', previewPaused=false, restoreEngine=null, dirty=false, guard=false, wake=null, wakeBusy=false, loadPromise=null, busy=false, noticeTimer=null, lastTick=performance.now(), lastSave=0, calDirty=false;
+let game=null, stored=read(KEYS.game), route='home', selecting=null, checkinStep=0, returning=null, previousPrescription=null, savedPrescription=null, renderKey='', previewPaused=false, restoreEngine=null, dirty=false, guard=false, wake=null, wakeBusy=false, loadPromise=null, noticeTimer=null, lastTick=performance.now(), lastSave=0, calDirty=false;
 let prefs=DEFAULTS, savedCal=null;
 let journalSnapshot='';
 const outputMonitor=new OutputMonitor($('output-monitor'));
@@ -2661,15 +2856,18 @@ function render(force=false){
 function updateVitals(){
   if(!$('page'))return;
   const st=hw.snapshot(),active=['running','cooldown','settling'].includes(st.phase),live=game&&!game.s.preview;
-  $('cal-live').textContent=Number.isFinite(hw.raw)?`${hw.raw.toFixed(2)} kPa`:'— kPa';
+  const sensor=hw.sensorState(),pressureLive=sensor.fresh&&Number.isFinite(hw.raw),civetConnecting=sensor.connecting||hw.connecting('civet');
+  $('cal-live').textContent=pressureLive?`${hw.raw.toFixed(2)} kPa`:'— kPa';
   const connected=n=>Boolean(hw.drivers?.[n]?.connected);
   const name=prefs.toy==='opossum'?'Opossum':prefs.toy==='lush'?'Lush':'VacuGlide V2';
-  $('civet-pair-status').textContent=connected('civet')?'Connected':hw.statuses.civet?.message||'Not connected';
+  $('civet-pair-status').textContent=sensor.message;
   $('output-pair-status').textContent=connected(prefs.toy)?'Connected':hw.statuses[prefs.toy]?.message||'Not connected';
   $('output-pair-label').textContent=name;
-  $('connect-civet').disabled=!hw.initialized||connected('civet')||busy;
-  $('connect-output').disabled=!hw.initialized||connected(prefs.toy)||busy;
-  $('sensor-status').textContent=connected('civet')?'Civet connected':'Civet disconnected';$('sensor-status').classList.toggle('yes',connected('civet'));
+  $('connect-civet').disabled=!hw.initialized||sensor.fresh||civetConnecting;
+  $('connect-civet').textContent=sensor.connecting?'Connecting…':sensor.connected&&!sensor.fresh?'Reconnect Civet':'Connect Civet';
+  $('connect-output').disabled=!hw.initialized||connected(prefs.toy)||hw.connecting(prefs.toy);
+  $('connect-output').textContent=hw.connecting(prefs.toy)?'Connecting…':'Connect output';
+  $('sensor-status').textContent=sensor.fresh?'Civet readings live':sensor.connecting?'Civet connecting':sensor.connected?'Civet · no readings':'Civet disconnected';$('sensor-status').classList.toggle('yes',sensor.fresh);
   $('toy-status').textContent=name+(connected(prefs.toy)?' connected':' disconnected');$('toy-status').classList.toggle('yes',connected(prefs.toy));
   $('output-status').textContent=active?st.phase==='running'?'Output active':'Output in recovery':'Output paused';
   const inAppointment=route==='game'&&Boolean(game);
@@ -2686,7 +2884,7 @@ function updateVitals(){
   if($('count'))$('count').textContent=game.s.count;
   if($('elapsed'))$('elapsed').textContent=clock(game.s.elapsedMs/1000);
   if($('since'))$('since').textContent=game.s.lastEdgeMs===null?'—':clock((game.s.elapsedMs-game.s.lastEdgeMs)/1000);
-  if($('pressure'))$('pressure').textContent=Number.isFinite(hw.raw)?hw.raw.toFixed(1):'—';
+  if($('pressure'))$('pressure').textContent=pressureLive?hw.raw.toFixed(1):'—';
   if($('cutoff'))$('cutoff').textContent=Number(st.threshold??prefs.threshold).toFixed(1);
   const inRun=game.s.phase==='running';
   const paused=game.s.preview?previewPaused:!active||hw.blocked;
@@ -2835,7 +3033,7 @@ async function handleClick(event){
       saveSettings();save();updateVitals();
       return;
     }
-    if(b.dataset.capture){if(!Number.isFinite(hw.raw)||Date.now()-hw.rawAt>1000)throw Error('Connect Civet and wait for a fresh reading.');$('cal-'+b.dataset.capture).value=hw.raw.toFixed(2);calDirty=true;return;}
+    if(b.dataset.capture){if(!hw.sensorState().fresh||!Number.isFinite(hw.raw))throw Error('Connect Civet and wait for a fresh reading.');$('cal-'+b.dataset.capture).value=hw.raw.toFixed(2);calDirty=true;return;}
   }catch(e){message(e.message||'That action could not complete.');}
 }
 document.addEventListener('click',handleClick);
@@ -2855,11 +3053,13 @@ $('orgasm-btn').addEventListener('click',()=>void finish('orgasm'));
 for(const name of ['civet','output'])$('connect-'+name).addEventListener('click',()=>{
   if(game?.s.preview){message('Pairing is disabled in story preview.');return;}
   if(!hw.initialized){message('Device tools are loading. Tap Connect once ready.');void loadHardware().catch(e=>message(e.message));return;}
-  if(busy)return;busy=true;
+  const device=name==='civet'?'civet':prefs.toy;
+  if(hw.connecting(device))return;
+  const generation=hw.generation;
   const token=$('vg-token').value;$('vg-token').value='';
   // Call the driver directly in the click handler to preserve user activation.
-  const task=hw.connect(name==='civet'?'civet':prefs.toy,token);updateVitals();
-  task.then(()=>message('Connected. Output remains off until you start or resume.')).catch(e=>message(e.message)).finally(()=>{busy=false;updateVitals();});
+  const task=hw.connect(device,token);updateVitals();
+  task.then(()=>{if(generation===hw.generation)message(device==='civet'?'Civet readings are live.':'Output device connected.');}).catch(e=>{if(generation===hw.generation&&e.name!=='AbortError')message(e.message);}).finally(()=>updateVitals());
 });
 $('toy').addEventListener('change',async()=>{toyFields();try{await hw.pause('Paused for device selection.');prefs=settings({...prefs,toy:$('toy').value});if(hw.initialized)hw.apply(prefs);updateVitals();}catch(e){message(e.message);}});
 $('settings-form').addEventListener('submit',async event=>{event.preventDefault();try{await hw.pause('Paused while settings are saved.');prefs=formSettings();if(hw.initialized)hw.apply(prefs);saveSettings();save();updateVitals();message('Settings saved. Close this panel and resume when ready.');}catch(e){message(e.message);}});
@@ -2893,7 +3093,8 @@ window.addEventListener('offline',()=>{if(game&&!game.s.preview&&prefs.toy==='va
 window.addEventListener('popstate',()=>{if(guard&&game&&game.s.phase!=='ended'){history.pushState({suc:true},'',location.href);void pause('Back navigation intercepted.').catch(e=>showAlert(e.message));message('Appointment kept open and paused.');}else guard=false;});
 setInterval(()=>{
   const now=performance.now(),dt=now-lastTick;lastTick=now;
-  if(game&&!game.s.preview){hw.tick();const st=hw.snapshot();if(!document.hidden&&['running','cooldown','settling'].includes(st.phase)&&!hw.blocked)game.addTime(dt);if(now-lastSave>5000&&game.s.phase!=='ended')save();}
+  if(!game?.s.preview)hw.tick();
+  if(game&&!game.s.preview){const st=hw.snapshot();if(!document.hidden&&['running','cooldown','settling'].includes(st.phase)&&!hw.blocked)game.addTime(dt);if(now-lastSave>5000&&game.s.phase!=='ended')save();}
   updateVitals();
 },200);
 fillSettings();render(true);
@@ -2925,7 +3126,7 @@ fillSettings();render(true);
 </div><div class="row"><button type="button" id="save-calibration" class="button primary">Save calibration</button><button type="button" id="import-calibration" class="button secondary">Copy CTMP calibration</button></div><p id="cal-saved" class="note">No calibration saved for SUC yet.</p><div class="two"><label>Cutoff pressure · kPa<input name="threshold" type="number" step="0.1" required></label><label>Reset pressure · kPa<input name="resetThreshold" type="number" step="0.1" required></label></div></fieldset>
 <fieldset><legend>Session settings</legend><label class="check"><input name="randomTreatment" type="checkbox">Let the nurse vary each treatment cycle</label><p class="note">New combinations of ramps and patterns are chosen after each registered edge. Her style and the day’s circumstances influence the surprises. Your configured power caps, Civet cutoff and automatic recovery always apply. Switch this off to use the fixed setup below.</p><div class="two"><label>Starting level · %<input name="startPercent" type="number" min="0" max="100" required></label><label>Ramp time · seconds<input name="rampSeconds" type="number" min="1" max="3600" required></label></div><p class="note">A fresh ramp begins after recovery. Opossum’s starting level is a fraction of each channel maximum.</p><div class="two" id="channel-settings"><label>Channel A maximum · %<input name="maxPercentA" type="number" min="0" max="100" required></label><label>Channel B maximum · %<input name="maxPercentB" type="number" min="0" max="100" required></label></div><div class="two"><label>Recovery minimum · seconds<input name="recoveryMinSeconds" type="number" min="1" max="300" required></label><label>Recovery maximum · seconds<input name="recoveryMaxSeconds" type="number" min="1" max="300" required></label></div><label class="check"><input name="adaptiveEnabled" type="checkbox">Adapt recovery after repeated short phases</label><details><summary>Adaptive recovery details</summary><div class="two"><label>Shorter than · seconds<input name="shortPhaseSeconds" type="number" min="1" max="120" step="0.5"></label><label>Consecutive short phases<input name="shortPhaseCount" type="number" min="1" max="20"></label><label>Stable at least · seconds<input name="stablePhaseSeconds" type="number" min="1" max="600"></label><label>Stable phases to reduce recovery<input name="stablePhaseCount" type="number" min="1" max="20"></label><label>Maximum recovery multiplier<input name="adaptiveMaxMultiplier" type="number" min="1" max="32"></label></div></details>
 <div id="pattern-settings"><label class="check"><input name="chapterPatterns" type="checkbox">Use the room’s Opossum pattern when nurse variation is off</label><p class="note">The manual pattern below is a fallback. Nurse variation changes the pattern and ramp for each cycle, not your maximum channel strength or cutoff.</p><label>Manual pattern<select name="opossumPattern"><option value="synchronized">Together</option><option value="alternating">Alternating · A rises as B falls</option><option value="offset-wave">Offset wave · shifted waves</option><option value="pulse">Pulse · both channels together</option><option value="custom">Custom wave</option></select></label><div class="two"><label>Full pattern cycle · seconds<input name="patternSpeedSeconds" type="number" min="0.4" max="30" step="0.1"></label><label>B shift · fraction of a cycle<input name="phaseOffset" type="number" min="0" max="1" step="0.05"></label><label>Channel A floor · %<input name="patternMinA" type="number" min="0" max="100"></label><label>Channel B floor · %<input name="patternMinB" type="number" min="0" max="100"></label></div><p class="note">A shift of 0.25 means a quarter-cycle. 0.5 makes the waves opposite. Floors do not affect Together mode.</p></div></fieldset>
-<div class="sticky-save"><button type="submit" class="button primary">Save settings</button><button type="button" id="disconnect" class="button secondary">Disconnect devices</button></div></form><p class="fineprint">SUC 1.3.0 · Fictional interactive story, not medical care. Settings and visits stay in this browser. Clearing site data removes them; CTMP uses separate records.</p></dialog>
+<div class="sticky-save"><button type="submit" class="button primary">Save settings</button><button type="button" id="disconnect" class="button secondary">Disconnect devices</button></div></form><p class="fineprint">SUC 1.3.1 · Fictional interactive story, not medical care. Settings and visits stay in this browser. Clearing site data removes them; CTMP uses separate records.</p></dialog>
 <dialog id="journal-dialog" class="sheet"><div class="sheet-head"><div><span class="eyebrow">YOUR OBSERVATIONS</span><h2>Appointment journal</h2></div><button class="close-button" data-close="journal-dialog" aria-label="Close journal">×</button></div><div class="journal-tools"><button id="copy-moment" class="button secondary full" data-action="copy-moment">Copy this moment</button><p id="copy-moment-status" class="note" role="status">Copy the current response and its context to share in our chat.</p></div><div id="journal-content"></div></dialog>
 <dialog id="stop-dialog" class="small-dialog"><span class="eyebrow">OUTPUT PAUSED</span><h2>Appointment paused</h2><div class="stack"><button data-end="stopped" class="button secondary">End appointment</button><button data-close="stop-dialog" class="button quiet">Keep appointment paused</button></div></dialog>
 <dialog id="portrait-dialog" class="portrait-dialog" aria-labelledby="portrait-title"><div class="sheet-head"><h2 id="portrait-title">Portrait</h2><button class="close-button" data-close="portrait-dialog" aria-label="Close portrait">×</button></div><button class="enlarged-portrait-button" data-action="close-portrait" aria-label="Return to appointment"><img id="enlarged-portrait" alt=""></button></dialog>
