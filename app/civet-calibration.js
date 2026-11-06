@@ -3,22 +3,26 @@
  *
  * The DG-LAB public protocol (dungeonlab-open/dglab-bluetooth-protocol,
  * civet-edging-sensor) labels the signed int16 at notification bytes 8–9,
- * divided by 100, as kPa. The 13-byte 0x66 command ending in 0x02 is
- * documented as resetting the current reading toward zero. This module
- * does not treat a successful write as proof that happened, and it does
- * not invent a 0 kPa measurement. Post-command samples have to arrive,
- * stay ordered and fresh, and cluster near that documented reset.
+ * divided by 100, as kPa:
+ * https://github.com/dungeonlab-open/dglab-bluetooth-protocol/blob/main/civet-edging-sensor/README.md
+ * That page's 66 command "resets the pressure reading" with the 13-byte
+ * write 0x66000000000000000000000002. It publishes no tolerance, no
+ * confirmation packet, and no statement that the reading remains numerically
+ * near 0 after the sensor is later attached or loaded. This module records
+ * the measured post-command samples. It does not invent a 0, and it does
+ * not reject a stable offset merely for being away from 0. Zero is an
+ * unloaded step. Relaxed is a separate loaded resting step.
  * Nothing here is a medical or physiological limit.
  */
 export const CIVET_CALIBRATION = Object.freeze({
   version: 1,
   unit: 'kPa',
   sampleCount: 12,
+  minHoldMs: 900,
   maxGapMs: 1000,
   maxSampleAgeMs: 1000,
   discardAfterZeroMs: 500,
   maxWindowMs: 5000,
-  postZeroMaxAbsKpa: 2,
   minStepKpa: 0.4,
   noiseFloorKpa: 0.05,
   relaxedClearanceSigma: 4,
@@ -42,7 +46,8 @@ export const SIM_HOLDS = Object.freeze({
 
 const C = CIVET_CALIBRATION;
 const round2 = value => Math.round((value + Number.EPSILON) * 100) / 100;
-const round1 = value => Math.round((value + Number.EPSILON) * 10) / 10;
+const ceilTenth = value => Math.ceil(value * 10 - 1e-8) / 10;
+const floorTenth = value => Math.floor(value * 10 + 1e-8) / 10;
 
 function finiteKpa(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= -327.6 && value <= 327.6;
@@ -69,17 +74,21 @@ export function assessSamples(samples, now) {
     if (sample.at > atNow || atNow - sample.at > C.maxSampleAgeMs + C.maxWindowMs) {
       return { ok: false, reason: 'A sample was stale or from the future.' };
     }
-    if (i > 0 && sample.at < window[i - 1].at) {
-      return { ok: false, reason: 'Samples arrived out of order.' };
+    if (i > 0 && sample.at <= window[i - 1].at) {
+      return { ok: false, reason: 'Samples must have unique, increasing timestamps.' };
     }
     if (i > 0 && sample.at - window[i - 1].at > C.maxGapMs) {
       return { ok: false, reason: 'The sensor stream had a gap. Hold steady and try again.' };
     }
   }
+  const span = window[window.length - 1].at - window[0].at;
+  if (span < C.minHoldMs) {
+    return { ok: false, reason: 'Samples arrived too quickly to be a held reading.' };
+  }
   if (atNow - window[window.length - 1].at > C.maxSampleAgeMs) {
     return { ok: false, reason: 'The latest sample is stale.' };
   }
-  if (window[window.length - 1].at - window[0].at > C.maxWindowMs) {
+  if (span > C.maxWindowMs) {
     return { ok: false, reason: 'The hold took too long to settle.' };
   }
   const values = window.map(sample => sample.kpa);
@@ -104,17 +113,12 @@ export function assessSamples(samples, now) {
 export function assessZero(samples, now) {
   const measured = assessSamples(samples, now);
   if (!measured.ok) return measured;
-  if (Math.abs(measured.mean) > C.postZeroMaxAbsKpa) {
-    return {
-      ok: false,
-      reason: 'The zero command was sent, but the following readings did not settle near the documented reset. Do not treat the command alone as a baseline.',
-      mean: measured.mean,
-      std: measured.std,
-      range: measured.range,
-      count: measured.count,
-    };
-  }
   return { ...measured, commandSent: true };
+}
+
+export function captureTimedOut(capture, now) {
+  if (!capture || !Number.isFinite(now)) return false;
+  return capture.samples.length < C.sampleCount && now > capture.collectAfter + C.maxWindowMs;
 }
 
 function noiseOf(zero, relaxed, half, full) {
@@ -140,31 +144,34 @@ export function deriveProfile({ device, simulated = false, zero, relaxed, half, 
   if (stepRelaxedToHalf < minStep || stepHalfToFull < minStep) {
     throw new Error('Relaxed, half, and full readings are too close together for the measured variation.');
   }
-  const cutoffFloor = round1(relaxed.mean + C.relaxedClearanceSigma * noise + C.roundingKpa);
-  const cutoffCeil = round1(half.mean);
-  if (!(cutoffFloor < cutoffCeil)) {
-    throw new Error('There is not enough room between the relaxed reading and the half reading to place a cutoff above the measured variation.');
+  const minHysteresis = ceilTenth(Math.max(C.minHysteresisKpa, 2 * noise));
+  const resetFloor = ceilTenth(relaxed.mean + 2 * noise);
+  const cutoffFloor = ceilTenth(Math.max(
+    relaxed.mean + C.relaxedClearanceSigma * noise + C.roundingKpa,
+    resetFloor + minHysteresis,
+  ));
+  const halfCap = floorTenth(half.mean);
+  const fullCap = floorTenth(full.mean - Math.max(minHysteresis, 2 * noise));
+  if (!(cutoffFloor < halfCap) || !(cutoffFloor < fullCap)) {
+    throw new Error('The full and half holds do not leave room for a cutoff above the relaxed variation.');
   }
   let cutoff = relaxed.mean + C.cutoffSpanFraction * stepRelaxedToHalf;
-  cutoff = Math.min(cutoffCeil, Math.max(cutoff, cutoffFloor));
-  let hysteresis = Math.max(C.minHysteresisKpa, C.hysteresisNoiseSigma * noise, C.hysteresisSpanFraction * stepRelaxedToHalf);
-  let reset = cutoff - hysteresis;
-  const resetFloor = relaxed.mean + 2 * noise;
-  if (reset < resetFloor) {
-    hysteresis = Math.max(C.minHysteresisKpa, 2 * noise);
-    reset = cutoff - hysteresis;
+  cutoff = Math.min(halfCap, fullCap, Math.max(cutoffFloor, ceilTenth(cutoff)));
+  const resetMax = floorTenth(cutoff - minHysteresis);
+  if (resetFloor > resetMax) {
+    throw new Error('Could not place a reset level above the relaxed reading and clearly below the cutoff.');
   }
-  cutoff = round1(cutoff);
-  reset = round1(reset);
-  if (reset >= cutoff) reset = round1(cutoff - C.minHysteresisKpa);
-  if (!(reset >= round1(resetFloor) && reset <= round1(cutoff - C.minHysteresisKpa) && reset < cutoff)) {
+  let reset = floorTenth(cutoff - Math.max(minHysteresis, C.hysteresisNoiseSigma * noise, C.hysteresisSpanFraction * stepRelaxedToHalf));
+  if (reset < resetFloor) reset = resetFloor;
+  if (reset > resetMax) reset = resetMax;
+  if (!(reset >= resetFloor && reset <= resetMax && cutoff - reset >= minHysteresis - 1e-9 && cutoff <= halfCap && cutoff <= fullCap)) {
     throw new Error('Could not place a reset level above the relaxed reading and clearly below the cutoff.');
   }
   const bounds = {
     cutoffMin: cutoffFloor,
-    cutoffMax: round1(Math.min(full.mean - 2 * noise, full.mean - C.minHysteresisKpa)),
-    minHysteresis: round1(Math.max(C.minHysteresisKpa, 2 * noise)),
-    resetFloor: round1(resetFloor),
+    cutoffMax: fullCap,
+    minHysteresis,
+    resetFloor,
   };
   if (!(bounds.cutoffMin <= cutoff && cutoff <= bounds.cutoffMax && bounds.cutoffMax > bounds.cutoffMin)) {
     throw new Error('The measured range cannot contain an adjustable cutoff.');
@@ -189,15 +196,19 @@ export function deriveProfile({ device, simulated = false, zero, relaxed, half, 
 
 export function adjustApplied(profile, nextCutoff) {
   if (!profile || profile.version !== C.version) throw new Error('No accepted calibration for this sensor.');
-  const cutoff = round1(Number(nextCutoff));
+  const cutoff = Math.round(Number(nextCutoff) * 10) / 10;
   const { bounds } = profile;
   if (!Number.isFinite(cutoff) || cutoff < bounds.cutoffMin || cutoff > bounds.cutoffMax) {
     throw new Error(`Cutoff must stay between ${bounds.cutoffMin.toFixed(1)} and ${bounds.cutoffMax.toFixed(1)} kPa for this calibration.`);
   }
-  let reset = Math.min(profile.applied.resetThreshold, round1(cutoff - bounds.minHysteresis));
+  const resetMax = floorTenth(cutoff - bounds.minHysteresis);
+  if (bounds.resetFloor > resetMax) {
+    throw new Error('That cutoff does not leave a usable reset level for this calibration.');
+  }
+  let reset = Math.min(profile.applied.resetThreshold, resetMax);
   if (reset < bounds.resetFloor) reset = bounds.resetFloor;
-  if (reset > round1(cutoff - bounds.minHysteresis)) reset = round1(cutoff - bounds.minHysteresis);
-  if (!(reset < cutoff) || reset < bounds.resetFloor) {
+  if (reset > resetMax) reset = resetMax;
+  if (!(reset >= bounds.resetFloor && reset <= resetMax && cutoff - reset >= bounds.minHysteresis - 1e-9)) {
     throw new Error('That cutoff does not leave a usable reset level for this calibration.');
   }
   return { ...profile, applied: { threshold: cutoff, resetThreshold: reset } };
@@ -212,7 +223,22 @@ export function profileMatches(profile, device, simulated = false) {
   if (!profile.simulated && identity.id === C.simulatedDeviceId) return false;
   if (!profile.zero?.commandSent || !finiteKpa(profile.relaxed?.mean) || !finiteKpa(profile.half?.mean) || !finiteKpa(profile.full?.mean)) return false;
   const applied = profile.applied;
-  return Boolean(applied && Number.isFinite(applied.threshold) && Number.isFinite(applied.resetThreshold) && applied.resetThreshold < applied.threshold);
+  const bounds = profile.bounds;
+  if (!applied || !bounds) return false;
+  if (!Number.isFinite(applied.threshold) || !Number.isFinite(applied.resetThreshold)) return false;
+  if (applied.threshold < bounds.cutoffMin || applied.threshold > bounds.cutoffMax) return false;
+  if (applied.resetThreshold < bounds.resetFloor) return false;
+  return applied.threshold - applied.resetThreshold >= bounds.minHysteresis - 1e-9;
+}
+
+export function outputPermitted(profile, device, simulated, sample, now) {
+  if (!profileMatches(profile, device, simulated)) return false;
+  if (!sample || !finiteKpa(sample.kpa) || !Number.isFinite(sample.at) || !Number.isFinite(now)) return false;
+  if (sample.at > now || now - sample.at > C.maxSampleAgeMs) return false;
+  const margin = Math.max(C.stabilityRangeKpa, Number(profile.noiseKpa) || C.noiseFloorKpa);
+  if (sample.kpa > profile.full.mean + margin) return false;
+  if (sample.kpa < profile.zero.mean - margin) return false;
+  return sample.kpa < profile.applied.resetThreshold;
 }
 
 export function storageKey(simulated) {

@@ -15,8 +15,10 @@ import {
   adjustApplied,
   assessSamples,
   assessZero,
+  captureTimedOut,
   deriveProfile,
   forgetProfile,
+  outputPermitted,
   profileMatches,
   rememberProfile,
   storedProfile,
@@ -85,6 +87,8 @@ let calibrationMessage = '';
 let calibrationDraft = { zero: null, relaxed: null, half: null, full: null };
 let calibrationCapture = null;
 let activeProfile = null;
+let outputHeld = false;
+let captureTimer = null;
 const playTimer = new PlayTimer();
 const elapsedNow = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
 
@@ -295,6 +299,7 @@ function startOutputBlendFromZero() {
 
 const engine = new SessionEngine({
   onOutput(percent, levels) {
+    if (outputHeld || calibrationCapture) return opossum?.stop?.();
     const mixed = blendedOutput(levels);
     const stopped = mixed.a === 0 && mixed.b === 0;
     if (stopped) return opossum && (opossum.connected || opossumHint.toLowerCase().includes('error')) ? opossum.stop() : undefined;
@@ -492,10 +497,6 @@ function profileReady() {
   return profileMatches(activeProfile, sensorIdentity(), testMode);
 }
 
-function canPlay() {
-  return Boolean(civet?.connected && opossum?.connected && fresh() && profileReady() && !calibrationCapture);
-}
-
 function applyActiveProfile() {
   if (!profileReady()) return;
   engine.configure({
@@ -509,9 +510,27 @@ function refreshStoredProfile() {
   if (activeProfile) applyActiveProfile();
 }
 
+function clearCaptureTimer() {
+  if (captureTimer) clearTimeout(captureTimer);
+  captureTimer = null;
+}
+
 function abortCapture(reason) {
+  clearCaptureTimer();
   calibrationCapture = null;
+  if (!ACTIVE.has(engine.phase)) outputHeld = false;
   if (reason) calibrationMessage = reason;
+}
+
+function armCaptureTimer() {
+  clearCaptureTimer();
+  const capture = calibrationCapture;
+  captureTimer = setTimeout(() => {
+    if (calibrationCapture !== capture) return;
+    abortCapture('The hold timed out before enough stable samples arrived.');
+    void opossum?.stop?.();
+    render();
+  }, CIVET_CALIBRATION.discardAfterZeroMs + CIVET_CALIBRATION.maxWindowMs + 50);
 }
 
 function noteCalibrationSample(kpa, at) {
@@ -521,18 +540,24 @@ function noteCalibrationSample(kpa, at) {
     return;
   }
   if (capture.kind === 'zero' && at < capture.discardUntil) return;
-  if (capture.samples.length && at < capture.samples[capture.samples.length - 1].at) {
-    abortCapture('Samples arrived out of order.');
+  if (capture.samples.length && at <= capture.samples[capture.samples.length - 1].at) {
+    abortCapture('Samples must have unique, increasing timestamps.');
+    void opossum?.stop?.();
+    render();
     return;
   }
-  if (!capture.samples.length && at > capture.collectAfter + CIVET_CALIBRATION.maxWindowMs) {
-    abortCapture('No fresh readings arrived after the command.');
+  if (captureTimedOut(capture, at)) {
+    abortCapture('The hold timed out before enough stable samples arrived.');
+    void opossum?.stop?.();
+    render();
     return;
   }
   capture.samples.push({ kpa, at });
   if (capture.samples.length >= CIVET_CALIBRATION.sampleCount || at - capture.collectAfter > CIVET_CALIBRATION.maxWindowMs) {
     const verdict = capture.kind === 'zero' ? assessZero(capture.samples, at) : assessSamples(capture.samples, at);
+    clearCaptureTimer();
     calibrationCapture = null;
+    if (!ACTIVE.has(engine.phase)) outputHeld = false;
     if (!verdict.ok) {
       calibrationMessage = verdict.reason;
       render();
@@ -547,14 +572,26 @@ function noteCalibrationSample(kpa, at) {
 
 async function ensureOutputOff(reason = 'Output held at zero during calibration.') {
   if (ACTIVE.has(engine.phase)) onPause(reason);
-  try { await opossum?.stop?.(); } catch { /* best effort */ }
+  await opossum?.stop?.();
+}
+
+function readingNow() {
+  const state = engine.snapshot();
+  return { kpa: state.pressure, at: state.pressureAt };
+}
+
+function canPlay() {
+  return Boolean(civet?.connected && opossum?.connected && !calibrationCapture && !outputHeld
+    && outputPermitted(activeProfile, sensorIdentity(), testMode, readingNow(), Date.now()));
 }
 
 async function startZero() {
   calibrationMessage = '';
-  if (!civet?.connected) { calibrationMessage = 'Connect the sensor before zeroing.'; render(); return; }
-  if (!sensorIdentity()) { calibrationMessage = 'This browser did not provide a sensor id, so a profile cannot be matched later.'; render(); return; }
-  await ensureOutputOff();
+  outputHeld = true;
+  if (!civet?.connected) { calibrationMessage = 'Connect the sensor before zeroing.'; outputHeld = false; render(); return; }
+  if (!sensorIdentity()) { calibrationMessage = 'This browser did not provide a sensor id, so a profile cannot be matched later.'; outputHeld = false; render(); return; }
+  try { await ensureOutputOff(); }
+  catch (err) { calibrationMessage = err.message || 'Output stop was not confirmed. Zero was not sent.'; render(); return; }
   try { forgetProfile(localStorage, sensorIdentity(), testMode); } catch (err) { calibrationMessage = err.message; render(); return; }
   activeProfile = null;
   calibrationDraft = { zero: null, relaxed: null, half: null, full: null };
@@ -571,18 +608,25 @@ async function startZero() {
   if (!sent) { calibrationMessage = 'Zero command was not sent.'; render(); return; }
   const now = Date.now();
   calibrationCapture = { kind: 'zero', samples: [], discardUntil: now + CIVET_CALIBRATION.discardAfterZeroMs, collectAfter: now + CIVET_CALIBRATION.discardAfterZeroMs };
-  calibrationMessage = 'Zero command sent. Collecting fresh samples. A sent command is not a measured baseline.';
+  armCaptureTimer();
+  calibrationMessage = 'Zero command sent with the sensor unloaded. Collecting fresh samples. A sent command is not a measured baseline.';
   render();
 }
 
-function startLevel(kind) {
-  if (!calibrationDraft.zero) { calibrationMessage = 'Confirm hardware zero from fresh samples first.'; render(); return; }
-  if (kind === 'half' && !calibrationDraft.relaxed) { calibrationMessage = 'Capture the relaxed reading first.'; render(); return; }
-  if (kind === 'full' && !calibrationDraft.half) { calibrationMessage = 'Capture the half reading first.'; render(); return; }
-  if (!civet?.connected || !sensorIdentity()) { calibrationMessage = 'The sensor is not connected.'; render(); return; }
+async function startLevel(kind) {
+  outputHeld = true;
+  if (!calibrationDraft.zero) { calibrationMessage = 'Confirm hardware zero from fresh samples first.'; outputHeld = false; render(); return; }
+  if (kind === 'half' && !calibrationDraft.relaxed) { calibrationMessage = 'Capture the relaxed reading first.'; outputHeld = false; render(); return; }
+  if (kind === 'full' && !calibrationDraft.half) { calibrationMessage = 'Capture the half reading first.'; outputHeld = false; render(); return; }
+  if (!civet?.connected || !sensorIdentity()) { calibrationMessage = 'The sensor is not connected.'; outputHeld = false; render(); return; }
+  try { await ensureOutputOff(); }
+  catch (err) { calibrationMessage = err.message || 'Output stop was not confirmed.'; render(); return; }
   const now = Date.now();
   calibrationCapture = { kind, samples: [], discardUntil: now, collectAfter: now };
-  calibrationMessage = `Hold steady for the ${kind} reading.`;
+  armCaptureTimer();
+  calibrationMessage = kind === 'relaxed'
+    ? 'Sensor fitted and at rest, not clenched. Hold steady.'
+    : `Hold steady for the ${kind} reading.`;
   render();
 }
 
@@ -680,7 +724,7 @@ function setupHTML() {
         <div class="reading"><span>Live reading</span><b id="setup-pressure">${formatKpa(engine.snapshot().pressure)} ${CIVET_CALIBRATION.unit}</b></div>
       </section>
       <section class="panel calibration-panel" data-simulated="${testMode ? '1' : '0'}">
-        <p class="note">${testMode ? 'Simulated sensor. These holds are not a real Civet, and they are stored separately.' : 'Guided sensor setup. Output stays off until a profile for this sensor is accepted.'}</p>
+        <p class="note">${testMode ? 'Simulated sensor. These holds are not a real Civet, and they are stored separately. ' : ''}Zero only while the sensor is unloaded and you are not clenching. Relaxed is a separate step after it is fitted and at rest. Output stays off until a profile for this sensor is accepted.</p>
         ${testMode ? `<div class="sim-holds">
           <button class="button" type="button" data-act="sim-hold" data-hold="relaxed">Hold relaxed</button>
           <button class="button" type="button" data-act="sim-hold" data-hold="half">Hold half</button>
@@ -689,8 +733,8 @@ function setupHTML() {
           <button class="button" type="button" data-act="sim-drop">Drop simulated Civet</button>
         </div>` : ''}
         <div class="stack">
-          <button class="button" type="button" data-act="cal-zero" ${civetOn && !calibrationCapture ? '' : 'disabled'}>1. Hardware zero</button>
-          <button class="button" type="button" data-act="cal-level" data-level="relaxed" ${calibrationDraft.zero && !calibrationCapture ? '' : 'disabled'}>2. Capture relaxed</button>
+          <button class="button" type="button" data-act="cal-zero" ${civetOn && !calibrationCapture ? '' : 'disabled'}>1. Zero unloaded sensor</button>
+          <button class="button" type="button" data-act="cal-level" data-level="relaxed" ${calibrationDraft.zero && !calibrationCapture ? '' : 'disabled'}>2. Capture loaded rest</button>
           <button class="button" type="button" data-act="cal-level" data-level="half" ${calibrationDraft.relaxed && !calibrationCapture ? '' : 'disabled'}>3. Capture half</button>
           <button class="button" type="button" data-act="cal-level" data-level="full" ${calibrationDraft.half && !calibrationCapture ? '' : 'disabled'}>4. Capture full</button>
           <button class="button button-primary" type="button" data-act="cal-accept" ${calibrationDraft.full && !calibrationCapture ? '' : 'disabled'}>Accept starting cutoff</button>
@@ -882,6 +926,8 @@ async function onPlay() {
   readToyMaxFromSetup();
   if (!civet?.connected || !opossum?.connected) { error = 'Connect Civet and Opossum first.'; render(); return; }
   if (!fresh()) { error = 'Wait for a live Civet reading first.'; render(); return; }
+  if (outputHeld || calibrationCapture) { error = 'Calibration is still holding output at zero.'; render(); return; }
+  if (!outputPermitted(activeProfile, sensorIdentity(), testMode, readingNow(), Date.now())) { error = 'This sensor needs a matching calibration and a fresh reading below its reset level.'; render(); return; }
   try {
     engine.configure({
       toy: 'opossum',
@@ -921,7 +967,10 @@ function onPause(reason = 'Paused.') {
   error = '';
   outputBlendFrom = null;
   try { engine.pause(reason); } catch { /* already idle */ }
-  opossum?.stop?.().catch(() => {});
+  void Promise.resolve(opossum?.stop?.()).catch(err => {
+    error = err?.message || 'Output stop was not confirmed.';
+    if (view === 'play') render();
+  });
   if (view === 'play') render();
 }
 
@@ -931,11 +980,13 @@ async function onStop() {
   outputBlendFrom = null;
   try { engine.stop(); } catch { /* already idle */ }
   finalElapsedVisible = true;
-  try { await opossum?.stop?.(); } catch { /* best effort */ }
+  let stopError = '';
+  try { await opossum?.stop?.(); }
+  catch (err) { stopError = err?.message || 'Output stop was not confirmed.'; }
   await releaseWake();
   view = 'setup';
-  message = testMode ? 'Stopped. Test mode is still on.' : 'Stopped.';
-  error = '';
+  message = stopError ? 'Session ended, but output stop was not confirmed.' : (testMode ? 'Stopped. Test mode is still on.' : 'Stopped.');
+  error = stopError;
   render();
 }
 
@@ -944,6 +995,8 @@ async function onResume() {
   try {
     if (!civet?.connected || !opossum?.connected) throw new Error('Reconnect Civet and Opossum first.');
     if (!fresh()) throw new Error('Wait for a live Civet reading first.');
+    if (outputHeld || calibrationCapture) throw new Error('Calibration is still holding output at zero.');
+    if (!outputPermitted(activeProfile, sensorIdentity(), testMode, readingNow(), Date.now())) throw new Error('This sensor needs a matching calibration and a fresh reading below its reset level.');
     startOutputBlendFromZero();
     const state = engine.resume();
     if (state.phase === 'fault') {
@@ -996,8 +1049,6 @@ app.addEventListener('click', event => {
     if (testMode) return;
     error = '';
     opossum.connect().then(() => { message = 'Opossum connected.'; refresh(); }).catch(err => { error = err.message || String(err); refresh(); });
-  } else if (act === 'zero') {
-    civet.zero().then(() => { message = 'Civet zeroed.'; refresh(); }).catch(err => { error = err.message || String(err); refresh(); });
   } else if (act === 'play') onPlay();
   else if (act === 'pause') onPause();
   else if (act === 'stop') onStop();
@@ -1005,7 +1056,7 @@ app.addEventListener('click', event => {
   else if (act === 'cutoff-down') changeCutoff(-0.1);
   else if (act === 'cutoff-up') changeCutoff(0.1);
   else if (act === 'cal-zero') void startZero();
-  else if (act === 'cal-level') startLevel(button.dataset.level);
+  else if (act === 'cal-level') void startLevel(button.dataset.level);
   else if (act === 'cal-accept') acceptCalibration();
   else if (act === 'sim-hold') { try { civet?.setHold?.(button.dataset.hold); } catch (err) { calibrationMessage = err.message; } render(); }
   else if (act === 'sim-unstable') { civet?.setUnstable?.(!civet._unstable); render(); }

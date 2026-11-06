@@ -2416,8 +2416,8 @@ class Hardware {
   }
   output(v,levels){
     const device=this.drivers?.[this.config.toy];const off=this.config.toy==='opossum'?levels.a===0&&levels.b===0:v===0;
-    if(off)return device&&(device.connected||this.statuses[this.config.toy]?.state==='error')?device.stop():undefined;
-    if(this.blocked||!this.visible())throw Error('Output is paused. Resume explicitly from the visible control page.');
+    if(off||this.blocked||this.calCapture)return device&&(device.connected||this.statuses[this.config.toy]?.state==='error')?device.stop():undefined;
+    if(!this.visible())throw Error('Output is paused. Resume explicitly from the visible control page.');
     if(!device?.connected)throw Error('Output device disconnected.');
     return this.config.toy==='opossum'?device.setLevels({a:levels.a,b:levels.b}):device.setOutput(v);
   }
@@ -2451,6 +2451,7 @@ class Hardware {
     if(!this.visible())throw Error('Open the control page before starting.');
     if(!this.drivers.civet.connected||!this.drivers[this.config.toy].connected)throw Error('Connect Civet and your selected device first.');
     if(!this.sensorState().fresh||!this.snapshot().sensorFresh)throw Error('Wait for fresh Civet readings. Reconnect Civet if readings have stopped.');
+    if(!this.cal?.outputPermitted(this.calibrationProfile,this.sensorIdentity(),this.simulated,{kpa:this.raw,at:this.rawAt},this.now()))throw Error('This sensor needs a matching calibration and a fresh reading below its reset level.');
     if(this.snapshot().pressure>=this.config.resetThreshold)throw Error('Wait for the live pressure to fall below the reset level before resuming.');
   }
   async acquire(){
@@ -2526,7 +2527,7 @@ class Hardware {
     const capture=this.calCapture;if(!capture)return;
     if(!this.drivers?.civet?.connected){this.calCapture=null;this.calMessage='The sensor disconnected. This capture was discarded.';return;}
     if(capture.kind==='zero'&&at<capture.discardUntil)return;
-    if(capture.samples.length&&at<capture.samples.at(-1).at){this.calCapture=null;this.calMessage='Samples arrived out of order.';return;}
+    if(capture.samples.length&&at<=capture.samples.at(-1).at){this.calCapture=null;this.blocked=true;this.calMessage='Samples must have unique, increasing timestamps.';void this.stopPhysical();return;}
     if(!capture.samples.length&&at>capture.collectAfter+this.cal.CIVET_CALIBRATION.maxWindowMs){this.calCapture=null;this.calMessage='No fresh readings arrived after the command.';return;}
     capture.samples.push({kpa,at});
     if(capture.samples.length<this.cal.CIVET_CALIBRATION.sampleCount&&at-capture.collectAfter<=this.cal.CIVET_CALIBRATION.maxWindowMs)return;
@@ -2537,27 +2538,29 @@ class Hardware {
     this.calMessage=`${capture.kind==='zero'?'post-zero':capture.kind} measured ${verdict.mean.toFixed(2)} kPa from ${verdict.count} samples.`;
   }
   async beginZero(){
+    this.blocked=true;
     if(this.simulated!==true&&game?.s?.preview)throw Error('Hardware zero is unavailable in preview.');
     if(!this.drivers?.civet?.connected)throw Error('Connect Civet first.');
     if(!this.sensorIdentity())throw Error('This browser did not provide a sensor id, so a profile cannot be matched later.');
-    this.blocked=true;
-    try{await this.pause('Paused for calibration.');}catch{/* output already stopped */ }
+    await this.pause('Paused for calibration. Unload the sensor and do not clench.');
     try{this.cal.forgetProfile(localStorage,this.sensorIdentity(),this.simulated);}catch(error){this.calMessage=error.message;throw error;}
     this.calibrationProfile=null;this.calDraft={zero:null,relaxed:null,half:null,full:null};this.calCapture=null;
     const result=await this.drivers.civet.zero();
     if(result?.sent===false)throw Error('Zero command was not sent.');
     const now=this.now();
     this.calCapture={kind:'zero',samples:[],discardUntil:now+this.cal.CIVET_CALIBRATION.discardAfterZeroMs,collectAfter:now+this.cal.CIVET_CALIBRATION.discardAfterZeroMs};
-    this.calMessage='Zero command sent. Collecting fresh samples. A sent command is not a measured baseline.';
+    this.calMessage='Zero command sent. The sensor should be unloaded and not clenched. Collecting fresh samples. A sent command is not a measured baseline.';
   }
-  beginLevel(kind){
+  async beginLevel(kind){
+    this.blocked=true;
+    await this.pause('Paused for calibration.');
     if(!this.calDraft.zero)throw Error('Confirm hardware zero from fresh samples first.');
     if(kind==='half'&&!this.calDraft.relaxed)throw Error('Capture the relaxed reading first.');
     if(kind==='full'&&!this.calDraft.half)throw Error('Capture the half reading first.');
     if(!this.sensorIdentity())throw Error('The sensor is not connected.');
     const now=this.now();
     this.calCapture={kind,samples:[],discardUntil:now,collectAfter:now};
-    this.calMessage=`Hold steady for the ${kind} reading.`;
+    this.calMessage=kind==='relaxed'?'Sensor fitted and at rest, not clenched. Hold steady.':`Hold steady for the ${kind} reading.`;
   }
   acceptCalibration(){
     const profile=this.cal.deriveProfile({device:this.sensorIdentity(),simulated:this.simulated,zero:this.calDraft.zero,relaxed:this.calDraft.relaxed,half:this.calDraft.half,full:this.calDraft.full});
@@ -2573,7 +2576,14 @@ class Hardware {
     if(this.config.toy!=='vacuglide'||!this.drivers?.vacuglide.connected)throw Error('Connect VacuGlide to use stroke controls.');
     return this.drivers.vacuglide.setValve(kind,open);
   }
-  tick(){this.engine?.tick();if(!this.manual&&this.visible())this.drivers?.civet.checkHealth();}
+  tick(){
+    this.engine?.tick();
+    if(this.cal?.captureTimedOut(this.calCapture,this.now())){
+      this.calCapture=null;this.blocked=true;this.calMessage='The hold timed out before enough stable samples arrived.';
+      void this.stopPhysical();
+    }
+    if(!this.manual&&this.visible())this.drivers?.civet.checkHealth();
+  }
 }
 
 
@@ -3158,13 +3168,14 @@ async function begin(){
   try{hw.ready();}catch(e){message(e.message);await openSettings();return;}
   game.beginStage();
   try{await hw.run({restore:restoreEngine||{edgeCount:game.s.count},pattern:STAGES[game.s.stage].pattern,count:game.s.count,visit:currentVisit()});restoreEngine=null;}catch(e){game.s.phase='scene';showAlert(e.message);save();render();return;}
+  showAlert('');if($('toast'))$('toast').hidden=true;
   armBackGuard();void requestWake();save();render();
 }
 async function resume(){
   if(!game||game.s.phase!=='running')return;
   if(game.s.preview){previewPaused=false;render();return;}
   if(!hw.calibrationReady()){message('Accept a calibration for this Civet before live output.');await openSettings();return;}
-  await loadHardware();try{await hw.run({restore:restoreEngine||{edgeCount:game.s.count},pattern:STAGES[game.s.stage].pattern,count:game.s.count,visit:currentVisit()});restoreEngine=null;showAlert('');armBackGuard();void requestWake();save();render();}catch(e){showAlert(e.message);await openSettings();}
+  await loadHardware();try{await hw.run({restore:restoreEngine||{edgeCount:game.s.count},pattern:STAGES[game.s.stage].pattern,count:game.s.count,visit:currentVisit()});restoreEngine=null;showAlert('');if($('toast'))$('toast').hidden=true;armBackGuard();void requestWake();save();render();}catch(e){showAlert(e.message);await openSettings();}
 }
 async function request(){
   if(!game||game.s.phase!=='running'||game.s.count===0||game.s.lastRequest===game.s.count)return;
@@ -3285,7 +3296,7 @@ $('settings-form').addEventListener('submit',async event=>{event.preventDefault(
   saveSettings();save();updateVitals();message(hw.calibrationReady()?'Settings saved. Cutoff stayed inside this sensor profile.':'Settings saved. Live output still needs an accepted sensor profile.');
 }catch(e){message(e.message);}});
 $('cal-zero').addEventListener('click',()=>{void hw.beginZero().then(()=>{saveSettings();updateVitals();}).catch(e=>message(e.message));});
-for(const level of ['relaxed','half','full'])$('cal-'+level).addEventListener('click',()=>{try{hw.beginLevel(level);updateVitals();}catch(e){message(e.message);}});
+for(const level of ['relaxed','half','full'])$('cal-'+level).addEventListener('click',()=>{void hw.beginLevel(level).then(()=>updateVitals()).catch(e=>message(e.message));});
 $('cal-accept').addEventListener('click',()=>{try{hw.acceptCalibration();saveSettings();fillSettings();updateVitals();message(hw.calMessage);}catch(e){message(e.message);}});
 if(hw.simulated){
   $('sensor-sim-note').hidden=false;$('sim-holds').hidden=false;
@@ -3364,6 +3375,7 @@ if(hw.simulated)void loadHardware().then(()=>updateVitals()).catch(e=>showAlert(
 <fieldset><legend>Equipment</legend><label>Output device<select name="toy" id="toy"><option value="opossum">Opossum · two channels · 40% cap each</option><option value="lush">Lovense Lush · 65% cap</option><option value="vacuglide">VacuGlide V2 · 35% speed cap</option></select></label><p class="note">A setting of 100% uses your capped maximum. The output monitor shows the resulting device command level. Story difficulty cannot raise these limits. Use one controller page at a time.</p><div class="pair-grid"><div><b>Civet sensor</b><small id="civet-pair-status">Not connected</small><button type="button" id="connect-civet" class="button secondary">Connect Civet</button></div><div><b id="output-pair-label">Opossum</b><small id="output-pair-status">Not connected</small><button type="button" id="connect-output" class="button secondary">Connect output</button></div></div><label id="token-label" hidden>VacuGlide device token<input id="vg-token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"><small>Used only in this page’s memory. Never saved or exported.</small></label><div id="valves" class="row" hidden><button type="button" id="valve-minus" class="button secondary">Hold · Stroke −</button><button type="button" id="valve-plus" class="button secondary">Hold · Stroke +</button></div></fieldset>
 <fieldset><legend>Sensor calibration</legend>
 <div class="reading"><div><span>Live reading</span><b id="cal-live">— kPa</b></div></div>
+<p class="note">Zero only while the sensor is unloaded and you are not clenching. Then fit it and capture relaxed at rest, then half, then full. Those are separate holds. The cutoff is a software estimate in the vendor-documented kPa units, not a medical limit. Output stays off until this sensor's profile is accepted and the live reading is below its reset level.</p>
 <p class="note" id="sensor-sim-note" hidden>Simulated Civet. This is not hardware, and it is stored separately from a real sensor profile.</p>
 <div class="row" id="sim-holds" hidden>
   <button type="button" class="button secondary" data-sim-hold="relaxed">Hold relaxed</button>
@@ -3373,14 +3385,13 @@ if(hw.simulated)void loadHardware().then(()=>updateVitals()).catch(e=>showAlert(
   <button type="button" class="button secondary" id="sim-drop">Drop simulated Civet</button>
 </div>
 <div class="stack">
-  <button type="button" class="button secondary" id="cal-zero">1. Hardware zero</button>
-  <button type="button" class="button secondary" id="cal-relaxed">2. Capture relaxed</button>
+  <button type="button" class="button secondary" id="cal-zero">1. Zero unloaded sensor</button>
+  <button type="button" class="button secondary" id="cal-relaxed">2. Capture loaded rest</button>
   <button type="button" class="button secondary" id="cal-half">3. Capture half</button>
   <button type="button" class="button secondary" id="cal-full">4. Capture full</button>
   <button type="button" class="button primary" id="cal-accept">Accept starting cutoff</button>
 </div>
 <p class="note" id="cal-status">No accepted profile for the connected sensor.</p>
-<p class="note">The starting cutoff is a software estimate from a stable zero, relaxed, half, and full hold, in the vendor-documented kPa units. It is not a medical or physiological limit. Output stays off until this sensor's profile is accepted.</p>
 <div class="two"><label>Cutoff pressure · kPa<input id="threshold" name="threshold" type="number" step="0.1" required></label><label>Reset pressure · kPa<input id="resetThreshold" name="resetThreshold" type="number" step="0.1" required></label></div>
 </fieldset>
 <fieldset><legend>Session settings</legend><label class="check"><input name="randomTreatment" type="checkbox">Let the nurse vary each treatment cycle</label><p class="note">New combinations of ramps and patterns are chosen after each registered edge. Her style and the day’s circumstances influence the surprises. Your configured power caps, Civet cutoff and automatic recovery always apply. Switch this off to use the fixed setup below.</p><div class="two"><label>Starting level · %<input name="startPercent" type="number" min="0" max="100" required></label><label>Ramp time · seconds<input name="rampSeconds" type="number" min="1" max="3600" required></label></div><p class="note">A fresh ramp begins after recovery. Opossum’s starting level is a fraction of each channel maximum.</p><div class="two" id="channel-settings"><label>Channel A maximum · %<input name="maxPercentA" type="number" min="0" max="100" required></label><label>Channel B maximum · %<input name="maxPercentB" type="number" min="0" max="100" required></label></div><div class="two"><label>Recovery minimum · seconds<input name="recoveryMinSeconds" type="number" min="1" max="300" required></label><label>Recovery maximum · seconds<input name="recoveryMaxSeconds" type="number" min="1" max="300" required></label></div><label class="check"><input name="adaptiveEnabled" type="checkbox">Adapt recovery after repeated short phases</label><details><summary>Adaptive recovery details</summary><div class="two"><label>Shorter than · seconds<input name="shortPhaseSeconds" type="number" min="1" max="120" step="0.5"></label><label>Consecutive short phases<input name="shortPhaseCount" type="number" min="1" max="20"></label><label>Stable at least · seconds<input name="stablePhaseSeconds" type="number" min="1" max="600"></label><label>Stable phases to reduce recovery<input name="stablePhaseCount" type="number" min="1" max="20"></label><label>Maximum recovery multiplier<input name="adaptiveMaxMultiplier" type="number" min="1" max="32"></label></div></details>
