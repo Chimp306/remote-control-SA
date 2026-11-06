@@ -198,6 +198,13 @@ class BluetoothAdapter {
 
   get connected() { return this._ready && Boolean(this._device?.gatt?.connected); }
 
+  get identity() {
+    if (!this.connected) return null;
+    const id = this._device?.id;
+    if (!id) return null;
+    return { id: String(id), name: String(this._device?.name || '') };
+  }
+
   _status(state, message, error) {
     try { this.onStatus({ state, connected: this.connected, message, ...(error ? { error } : {}) }); } catch { /* observer only */ }
   }
