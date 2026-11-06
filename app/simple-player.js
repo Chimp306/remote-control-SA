@@ -5,10 +5,10 @@
  * devices with the same connect/output interface; the real Bluetooth
  * path is unused while that mode is on.
  */
-import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261106-v28';
-import { CivetDevice, OpossumDevice, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261106-v28';
-import { BUILD } from './config.js?v=20261106-v28';
-import { PlayTimer, formatPlayDuration } from './play-timer.js?v=20261106-v28';
+import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261106-v29';
+import { CivetDevice, OpossumDevice, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261106-v29';
+import { BUILD } from './config.js?v=20261106-v29';
+import { PlayTimer, formatPlayDuration } from './play-timer.js?v=20261106-v29';
 import {
   CIVET_CALIBRATION,
   SIM_HOLDS,
@@ -17,12 +17,16 @@ import {
   assessZero,
   captureTimedOut,
   deriveProfile,
+  draftErrors,
+  enteredReading,
   forgetProfile,
   outputPermitted,
+  parseEnteredKpa,
   profileMatches,
   rememberProfile,
+  sourceLabel,
   storedProfile,
-} from './civet-calibration.js?v=20261106-v28';
+} from './civet-calibration.js?v=20261106-v29';
 
 const PLAY_PATTERNS = OPOSSUM_PATTERNS.filter(name => name !== 'custom');
 const PATTERN_LABELS = {
@@ -85,6 +89,9 @@ let patternsSeen = [];
 let finalElapsedVisible = false;
 let calibrationMessage = '';
 let calibrationDraft = { zero: null, relaxed: null, half: null, full: null };
+const calibrationFields = { zero: '', relaxed: '', half: '', full: '' };
+const calibrationErrors = { zero: '', relaxed: '', half: '', full: '' };
+let calibrationDirty = false;
 let calibrationCapture = null;
 let activeProfile = null;
 let outputHeld = false;
@@ -446,6 +453,11 @@ async function disableTestMode() {
   testMode = false;
   activeProfile = null;
   calibrationDraft = { zero: null, relaxed: null, half: null, full: null };
+  for (const name of ['zero', 'relaxed', 'half', 'full']) {
+    calibrationFields[name] = '';
+    calibrationErrors[name] = '';
+  }
+  calibrationDirty = false;
   calibrationCapture = null;
   createRealDevices();
   civetHint = 'Not connected';
@@ -505,9 +517,70 @@ function applyActiveProfile() {
   });
 }
 
+function syncDraftFromProfile(profile) {
+  if (!profile) return;
+  calibrationDraft = { zero: profile.zero, relaxed: profile.relaxed, half: profile.half, full: profile.full };
+  for (const name of ['zero', 'relaxed', 'half', 'full']) {
+    calibrationFields[name] = Number(profile[name].mean).toFixed(2);
+    calibrationErrors[name] = '';
+  }
+}
+
 function refreshStoredProfile() {
+  if (calibrationDirty || calibrationCapture) {
+    activeProfile = null;
+    return;
+  }
   activeProfile = storedProfile(localStorage, sensorIdentity(), testMode);
-  if (activeProfile) applyActiveProfile();
+  if (activeProfile) {
+    applyActiveProfile();
+    syncDraftFromProfile(activeProfile);
+  }
+}
+
+function paintCalibration() {
+  const status = document.getElementById('calibration-status');
+  if (status) {
+    status.textContent = calibrationMessage || (profileReady()
+      ? `This sensor is calibrated. Cutoff ${activeProfile.applied.threshold.toFixed(1)} kPa, reset ${activeProfile.applied.resetThreshold.toFixed(1)} kPa.`
+      : 'No accepted profile for the connected sensor.');
+  }
+  for (const name of ['zero', 'relaxed', 'half', 'full']) {
+    const source = document.getElementById(`cal-source-${name}`);
+    const error = document.getElementById(`cal-error-${name}`);
+    if (source) source.textContent = sourceLabel(calibrationDraft[name], name);
+    if (error) error.textContent = calibrationErrors[name] || '';
+  }
+  const play = document.querySelector('[data-act="play"]');
+  if (play) play.disabled = !canPlay();
+  const accept = document.querySelector('[data-act="cal-accept"]');
+  if (accept) accept.disabled = Boolean(calibrationCapture);
+  for (const button of document.querySelectorAll('[data-act="cal-zero"], [data-act="cal-level"]')) {
+    button.disabled = !civet?.connected || Boolean(calibrationCapture);
+  }
+}
+
+function editCalibrationField(name, raw) {
+  if (!['zero', 'relaxed', 'half', 'full'].includes(name)) return;
+  calibrationFields[name] = raw;
+  calibrationDirty = true;
+  outputHeld = true;
+  if (calibrationCapture) abortCapture('Capture discarded because a number was typed.');
+  outputHeld = true;
+  try { forgetProfile(localStorage, sensorIdentity(), testMode); }
+  catch (err) { calibrationMessage = err.message || 'The saved profile could not be cleared.'; }
+  activeProfile = null;
+  const parsed = parseEnteredKpa(raw);
+  if (!parsed.ok) {
+    calibrationDraft[name] = null;
+    calibrationErrors[name] = parsed.empty ? '' : parsed.reason;
+  } else {
+    calibrationDraft[name] = enteredReading(parsed.mean);
+    calibrationErrors[name] = '';
+  }
+  calibrationMessage = 'Typed numbers are not a hardware reset and were not measured. Accept the profile before output can start.';
+  if (ACTIVE.has(engine.phase)) onPause('Paused because the calibration changed.');
+  paintCalibration();
 }
 
 function clearCaptureTimer() {
@@ -564,6 +637,9 @@ function noteCalibrationSample(kpa, at) {
       return;
     }
     calibrationDraft = { ...calibrationDraft, [capture.kind]: verdict };
+    calibrationFields[capture.kind] = verdict.mean.toFixed(2);
+    calibrationErrors[capture.kind] = '';
+    calibrationDirty = true;
     const label = capture.kind === 'zero' ? 'post-zero' : capture.kind;
     calibrationMessage = `${label} measured ${verdict.mean.toFixed(2)} kPa from ${verdict.count} samples.`;
     render();
@@ -581,7 +657,7 @@ function readingNow() {
 }
 
 function canPlay() {
-  return Boolean(civet?.connected && opossum?.connected && !calibrationCapture && !outputHeld
+  return Boolean(civet?.connected && opossum?.connected && !calibrationCapture && !calibrationDirty && !outputHeld
     && outputPermitted(activeProfile, sensorIdentity(), testMode, readingNow(), Date.now()));
 }
 
@@ -594,7 +670,12 @@ async function startZero() {
   catch (err) { calibrationMessage = err.message || 'Output stop was not confirmed. Zero was not sent.'; render(); return; }
   try { forgetProfile(localStorage, sensorIdentity(), testMode); } catch (err) { calibrationMessage = err.message; render(); return; }
   activeProfile = null;
+  calibrationDirty = true;
   calibrationDraft = { zero: null, relaxed: null, half: null, full: null };
+  for (const name of ['zero', 'relaxed', 'half', 'full']) {
+    calibrationFields[name] = '';
+    calibrationErrors[name] = '';
+  }
   calibrationCapture = null;
   let sent = false;
   try {
@@ -614,13 +695,16 @@ async function startZero() {
 }
 
 async function startLevel(kind) {
+  const heldBefore = outputHeld;
   outputHeld = true;
-  if (!calibrationDraft.zero) { calibrationMessage = 'Confirm hardware zero from fresh samples first.'; outputHeld = false; render(); return; }
-  if (kind === 'half' && !calibrationDraft.relaxed) { calibrationMessage = 'Capture the relaxed reading first.'; outputHeld = false; render(); return; }
-  if (kind === 'full' && !calibrationDraft.half) { calibrationMessage = 'Capture the half reading first.'; outputHeld = false; render(); return; }
-  if (!civet?.connected || !sensorIdentity()) { calibrationMessage = 'The sensor is not connected.'; outputHeld = false; render(); return; }
+  if (!['relaxed', 'half', 'full'].includes(kind)) { outputHeld = heldBefore; return; }
+  if (!civet?.connected || !sensorIdentity()) { calibrationMessage = 'The sensor is not connected.'; outputHeld = heldBefore; render(); return; }
   try { await ensureOutputOff(); }
   catch (err) { calibrationMessage = err.message || 'Output stop was not confirmed.'; render(); return; }
+  try { forgetProfile(localStorage, sensorIdentity(), testMode); }
+  catch (err) { calibrationMessage = err.message || 'The saved profile could not be cleared.'; render(); return; }
+  activeProfile = null;
+  calibrationDirty = true;
   const now = Date.now();
   calibrationCapture = { kind, samples: [], discardUntil: now, collectAfter: now };
   armCaptureTimer();
@@ -631,6 +715,16 @@ async function startLevel(kind) {
 }
 
 function acceptCalibration() {
+  const issues = draftErrors(calibrationDraft);
+  for (const name of ['zero', 'relaxed', 'half', 'full']) calibrationErrors[name] = issues.errors?.[name] || '';
+  if (!issues.ok) {
+    activeProfile = null;
+    calibrationDirty = true;
+    outputHeld = true;
+    calibrationMessage = issues.reason;
+    render();
+    return;
+  }
   try {
     const profile = deriveProfile({
       device: sensorIdentity(),
@@ -642,9 +736,15 @@ function acceptCalibration() {
     });
     activeProfile = rememberProfile(localStorage, profile);
     applyActiveProfile();
-    calibrationMessage = `Starting cutoff ${activeProfile.applied.threshold.toFixed(1)} kPa, reset ${activeProfile.applied.resetThreshold.toFixed(1)} kPa. This is a software estimate in the vendor-documented kPa units, not a medical limit.`;
+    calibrationDirty = false;
+    if (!calibrationCapture && !ACTIVE.has(engine.phase)) outputHeld = false;
+    syncDraftFromProfile(activeProfile);
+    const typed = ['zero', 'relaxed', 'half', 'full'].some(name => activeProfile[name].source === 'entered');
+    calibrationMessage = `Starting cutoff ${activeProfile.applied.threshold.toFixed(1)} kPa, reset ${activeProfile.applied.resetThreshold.toFixed(1)} kPa. ${typed ? `Entered readings use an assumed ${CIVET_CALIBRATION.enteredNoiseKpa.toFixed(1)} kPa uncertainty and did not send a hardware reset.` : 'Captured holds keep their measured variation. This is a software estimate in the vendor-documented kPa units, not a medical limit.'}`;
   } catch (err) {
     activeProfile = null;
+    calibrationDirty = true;
+    outputHeld = true;
     calibrationMessage = err.message || 'Calibration could not be saved.';
   }
   render();
@@ -704,6 +804,26 @@ function formatPercent(value) {
   return `${Math.round(clamp(Number(value) || 0, 0, 100))}%`;
 }
 
+function calibrationFieldsHTML(civetOn) {
+  const rows = [
+    ['zero', 'Post-zero baseline', 'cal-zero', '', 'Zero unloaded sensor'],
+    ['relaxed', 'Relaxed, fitted at rest', 'cal-level', 'relaxed', 'Capture loaded rest'],
+    ['half', 'Half', 'cal-level', 'half', 'Capture half'],
+    ['full', 'Full', 'cal-level', 'full', 'Capture full'],
+  ];
+  const enabled = civetOn && !calibrationCapture ? '' : 'disabled';
+  return rows.map(([name, label, act, level, button]) => `
+    <div class="cal-step">
+      <div class="field">
+        <label for="cal-kpa-${name}">${label} · kPa</label>
+        <input id="cal-kpa-${name}" data-cal-field="${name}" type="text" inputmode="decimal" autocomplete="off" value="${escapeHtml(calibrationFields[name])}" ${calibrationCapture ? 'disabled' : ''}>
+      </div>
+      <p class="cal-source" id="cal-source-${name}">${escapeHtml(sourceLabel(calibrationDraft[name], name))}</p>
+      <p class="cal-error" id="cal-error-${name}">${escapeHtml(calibrationErrors[name] || '')}</p>
+      <button class="button" type="button" data-act="${act}" ${level ? `data-level="${level}"` : ''} ${enabled}>${button}</button>
+    </div>`).join('');
+}
+
 function setupHTML() {
   const civetOn = Boolean(civet?.connected);
   const toyOn = Boolean(opossum?.connected);
@@ -724,7 +844,7 @@ function setupHTML() {
         <div class="reading"><span>Live reading</span><b id="setup-pressure">${formatKpa(engine.snapshot().pressure)} ${CIVET_CALIBRATION.unit}</b></div>
       </section>
       <section class="panel calibration-panel" data-simulated="${testMode ? '1' : '0'}">
-        <p class="note">${testMode ? 'Simulated sensor. These holds are not a real Civet, and they are stored separately. ' : ''}Zero only while the sensor is unloaded and you are not clenching. Relaxed is a separate step after it is fitted and at rest. Output stays off until a profile for this sensor is accepted.</p>
+        <p class="note">${testMode ? 'Simulated sensor. These holds are not a real Civet, and they are stored separately. ' : ''}Zero only while the sensor is unloaded and you are not clenching. Relaxed is a separate step after it is fitted and at rest. You can capture a hold or type a known kPa value. Typing does not send the hardware reset and is not a measurement. Each typed value is treated as uncertain by ${CIVET_CALIBRATION.enteredNoiseKpa.toFixed(1)} kPa. Output stays off until a profile for this sensor is accepted.</p>
         ${testMode ? `<div class="sim-holds">
           <button class="button" type="button" data-act="sim-hold" data-hold="relaxed">Hold relaxed</button>
           <button class="button" type="button" data-act="sim-hold" data-hold="half">Hold half</button>
@@ -733,11 +853,8 @@ function setupHTML() {
           <button class="button" type="button" data-act="sim-drop">Drop simulated Civet</button>
         </div>` : ''}
         <div class="stack">
-          <button class="button" type="button" data-act="cal-zero" ${civetOn && !calibrationCapture ? '' : 'disabled'}>1. Zero unloaded sensor</button>
-          <button class="button" type="button" data-act="cal-level" data-level="relaxed" ${calibrationDraft.zero && !calibrationCapture ? '' : 'disabled'}>2. Capture loaded rest</button>
-          <button class="button" type="button" data-act="cal-level" data-level="half" ${calibrationDraft.relaxed && !calibrationCapture ? '' : 'disabled'}>3. Capture half</button>
-          <button class="button" type="button" data-act="cal-level" data-level="full" ${calibrationDraft.half && !calibrationCapture ? '' : 'disabled'}>4. Capture full</button>
-          <button class="button button-primary" type="button" data-act="cal-accept" ${calibrationDraft.full && !calibrationCapture ? '' : 'disabled'}>Accept starting cutoff</button>
+          ${calibrationFieldsHTML(civetOn)}
+          <button class="button button-primary" type="button" data-act="cal-accept" ${calibrationCapture ? 'disabled' : ''}>Accept starting cutoff</button>
         </div>
         <p class="note" id="calibration-status">${escapeHtml(calibrationMessage || (profileReady() ? `This sensor is calibrated. Cutoff ${activeProfile.applied.threshold.toFixed(1)} kPa, reset ${activeProfile.applied.resetThreshold.toFixed(1)} kPa.` : 'No accepted profile for the connected sensor.'))}</p>
       </section>
@@ -764,7 +881,7 @@ function setupHTML() {
       ${message ? `<p class="note">${escapeHtml(message)}</p>` : ''}
       ${finalElapsedVisible ? `<p class="final-time" id="final-play-time"><span>Time being tormented</span><b>${elapsedLabel()}</b></p>` : ''}
       <button class="button button-primary" type="button" data-act="play" ${canPlay() ? '' : 'disabled'}>Play</button>
-      <p class="note">${profileReady() ? (testMode ? 'Simulated profile accepted. Play uses that cutoff and does not write a real sensor profile.' : 'Play uses the accepted profile for this sensor. Output never exceeds the toy max power you set above.') : 'Play stays off until this sensor has an accepted calibration. Output is held at zero during the four steps.'}</p>
+      <p class="note">${profileReady() && !calibrationDirty ? (testMode ? 'Simulated profile accepted. Play uses that cutoff and does not write a real sensor profile.' : 'Play uses the accepted profile for this sensor. Output never exceeds the toy max power you set above.') : 'Play stays off until this sensor has an accepted calibration. Output is held at zero while a draft is unfinished.'}</p>
       <p class="fineprint">Build ${escapeHtml(BUILD)}</p>
     </div>`;
 }
@@ -1070,7 +1187,20 @@ app.addEventListener('change', event => {
 });
 
 app.addEventListener('input', event => {
+  if (event.target.dataset?.calField) {
+    editCalibrationField(event.target.dataset.calField, event.target.value);
+    return;
+  }
   if (event.target.id === 'toy-max' || event.target.id === 'toy-max-number') readToyMaxFromSetup();
+});
+
+app.addEventListener('focusout', event => {
+  const name = event.target.dataset?.calField;
+  if (!name) return;
+  const parsed = parseEnteredKpa(event.target.value);
+  if (!parsed.ok) return;
+  calibrationFields[name] = parsed.mean.toFixed(2);
+  event.target.value = calibrationFields[name];
 });
 
 document.addEventListener('visibilitychange', () => {
