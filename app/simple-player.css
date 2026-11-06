@@ -277,6 +277,10 @@ button { touch-action: manipulation; }
   letter-spacing: 0.14em;
   font-weight: 750;
 }
+.calibration-panel { display: grid; gap: 12px; }
+.sim-holds { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sim-holds .button { min-height: 44px; font-size: 0.85rem; }
+.calibration-panel .button { min-height: 48px; }
 .play-actions { display: grid; gap: 10px; }
 .button-pause {
   width: 100%;
