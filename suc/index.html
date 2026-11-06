@@ -129,12 +129,36 @@ const ART={"assessment":"data:image/webp;base64,UklGRuCDAQBXRUJQVlA4INSDAQCQ1Qad
 
 // ---- content.js ----
 // SUC Clinic: authored fiction. No story instruction can command hardware.
-const VERSION = '1.3.1';
+const VERSION = '1.3.2';
 const DIFFICULTIES = {
-  easy: {name:'Routine Collection',label:'Easy',min:105,max:135,copy:'A shorter appointment. The staff are still rather thorough.'},
-  medium: {name:'Extended Collection',label:'Medium',min:135,max:165,copy:'More assessments, more opportunities for your nurse to take an interest.'},
-  hard: {name:'Intensive Collection Programme',label:'Hard',min:170,max:220,copy:'A lengthy appointment. The final collection target is known only to staff.'},
+  easy: {name:'Routine Collection',label:'Easy',min:85,max:115,copy:'A shorter appointment. The staff are still rather thorough.'},
+  medium: {name:'Extended Collection',label:'Medium',min:105,max:135,copy:'More assessments, more opportunities for your nurse to take an interest.'},
+  hard: {name:'Intensive Collection Programme',label:'Hard',min:125,max:165,copy:'A lengthy appointment. The final collection target is known only to staff.'},
 };
+
+const PITCHES = {
+  evelyn: {
+    pitch: '“I will look after you properly. Nothing rushed — just a careful, thorough collection. You will be in good hands.”',
+    catch: 'She meant thorough. Asking for Evelyn added a little extra to the private chart.',
+    nudge: 6,
+  },
+  scarlett: {
+    pitch: '“Pick me and I will make it fun. Quick humour, a bit of mischief, and I will not drag it out. Promise.”',
+    catch: 'Scarlett’s idea of “not dragging it out” still left the toy under her control for longer than the pitch suggested.',
+    nudge: 8,
+  },
+  beatrice: {
+    pitch: '“With me the programme is exact and fair. You will know the rules. I do not play games with the chart.”',
+    catch: 'The rules were exact. They were also stricter than the reception pitch implied.',
+    nudge: 5,
+  },
+  victoria: {
+    pitch: '“I take my time, and I pay attention. If you want someone who notices every response, ask for me.”',
+    catch: 'She noticed everything — including how much more she could still take before she was satisfied.',
+    nudge: 7,
+  },
+};
+
 const PREVIOUS = {
   permitted:'An orgasm was permitted',
   choice:'I was allowed to decide',
@@ -162,11 +186,11 @@ const NURSES = {
       "The counter chimes softly. Hart glances towards it, then back to you with a knowing look."
     ],
     "stages": [
-      "“First, a baseline,” Evelyn explains, settling your file beside a small brass counter. “Each completed edge adds one. We’ll build you up slowly and carefully.” She turns back to you. “Any questions before we begin?”",
-      "Evelyn leads you into the Meridian Suite, where paired instruments sit beneath frosted glass. She checks the settings, adjusting them with deliberate care. “Here we are. Time to see how you respond.”",
-      "In the observation room Evelyn opens your chart at the latest entry. She leaves the chair beside her free. “Come and sit here while I look through this. I want to see how far we’ve taken you.”",
+      "“First, a baseline,” Evelyn explains, settling your file beside a small brass counter. “Each completed edge adds one. I control the toy; you hold still and let me take what I need.” She turns back to you. “Any questions before we begin?”",
+      "Evelyn leads you into the Meridian Suite, where paired instruments sit beneath frosted glass. She checks the settings, then looks at you. “Here we are. I will keep you right on the edge. The more you leak for me, the better the reading.”",
+      "In the observation room Evelyn opens your chart at the latest entry. She leaves the chair beside her free. “Come and sit here. I am not finished taking from you. Stay on the edge while I decide how much more I want.”",
       "A brass message capsule arrives from administration. Evelyn unfolds the paper, reads it and sets it beside your chart. “They do like to interrupt.” She looks up with a grin. “Where were we? Still holding for me?”",
-      "Evelyn brings the final section of your file to the bedside. “The discharge review,” she explains, making space for the prescription beside it. “Let’s see what you’ve earned.”"
+      "Evelyn brings the final section of your file to the bedside. “The discharge review,” she explains, making space for the prescription beside it. “Let’s see whether I have taken enough from you… or whether I want a little more first.”"
     ],
     "ending": "Evelyn closes your file with a small, warm smile. “All finished.” She turns the final prescription towards you, her eyes lingering."
   },
@@ -185,7 +209,7 @@ const NURSES = {
       "Scarlett catches your glance at the clock. One eyebrow rises. “Impatient already?”"
     ],
     "stages": [
-      "“Let us make this simple,” Scarlett says, positioning the brass tally beside her. “Every completed edge adds one. And I do mean completed.” She moves the private chart out of view before you can read the last column.",
+      "“Let us make this simple,” Scarlett says, positioning the brass tally beside her. “Every completed edge adds one. I run the toy; you drip. Try not to finish before I am done collecting.” She moves the private chart out of view.",
       "The paired instruments are waiting in the next room. Scarlett checks their settings and turns the pattern chart towards you. “Something different for this part. Let’s see how long you last.”",
       "Behind the observation glass a supervisor passes without stopping. Scarlett waves cheerfully. “She saw us. She is pretending she did not. Probably jealous.”",
       "Scarlett receives an envelope stamped COLLECTION AUDIT. She opens it, laughs and folds it closed again. “An inspection. That explains the serious faces. Don’t worry, I won’t behave.”",
@@ -208,7 +232,7 @@ const NURSES = {
       "You catch Shaw smiling at the chart before her expression becomes professionally neutral again."
     ],
     "stages": [
-      "Shaw seats you beside the enamel counter and opens her fountain pen. “Each completed edge adds one to this counter. We will be exact.” She waits until you are settled before opening the chart.",
+      "Shaw seats you beside the enamel counter and opens her fountain pen. “Each completed edge adds one to this counter. I will keep the stimulation precise and the denial absolute until the chart is satisfied.” She waits until you are settled.",
       "In the instrument suite Beatrice checks the settings and places your folder beside the instruments. “This is the next part.” She leaves the chart open while she waits for your question.",
       "The observation gallery contains a wall of immaculately filed ledgers. Beatrice catches you looking at them. “Yes. They are in order. As you will be.” Her expression suggests this was never in doubt.",
       "An inspector’s folder arrives at the consultation desk. Beatrice checks the seal, sets it aside and returns to you. “That can wait a moment. You cannot.”",
@@ -231,7 +255,7 @@ const NURSES = {
       "“There are things you cannot learn from a number,” she says, adding another number anyway."
     ],
     "stages": [
-      "Victoria shows you the polished counter. “One mark for each completed edge.” She places it where you can see it and opens her own chart.",
+      "Victoria shows you the polished counter. “One mark for each completed edge.” She places it where you can see it and opens her own chart. “I decide when the toy stops. You will feel that.”",
       "In the Meridian Suite Victoria studies the instrument settings before taking her seat. She waits for your question without offering one of her own.",
       "Victoria leads you past the observation window. A brass display hangs on the far wall, but she is watching your reaction to the room.",
       "The supervisor’s message arrives while Victoria is reading your chart. She finishes the paragraph before opening it, then sets both papers side by side.",
@@ -1025,7 +1049,7 @@ const RESPONSES = {
       "“One edge, one mark,” Evelyn explains softly. “A fair question. I would want to know how carefully we are counting your need too.”"
     ],
     "professional": [
-      "“Kind of you to notice,” Evelyn says. “It has been a good afternoon. You make it easy to stay in a pleasant mood.”",
+      "“Kind of you to notice,” Evelyn says. “It has been a good afternoon. Controlling you like this puts me in an excellent mood.”",
       "Evelyn smiles at your comment. “Is it that obvious? I thought I was being quite composed about how much I like this part.”"
     ],
     "change": [
@@ -1037,7 +1061,7 @@ const RESPONSES = {
       "Evelyn looks up at your remark. “A little conversation makes the waiting sweeter for both of us.”"
     ],
     "quota": [
-      "“Yes, there is a target,” Evelyn answers. “I am keeping that part of the chart private, but I will tell you when the review is complete. Until then, we keep going.”",
+      "“Yes, there is a target,” Evelyn answers. “I am keeping that part of the chart private. Until I am satisfied with how much I have taken from you, the toy stays under my control.”",
       "Evelyn nods. “There is a number in my plan. I know you would like to see it; that page stays with me for now. The edges continue either way.”"
     ],
     "smile": [
@@ -1049,19 +1073,19 @@ const RESPONSES = {
       "Evelyn glances towards the corridor. “Very thorough. Sometimes I have to remind her that an appointment also involves watching you struggle so nicely.”"
     ],
     "patience": [
-      "“You are hoping we are nearly finished. I heard you,” Evelyn says gently. “I have not finished the review yet. We still have more to collect.”",
-      "Evelyn gives your comment a moment of thought. “I understand. I would rather give you a clear answer than promise a time I have not checked. The denial is not over.”"
+      "“You are hoping we are nearly finished. I heard you,” Evelyn says gently. “I have not finished taking what I want. Stay on the edge for me a little longer.”",
+      "Evelyn gives your comment a moment of thought. “I understand. The denial is not over. I will keep you right where I want you until the chart is satisfied.”"
     ],
     "resolve": [
       "“Thank you,” Evelyn says. “I will finish the review, then explain the result. You have been very patient.”",
       "Evelyn nods at your decision. “I will take it from here for a moment. Then we can look at the final page together.”"
     ],
     "custom_tease": [
-      "“Yes,” Evelyn says with a warm smile. “I enjoy watching the need build. It is part of taking care of you properly.”",
+      "“Yes,” Evelyn says with a warm smile. “I enjoy watching the need build while I keep the toy exactly where I want it. That is part of taking care of you properly.”",
       "Evelyn meets your eyes. “The teasing is half the pleasure. For me as well.”"
     ],
     "custom_intense": [
-      "“I chose it for that reason,” Evelyn says. “I wanted to see you closer to the edge. You are doing beautifully.”",
+      "“I chose it for that reason,” Evelyn says. “I wanted you closer to the edge, leaking for me. You are doing beautifully. Do not finish.”",
       "Evelyn checks the current entry. “Yes. More intense. That is the point of the change.”"
     ],
     "custom_close": [
@@ -1095,7 +1119,7 @@ const RESPONSES = {
       "Scarlett raises an eyebrow. “You make that sound like an accusation. I shall plead cheerfully guilty. You make it easy.”"
     ],
     "quota": [
-      "“Of course,” Scarlett replies. “You were not expecting me to leave that page facing upwards, were you? The target stays mine.”",
+      "“Of course,” Scarlett replies. “The target stays mine. So does the toy. You just keep dripping until I decide you have given me enough.”",
       "Scarlett covers the last column with her hand. “There is a target. You have managed to find one of my shorter answers. The rest is classified.”"
     ],
     "smile": [
@@ -1115,11 +1139,11 @@ const RESPONSES = {
       "Scarlett nods. “Very well. I will get to the last page without another running commentary. Try not to distract me.”"
     ],
     "custom_tease": [
-      "“Oh, absolutely,” Scarlett says, grinning. “Watching you struggle not to come is one of the better parts of the job.”",
+      "“Oh, absolutely,” Scarlett says, grinning. “I have the toy. Watching you struggle not to come while I take what I want is one of the better parts of the job.”",
       "Scarlett tilts her head. “I enjoy it more than most patients realise. You are doing a fine job of entertaining me.”"
     ],
     "custom_intense": [
-      "“Good,” Scarlett says. “That was the idea. I wanted to see you closer to breaking. You look excellent like that.”",
+      "“Good,” Scarlett says. “That was the idea. I wanted you closer to breaking, dripping for me. You look excellent like that. Do not finish.”",
       "Scarlett checks the chart. “More intense, yes. I do like the results.”"
     ],
     "custom_close": [
@@ -1154,7 +1178,7 @@ const RESPONSES = {
     ],
     "quota": [
       "“Yes. It is recorded in the private plan,” Beatrice says. “I will not quote the figure. The edges continue regardless.”",
-      "Beatrice closes the final column from view. “There is a target. Its existence and its value are separate questions.”"
+      "Beatrice closes the final column from view. “There is a target. Its existence and its value are separate questions. The stimulation continues until I have extracted what the programme requires.”"
     ],
     "smile": [
       "“A private thought,” Beatrice answers. “You can allow me one. It concerned your last edge.”",
@@ -1173,7 +1197,7 @@ const RESPONSES = {
       "Beatrice nods once. “Then I shall complete it.”"
     ],
     "custom_tease": [
-      "“Yes,” Beatrice says precisely. “The controlled denial is professionally satisfying. I do not pretend otherwise.”",
+      "“Yes,” Beatrice says precisely. “I control the stimulation. The denial is professionally satisfying. I do not pretend otherwise.”",
       "Beatrice allows a small smile. “I find the process agreeable. Your reactions confirm the method.”"
     ],
     "custom_intense": [
@@ -1212,7 +1236,7 @@ const RESPONSES = {
     ],
     "quota": [
       "“Yes,” Victoria says. “I was wondering when you would ask about that.” She leaves the private chart closed.",
-      "Victoria answers after a brief pause. “There is a target. I am keeping its number to myself. The edges continue.”"
+      "Victoria answers after a brief pause. “There is a target. I am keeping its number to myself. The toy stays on my terms until I have taken what I want from you.”"
     ],
     "smile": [
       "“I was thinking about our conversation,” Victoria says. “And about how you looked on the last edge. Some thoughts can stay private.”",
@@ -1231,7 +1255,7 @@ const RESPONSES = {
       "“You would like to hear it when it is complete,” Victoria says. “Very well.”"
     ],
     "custom_tease": [
-      "“I do,” Victoria says quietly. “Watching the need accumulate is part of the work. I do not hurry it.”",
+      "“I do,” Victoria says quietly. “I decide how long the toy keeps you there. Watching the need accumulate is part of the work. I do not hurry it.”",
       "Victoria’s gaze is steady. “The teasing has its own value. I am in no rush to end it.”"
     ],
     "custom_intense": [
@@ -1780,21 +1804,25 @@ const LOSS_LINES={
  beatrice:'Beatrice makes a precise mark in the ledger. “Unscheduled orgasm. Programme incomplete.” After a pause she allows herself a small, genuinely amused smile. “An interesting result, but not a successful discharge.”',
  victoria:'Victoria closes your file slowly. “You reached your limit before I reached mine.” A knowing smile. “I rather thought that might happen. This visit goes down as incomplete.”',
 };
-function createAppointment({difficulty='medium',preview=true,lastNurse=null,seed=1,now=Date.now(),visitedBefore=false,previousPrescription=null,memory=null}={}){
+function createAppointment({difficulty='medium',preview=true,lastNurse=null,preferredNurse=null,seed=1,now=Date.now(),visitedBefore=false,previousPrescription=null,memory=null}={}){
   if(!DIFFICULTIES[difficulty])throw Error('Choose a valid appointment type.');
   if(typeof visitedBefore!=='boolean'||(visitedBefore&&!PREVIOUS[previousPrescription])||(!visitedBefore&&previousPrescription!==null))throw Error('Complete the registration questions before choosing a programme.');
-  const s={version:1,appVersion:VERSION,rng:seed>>>0,dialogueSeed:seed>>>0,id:`${now}-${seed>>>0}`,difficulty,preview:Boolean(preview),createdAt:now,endedAt:null,phase:'waiting',stage:0,count:0,lastIncoming:0,lastRequest:-1,requests:0,requested:false,elapsedMs:0,lastEdgeMs:null,lastEdgeAt:null,choiceDone:false,revision:0,flags:{},history:[],events:[],choices:[],cueIndex:0,observationUsed:[],recentObservations:[],extension:0,reduction:0,visitedBefore,previousPrescription,verdict:null,prescription:null};
-  s.nurse=pick(s,Object.keys(NURSES).filter(k=>k!==lastNurse));
+  if(preferredNurse!==null&&!NURSES[preferredNurse])throw Error('Choose a nurse from the clinic staff.');
+  const s={version:1,appVersion:VERSION,rng:seed>>>0,dialogueSeed:seed>>>0,id:`${now}-${seed>>>0}`,difficulty,preview:Boolean(preview),createdAt:now,endedAt:null,phase:'waiting',stage:0,count:0,lastIncoming:0,lastRequest:-1,requests:0,requested:false,elapsedMs:0,lastEdgeMs:null,lastEdgeAt:null,choiceDone:false,revision:0,flags:{},history:[],events:[],choices:[],cueIndex:0,observationUsed:[],recentObservations:[],extension:0,reduction:0,visitedBefore,previousPrescription,verdict:null,prescription:null,requestedNurse:preferredNurse};
+  s.nurse=preferredNurse&&NURSES[preferredNurse]?preferredNurse:pick(s,Object.keys(NURSES).filter(k=>k!==lastNurse));
+  const pitch=PITCHES[s.nurse];
+  s.pitch=pitch?pitch.pitch:'';
+  s.catch=pitch?pitch.catch:'';
   s.memory=memoryForNurse(visitedBefore?memory:null,s.nurse);
   s.followups=[];s.sceneMoments=[];s.expression=null;
   s.day=pick(s,Object.keys(DAYS));s.rule=ruleFor(s.nurse,s.day);
   const d=DIFFICULTIES[difficulty];
   const historyNudge=previousPrescription==='permitted'?2:previousPrescription==='denied'?3:previousPrescription==='choice'?1:0;
-  s.originalTarget=cap(roll(s,d.min,d.max)+DAYS[s.day].adjustment+historyNudge,d.min,d.max);s.target=s.originalTarget;
+  s.originalTarget=cap(roll(s,d.min,d.max)+DAYS[s.day].adjustment+historyNudge+(preferredNurse?PITCHES[s.nurse].nudge:0),d.min,d.max);s.target=s.originalTarget;
   s.hardCap=Math.ceil(d.max*1.2);s.floor=Math.max(Math.floor(d.min*.8),Math.floor(s.originalTarget*.79)+1);
   s.boundaries=[.13,.31,.53,.78].map(f=>Math.floor(s.originalTarget*f));
   s.intakeNote=visitedBefore?INTAKE[previousPrescription]:INTAKE.first;
-  s.currentText=`${s.intakeNote}\n\n${DAYS[s.day].waiting}`;
+  s.currentText=`${s.intakeNote}\n\n${s.pitch}\n\n${DAYS[s.day].waiting}`;
   s.fileHint=(s.originalTarget-d.min)/(d.max-d.min)>.7?'The receptionist adds another paper to your file. “A busy appointment, I think. The staff will be delighted.”':(s.originalTarget-d.min)/(d.max-d.min)<.25?'The receptionist’s smile is warm. “A fairly modest programme on paper. Of course, the nurse has the final collection chart.”':'The receptionist clicks a brass clasp around your folder. “Your nurse has the full target. You will know when she is satisfied.”';
   return new Appointment(s);
 }
@@ -1931,7 +1959,7 @@ class Appointment{
     const narrative=prescriptionSuffix&&s.currentText.endsWith(prescriptionSuffix)?s.currentText.slice(0,-prescriptionSuffix.length):s.currentText;
     const cycles=s.events.filter(e=>e.type==='cutoff'&&Number.isFinite(e.cycleSeconds)).map(e=>e.cycleSeconds);
     const rules={mercy:'Requests could reduce the remaining collection requirement',extend:'Requests could extend the collection requirement within its limit',fixed:'The collection target was fixed',request:'A request was necessary for early discharge review'};
-    return {nurse:this.nurse.name,day:DAYS[s.day].name,rule:rules[s.rule],original:s.originalTarget,final:s.target,extra:s.extension,removed:s.reduction,count:s.count,requests:s.requests,seconds:Math.round(s.elapsedMs/1000),wallSeconds:Math.max(0,Math.round(((s.endedAt||Date.now())-s.createdAt)/1000)),sinceLast:s.lastEdgeMs===null?null:(s.elapsedMs-s.lastEdgeMs)/1000,longest:cycles.length?Math.max(...cycles):null,mean:cycles.length?cycles.reduce((a,b)=>a+b,0)/cycles.length:null,outcome:s.outcome,win:s.outcome==='completed',verdict:s.verdict,narrative,prescription:s.prescription?clone(s.prescription):null,preview:s.preview,choices:s.choices,visitedBefore:s.visitedBefore,previousPrescription:s.previousPrescription,clues:s.history.filter(h=>h.count>0).slice(-12)};
+    return {nurse:this.nurse.name,day:DAYS[s.day].name,rule:rules[s.rule],original:s.originalTarget,final:s.target,extra:s.extension,removed:s.reduction,count:s.count,requests:s.requests,pitch:s.pitch||'',catch:s.catch||'',requestedNurse:!!s.requestedNurse,seconds:Math.round(s.elapsedMs/1000),wallSeconds:Math.max(0,Math.round(((s.endedAt||Date.now())-s.createdAt)/1000)),sinceLast:s.lastEdgeMs===null?null:(s.elapsedMs-s.lastEdgeMs)/1000,longest:cycles.length?Math.max(...cycles):null,mean:cycles.length?cycles.reduce((a,b)=>a+b,0)/cycles.length:null,outcome:s.outcome,win:s.outcome==='completed',verdict:s.verdict,narrative,prescription:s.prescription?clone(s.prescription):null,preview:s.preview,choices:s.choices,visitedBefore:s.visitedBefore,previousPrescription:s.previousPrescription,clues:s.history.filter(h=>h.count>0).slice(-12)};
   }
 }
 function validate(value){
@@ -1947,6 +1975,9 @@ function validate(value){
   if(s.recentObservations===undefined)s.recentObservations=[];
   if(s.dialogueSeed===undefined)s.dialogueSeed=legacyDialogueSeed(s.id);
   if(s.appVersion===undefined)s.appVersion='legacy';
+  if(s.pitch===undefined)s.pitch='';
+  if(s.catch===undefined)s.catch='';
+  if(s.requestedNurse===undefined)s.requestedNurse=null;
   if(!s||s.version!==1||!DIFFICULTIES[s.difficulty]||!NURSES[s.nurse]||!DAYS[s.day]||!RULE_CUES[s.rule])throw Error('This saved appointment cannot be read. Export or start a new visit.');
   if(typeof s.visitedBefore!=='boolean'||(s.visitedBefore&&!PREVIOUS[s.previousPrescription])||(!s.visitedBefore&&s.previousPrescription!==null))throw Error('Saved registration details are invalid.');
   if(s.verdict!==null&&!['permitted','choice','denied','chastity','loss','unfinished','legacy'].includes(s.verdict))throw Error('Saved verdict is invalid.');
@@ -2283,7 +2314,7 @@ class Hardware {
   }
   async load(){
     if(this.initialized)return this;
-    const m=this.modules||Object.assign({},...await Promise.all([import('../app/engine.js?v=20261104-v21c'),import('../app/devices.js?v=20261104-v21c')]));
+    const m=this.modules||Object.assign({},...await Promise.all([import('../app/engine.js?v=20261106-v132'),import('../app/devices.js?v=20261106-v132')]));
     // SUC-only extension of the existing CTMP state machine. We select a
     // deterministic treatment before _settle issues the first output of each
     // cycle. CTMP's pressure stop, recovery and hardware driver caps are intact.
@@ -2704,7 +2735,7 @@ function momentReport({appointment,version='unknown',output=null}={}){
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clock=s=>{if(s===null||s===undefined||!Number.isFinite(s))return '—';const n=Math.max(0,Math.floor(s));return n>=3600?`${Math.floor(n/3600)}:${String(Math.floor(n/60)%60).padStart(2,'0')}:${String(n%60).padStart(2,'0')}`:`${Math.floor(n/60)}:${String(n%60).padStart(2,'0')}`;};
-let game=null, stored=read(KEYS.game), route='home', selecting=null, checkinStep=0, returning=null, previousPrescription=null, savedPrescription=null, renderKey='', previewPaused=false, restoreEngine=null, dirty=false, guard=false, wake=null, wakeBusy=false, loadPromise=null, noticeTimer=null, lastTick=performance.now(), lastSave=0, calDirty=false;
+let game=null, stored=read(KEYS.game), route='home', selecting=null, checkinStep=0, returning=null, previousPrescription=null, savedPrescription=null, chosenDifficulty=null, renderKey='', previewPaused=false, restoreEngine=null, dirty=false, guard=false, wake=null, wakeBusy=false, loadPromise=null, noticeTimer=null, lastTick=performance.now(), lastSave=0, calDirty=false;
 let prefs=DEFAULTS, savedCal=null;
 let journalSnapshot='';
 const outputMonitor=new OutputMonitor($('output-monitor'));
@@ -2793,12 +2824,17 @@ function home(){
       question='And what was prescribed at your last appointment?';
       const manualOptions=Object.entries(PREVIOUS).map(([k,t])=>`<button class="choice" data-intake="prior-${k}"><b>${esc(t)}</b></button>`).join('');
       options=savedPrescription?`<div class="saved-prescription"><span class="eyebrow">From your last completed visit</span><strong>${esc(savedPrescription.title)}</strong>${savedPrescription.detail?`<p class="note">${esc(savedPrescription.detail)}</p>`:''}<button class="button primary full" data-intake="use-saved">Use this prescription</button></div><details class="prescription-alternatives"><summary>Choose a different prescription</summary><div class="choices">${manualOptions}</div></details>`:manualOptions;
-    }else{
+    }else if(checkinStep===2){
       question='Which collection programme are you booking?';
       options=Object.entries(DIFFICULTIES).map(([id,d])=>`<button class="choice" data-difficulty="${id}"><span class="pill">${d.label}</span><b>${d.name}</b><small>${d.copy}</small></button>`).join('');
+    }else{
+      question='Who would you like to see?';
+      const cards=Object.entries(NURSES).map(([id,n])=>`<button class="choice" data-nurse="${id}"><b>Nurse ${esc(n.name)}</b><small>${esc(n.signature)}</small><small>${esc(PITCHES[id].pitch)}</small></button>`).join('');
+      options=cards+'<button class="choice" data-nurse="random"><b>Surprise me</b><small>The clinic assigns a nurse. She will still have her own ideas.</small></button>';
     }
-    const remark=checkinStep===0?'“Welcome to SUC. Before we begin, may I ask a few little questions for your file?”':checkinStep===1?'“Ah, a returning patient! We always like to know what the nurses prescribed last time.”':'“Lovely. The nurse will receive your history and the programme you choose. We do not disclose her exact collection target.”';
-    registration=`<h2>Patient registration</h2><div class="reception-line"><b>Receptionist</b><p>“${esc(remark.replace(/^“|”$/g,''))}”</p></div><span class="eyebrow">QUESTION ${checkinStep===0?'1':checkinStep===1?'2':returning?'3':'2'}</span><h3>${esc(question)}</h3><div class="choices">${options}</div><button class="button quiet full" data-action="checkin-back">${checkinStep?'Back to previous question':'Cancel registration'}</button>`;
+    const remark=checkinStep===0?'“Welcome to SUC. Before we begin, may I ask a few little questions for your file?”':checkinStep===1?'“Ah, a returning patient! We always like to know what the nurses prescribed last time.”':checkinStep===2?'“Lovely. The nurse will receive your history and the programme you choose. We do not disclose her exact collection target.”':'“Any of them would be delighted. They do like to make a good first impression.”';
+    const qnum=checkinStep===0?'1':checkinStep===1?'2':checkinStep===2?(returning?'3':'2'):(returning?'4':'3');
+    registration=`<h2>Patient registration</h2><div class="reception-line"><b>Receptionist</b><p>“${esc(remark.replace(/^“|”$/g,''))}”</p></div><span class="eyebrow">QUESTION ${qnum}</span><h3>${esc(question)}</h3><div class="choices">${options}</div><button class="button quiet full" data-action="checkin-back">${checkinStep?'Back to previous question':'Cancel registration'}</button>`;
   }else registration=`<h2>Welcome to reception.</h2><div class="stack"><button class="button primary" data-action="live-checkin">Check in with devices</button><button class="button secondary" data-action="preview-checkin">Explore story preview</button></div><p class="note">A randomly assigned nurse has her own collection targets and attitude towards requests. You will not see the exact programme until the visit is over.</p>`;
   return `${picture('reception',null,'Your nurse is expecting you.','SUC · THE COLLECTION CLINIC')}<div class="layout home-layout"><section class="paper welcome-card"><span class="eyebrow">A PRIVATE CLINIC WITH RATHER ENTHUSIASTIC STAFF</span><h2>The clinic collects.<br>You try to finish.</h2><p class="intro">Four nurses, each with her own manner. Your history and the day's circumstances shape the appointment.</p><p class="note">Your final prescription is given at discharge.</p><span class="tag">Private on this device</span><p class="fineprint">Build ${VERSION}.</p></section><section class="paper"><span class="eyebrow">PATIENT INTAKE</span>${savedCard}${registration}</section></div>`;
 }
@@ -2830,7 +2866,7 @@ function reportPage(){
   const verdictTitle=recorded?.title||(full?historicalTitles[r.verdict]:null)||lookup.title;
   const verdictDetail=recorded?.detail||(full?'The programme is complete.':lookup.detail);
   const title=full?'Visit complete':r.outcome==='orgasm'?'Unscheduled finish · You lose':'Appointment ended early';
-  return `${picture('reception',s.nurse,full?'Discharged.':r.outcome==='orgasm'?'Collection interrupted.':'Your visit is complete.','THE APPOINTMENT RECORD',false,portraitFor(s))}<div class="layout"><section class="paper"><span class="eyebrow">SUC PATIENT REPORT</span><h2>${esc(title)}</h2><div class="verdict"><small>FINAL PRESCRIPTION</small><strong>${esc(verdictTitle)}</strong><p>${esc(verdictDetail)}</p></div><div class="story-text small">${esc(r.narrative)}</div><div class="report-grid">${pair(s.preview?'Preview events':'Completed edges',r.count)+pair(s.preview?'Simulated session time':'Active play',clock(r.seconds))+pair(s.preview?'Time in preview':'Entire visit',clock(r.wallSeconds))+pair('Times you begged',r.requests)+pair(s.preview?'Longest simulated cycle':'Longest stimulation phase',clock(r.longest))+pair(s.preview?'Average simulated cycle':'Average stimulation phase',clock(r.mean))+pair(s.preview?'Since last event':'Since last edge',clock(r.sinceLast))+pair('SUC personal best',s.preview?'Preview only':records().best||r.count)}</div><div class="row"><button class="button secondary" data-action="export-csv">Export CSV</button><button class="button secondary" data-action="export-json">Export full visit</button></div><button class="button primary full" data-action="home" style="margin-top:12px">Return to reception</button></section><section class="paper"><span class="eyebrow">CONFIDENTIAL · OPENED AFTER THE APPOINTMENT</span><h2>Your nurse's private notes</h2><div class="private-notes"><p><b>Nurse ${esc(r.nurse)}</b><br>${esc(r.day)}</p><p>${esc(r.rule)}.</p><dl><dt>Collection target</dt><dd>${r.original} edges</dd><dt>Final requirement</dt><dd>${r.final} edges</dd><dt>Extra collection added</dt><dd>${r.extra}</dd><dt>Requirements waived</dt><dd>${r.removed}</dd><dt>Prior prescription</dt><dd>${r.visitedBefore?esc(PREVIOUS[r.previousPrescription]||'Unknown'):'First visit'}</dd><dt>Clinical verdict</dt><dd>${esc(verdictTitle)}</dd></dl></div><details><summary>Notes from your appointment</summary>${r.clues.map(h=>`<div class="journal-entry"><small>At edge ${h.count}</small><p>${esc(h.text)}</p></div>`).join('')||'<p class="note">No later-stage notes were recorded.</p>'}</details></section></div>`;
+  return `${picture('reception',s.nurse,full?'Discharged.':r.outcome==='orgasm'?'Collection interrupted.':'Your visit is complete.','THE APPOINTMENT RECORD',false,portraitFor(s))}<div class="layout"><section class="paper"><span class="eyebrow">SUC PATIENT REPORT</span><h2>${esc(title)}</h2><div class="verdict"><small>FINAL PRESCRIPTION</small><strong>${esc(verdictTitle)}</strong><p>${esc(verdictDetail)}</p></div><div class="story-text small">${esc(r.narrative)}</div><div class="report-grid">${pair(s.preview?'Preview events':'Completed edges',r.count)+pair(s.preview?'Simulated session time':'Active play',clock(r.seconds))+pair(s.preview?'Time in preview':'Entire visit',clock(r.wallSeconds))+pair('Times you begged',r.requests)+pair(s.preview?'Longest simulated cycle':'Longest stimulation phase',clock(r.longest))+pair(s.preview?'Average simulated cycle':'Average stimulation phase',clock(r.mean))+pair(s.preview?'Since last event':'Since last edge',clock(r.sinceLast))+pair('SUC personal best',s.preview?'Preview only':records().best||r.count)}</div><div class="row"><button class="button secondary" data-action="export-csv">Export CSV</button><button class="button secondary" data-action="export-json">Export full visit</button></div><button class="button primary full" data-action="home" style="margin-top:12px">Return to reception</button></section><section class="paper"><span class="eyebrow">CONFIDENTIAL · OPENED AFTER THE APPOINTMENT</span><h2>Your nurse's private notes</h2><div class="private-notes"><p><b>Nurse ${esc(r.nurse)}</b><br>${esc(r.day)}</p><p>${esc(r.rule)}.</p><dl><dt>Collection target</dt><dd>${r.original} edges</dd><dt>Final requirement</dt><dd>${r.final} edges</dd><dt>Extra collection added</dt><dd>${r.extra}</dd><dt>Requirements waived</dt><dd>${r.removed}</dd><dt>Prior prescription</dt><dd>${r.visitedBefore?esc(PREVIOUS[r.previousPrescription]||'Unknown'):'First visit'}</dd><dt>Clinical verdict</dt><dd>${esc(verdictTitle)}</dd>${r.catch?`<dt>Reception pitch</dt><dd>${esc(r.catch)}</dd>`:''}</dl></div><details><summary>Notes from your appointment</summary>${r.clues.map(h=>`<div class="journal-entry"><small>At edge ${h.count}</small><p>${esc(h.text)}</p></div>`).join('')||'<p class="note">No later-stage notes were recorded.</p>'}</details></section></div>`;
 }
 
 function render(force=false){
@@ -2984,7 +3020,7 @@ async function action(name,button=null){
     selecting=name==='preview-checkin';checkinStep=0;returning=null;previousPrescription=null;savedPrescription=null;render(true);return;
   }
   if(name==='cancel-checkin'){selecting=null;checkinStep=0;returning=null;previousPrescription=null;savedPrescription=null;render(true);return;}
-  if(name==='checkin-back'){if(checkinStep===0){selecting=null;}else if(checkinStep===2){checkinStep=returning?1:0;}else checkinStep=0;render(true);return;}
+  if(name==='checkin-back'){if(checkinStep===0){selecting=null;}else if(checkinStep===3){checkinStep=2;}else if(checkinStep===2){checkinStep=returning?1:0;}else checkinStep=0;render(true);return;}
   if(name==='restore'){
     if(!stored?.appointment)return;game=new Appointment(stored.appointment);restoreEngine=stored.hardware;previewPaused=true;route='game';selecting=null;showAlert('');render(true);
     if(!game.s.preview&&game.s.phase==='running')message('Appointment restored with output off. Pair devices and press Resume.');return;
@@ -3009,8 +3045,14 @@ async function handleClick(event){
     }
     if(b.dataset.difficulty){
       if(selecting===null||checkinStep!==2||returning===null||(returning&&!previousPrescription))throw Error('Complete registration before choosing a programme.');
+      chosenDifficulty=b.dataset.difficulty;checkinStep=3;render(true);return;
+    }
+    if(b.dataset.nurse){
+      if(selecting===null||checkinStep!==3||!chosenDifficulty)throw Error('Choose a programme before selecting a nurse.');
+      const preferred=b.dataset.nurse==='random'?null:b.dataset.nurse;
+      if(preferred&&!NURSES[preferred])throw Error('Choose a nurse from the clinic staff.');
       const mode=selecting===true,lastKey=KEYS.last+(mode?'.preview':'');
-      game=createAppointment({difficulty:b.dataset.difficulty,preview:mode,lastNurse:read(lastKey),seed:crypto.getRandomValues(new Uint32Array(1))[0],visitedBefore:returning,previousPrescription,memory:clinicMemory()});write(lastKey,game.s.nurse);restoreEngine=null;route='game';previewPaused=false;selecting=null;showAlert('');save();render(true);window.scrollTo(0,0);return;
+      game=createAppointment({difficulty:chosenDifficulty,preview:mode,lastNurse:read(lastKey),preferredNurse:preferred,seed:crypto.getRandomValues(new Uint32Array(1))[0],visitedBefore:returning,previousPrescription,memory:clinicMemory()});write(lastKey,game.s.nurse);chosenDifficulty=null;restoreEngine=null;route='game';previewPaused=false;selecting=null;showAlert('');save();render(true);window.scrollTo(0,0);return;
     }
     if(b.dataset.wait){game.waitingChoice(b.dataset.wait);save();render(true);return;}
     if(b.dataset.intro){game.introduction(b.dataset.intro);save();render(true);return;}
