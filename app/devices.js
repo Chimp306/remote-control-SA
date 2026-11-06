@@ -268,6 +268,13 @@ export class CivetDevice extends BluetoothAdapter {
 
   async _connect(existingDevice = null) {
     this._requireBluetooth();
+    // Force a clean cycle on every attempt. Some Civet units leave the notify
+    // characteristic subscribed but silent after a previous session; a plain
+    // gatt.connect() then startNotifications() does not restart the stream.
+    if (existingDevice?.gatt?.connected) {
+      try { existingDevice.gatt.disconnect(); } catch { /* already closing */ }
+      await new Promise(resolve => setTimeout(resolve, 400));
+    }
     this._detach();
     const epoch = this._epoch;
     this._faultReported = false;
@@ -280,6 +287,8 @@ export class CivetDevice extends BluetoothAdapter {
         optionalServices: [CIVET_SERVICE, 0x180a],
       });
       if (epoch !== this._epoch) throw new Error('Connection canceled.');
+      // Extra settle after an explicit disconnect so the peripheral accepts a fresh GATT.
+      if (existingDevice) await new Promise(resolve => setTimeout(resolve, 250));
       this._attach(device, epoch);
       const server = await device.gatt.connect();
       this._check(epoch);
@@ -287,6 +296,9 @@ export class CivetDevice extends BluetoothAdapter {
       this._writeCharacteristic = await service.getCharacteristic(CIVET_WRITE);
       this._notifyCharacteristic = await service.getCharacteristic(CIVET_NOTIFY);
       this._check(epoch);
+      // Stop any leftover subscription before starting a new one. Ignore errors;
+      // some stacks throw if notifications were never active.
+      try { await this._notifyCharacteristic.stopNotifications(); } catch { /* not subscribed */ }
       this._notification = event => {
         if (epoch !== this._epoch) return;
         const kpa = parseCivetPressure(event.target?.value);
@@ -295,6 +307,12 @@ export class CivetDevice extends BluetoothAdapter {
       };
       this._notifyCharacteristic.addEventListener('characteristicvaluechanged', this._notification);
       await this._notifyCharacteristic.startNotifications();
+      // Re-arm reporting after notifications are live. A second write after a
+      // short delay recovers units that ignore the first command on reconnect.
+      await this._queuedWrite(civetReportingCommand(true));
+      this._check(epoch);
+      await new Promise(resolve => setTimeout(resolve, 200));
+      this._check(epoch);
       await this._queuedWrite(civetReportingCommand(true));
       this._check(epoch);
       this._ready = true;

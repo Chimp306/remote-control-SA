@@ -129,11 +129,11 @@ const ART={"assessment":"data:image/webp;base64,UklGRuCDAQBXRUJQVlA4INSDAQCQ1Qad
 
 // ---- content.js ----
 // SUC Clinic: authored fiction. No story instruction can command hardware.
-const VERSION = '1.3.1';
+const VERSION = '1.3.2';
 const DIFFICULTIES = {
-  easy: {name:'Routine Collection',label:'Easy',min:105,max:135,copy:'A shorter appointment. The staff are still rather thorough.'},
-  medium: {name:'Extended Collection',label:'Medium',min:135,max:165,copy:'More assessments, more opportunities for your nurse to take an interest.'},
-  hard: {name:'Intensive Collection Programme',label:'Hard',min:170,max:220,copy:'A lengthy appointment. The final collection target is known only to staff.'},
+  easy: {name:'Routine Collection',label:'Easy',min:85,max:115,copy:'A shorter appointment. The staff are still rather thorough.'},
+  medium: {name:'Extended Collection',label:'Medium',min:105,max:135,copy:'More assessments, more opportunities for your nurse to take an interest.'},
+  hard: {name:'Intensive Collection Programme',label:'Hard',min:125,max:165,copy:'A lengthy appointment. The final collection target is known only to staff.'},
 };
 const PREVIOUS = {
   permitted:'An orgasm was permitted',
@@ -162,11 +162,11 @@ const NURSES = {
       "The counter chimes softly. Hart glances towards it, then back to you with a knowing look."
     ],
     "stages": [
-      "“First, a baseline,” Evelyn explains, settling your file beside a small brass counter. “Each completed edge adds one. We’ll build you up slowly and carefully.” She turns back to you. “Any questions before we begin?”",
-      "Evelyn leads you into the Meridian Suite, where paired instruments sit beneath frosted glass. She checks the settings, adjusting them with deliberate care. “Here we are. Time to see how you respond.”",
-      "In the observation room Evelyn opens your chart at the latest entry. She leaves the chair beside her free. “Come and sit here while I look through this. I want to see how far we’ve taken you.”",
+      "“First, a baseline,” Evelyn explains, settling your file beside a small brass counter. “Each completed edge adds one. I control the toy; you hold still and let me take what I need.” She turns back to you. “Any questions before we begin?”",
+      "Evelyn leads you into the Meridian Suite, where paired instruments sit beneath frosted glass. She checks the settings, then looks at you. “Here we are. I will keep you right on the edge. The more you leak for me, the better the reading.”",
+      "In the observation room Evelyn opens your chart at the latest entry. She leaves the chair beside her free. “Come and sit here. I am not finished taking from you. Stay on the edge while I decide how much more I want.”",
       "A brass message capsule arrives from administration. Evelyn unfolds the paper, reads it and sets it beside your chart. “They do like to interrupt.” She looks up with a grin. “Where were we? Still holding for me?”",
-      "Evelyn brings the final section of your file to the bedside. “The discharge review,” she explains, making space for the prescription beside it. “Let’s see what you’ve earned.”"
+      "Evelyn brings the final section of your file to the bedside. “The discharge review,” she explains, making space for the prescription beside it. “Let’s see whether I have taken enough from you… or whether I want a little more first.”"
     ],
     "ending": "Evelyn closes your file with a small, warm smile. “All finished.” She turns the final prescription towards you, her eyes lingering."
   },
@@ -185,7 +185,7 @@ const NURSES = {
       "Scarlett catches your glance at the clock. One eyebrow rises. “Impatient already?”"
     ],
     "stages": [
-      "“Let us make this simple,” Scarlett says, positioning the brass tally beside her. “Every completed edge adds one. And I do mean completed.” She moves the private chart out of view before you can read the last column.",
+      "“Let us make this simple,” Scarlett says, positioning the brass tally beside her. “Every completed edge adds one. I run the toy; you drip. Try not to finish before I am done collecting.” She moves the private chart out of view.",
       "The paired instruments are waiting in the next room. Scarlett checks their settings and turns the pattern chart towards you. “Something different for this part. Let’s see how long you last.”",
       "Behind the observation glass a supervisor passes without stopping. Scarlett waves cheerfully. “She saw us. She is pretending she did not. Probably jealous.”",
       "Scarlett receives an envelope stamped COLLECTION AUDIT. She opens it, laughs and folds it closed again. “An inspection. That explains the serious faces. Don’t worry, I won’t behave.”",
@@ -208,7 +208,7 @@ const NURSES = {
       "You catch Shaw smiling at the chart before her expression becomes professionally neutral again."
     ],
     "stages": [
-      "Shaw seats you beside the enamel counter and opens her fountain pen. “Each completed edge adds one to this counter. We will be exact.” She waits until you are settled before opening the chart.",
+      "Shaw seats you beside the enamel counter and opens her fountain pen. “Each completed edge adds one to this counter. I will keep the stimulation precise and the denial absolute until the chart is satisfied.” She waits until you are settled.",
       "In the instrument suite Beatrice checks the settings and places your folder beside the instruments. “This is the next part.” She leaves the chart open while she waits for your question.",
       "The observation gallery contains a wall of immaculately filed ledgers. Beatrice catches you looking at them. “Yes. They are in order. As you will be.” Her expression suggests this was never in doubt.",
       "An inspector’s folder arrives at the consultation desk. Beatrice checks the seal, sets it aside and returns to you. “That can wait a moment. You cannot.”",
@@ -231,7 +231,7 @@ const NURSES = {
       "“There are things you cannot learn from a number,” she says, adding another number anyway."
     ],
     "stages": [
-      "Victoria shows you the polished counter. “One mark for each completed edge.” She places it where you can see it and opens her own chart.",
+      "Victoria shows you the polished counter. “One mark for each completed edge.” She places it where you can see it and opens her own chart. “I decide when the toy stops. You will feel that.”",
       "In the Meridian Suite Victoria studies the instrument settings before taking her seat. She waits for your question without offering one of her own.",
       "Victoria leads you past the observation window. A brass display hangs on the far wall, but she is watching your reaction to the room.",
       "The supervisor’s message arrives while Victoria is reading your chart. She finishes the paragraph before opening it, then sets both papers side by side.",
@@ -1037,7 +1037,7 @@ const RESPONSES = {
       "Evelyn looks up at your remark. “A little conversation makes the waiting sweeter for both of us.”"
     ],
     "quota": [
-      "“Yes, there is a target,” Evelyn answers. “I am keeping that part of the chart private, but I will tell you when the review is complete. Until then, we keep going.”",
+      "“Yes, there is a target,” Evelyn answers. “I am keeping that part of the chart private. Until I am satisfied with how much I have taken from you, the toy stays under my control.”",
       "Evelyn nods. “There is a number in my plan. I know you would like to see it; that page stays with me for now. The edges continue either way.”"
     ],
     "smile": [
@@ -1049,8 +1049,8 @@ const RESPONSES = {
       "Evelyn glances towards the corridor. “Very thorough. Sometimes I have to remind her that an appointment also involves watching you struggle so nicely.”"
     ],
     "patience": [
-      "“You are hoping we are nearly finished. I heard you,” Evelyn says gently. “I have not finished the review yet. We still have more to collect.”",
-      "Evelyn gives your comment a moment of thought. “I understand. I would rather give you a clear answer than promise a time I have not checked. The denial is not over.”"
+      "“You are hoping we are nearly finished. I heard you,” Evelyn says gently. “I have not finished taking what I want. Stay on the edge for me a little longer.”",
+      "Evelyn gives your comment a moment of thought. “I understand. The denial is not over. I will keep you right where I want you until the chart is satisfied.”"
     ],
     "resolve": [
       "“Thank you,” Evelyn says. “I will finish the review, then explain the result. You have been very patient.”",
@@ -1095,7 +1095,7 @@ const RESPONSES = {
       "Scarlett raises an eyebrow. “You make that sound like an accusation. I shall plead cheerfully guilty. You make it easy.”"
     ],
     "quota": [
-      "“Of course,” Scarlett replies. “You were not expecting me to leave that page facing upwards, were you? The target stays mine.”",
+      "“Of course,” Scarlett replies. “The target stays mine. So does the toy. You just keep dripping until I decide you have given me enough.”",
       "Scarlett covers the last column with her hand. “There is a target. You have managed to find one of my shorter answers. The rest is classified.”"
     ],
     "smile": [
@@ -1154,7 +1154,7 @@ const RESPONSES = {
     ],
     "quota": [
       "“Yes. It is recorded in the private plan,” Beatrice says. “I will not quote the figure. The edges continue regardless.”",
-      "Beatrice closes the final column from view. “There is a target. Its existence and its value are separate questions.”"
+      "Beatrice closes the final column from view. “There is a target. Its existence and its value are separate questions. The stimulation continues until I have extracted what the programme requires.”"
     ],
     "smile": [
       "“A private thought,” Beatrice answers. “You can allow me one. It concerned your last edge.”",
@@ -1212,7 +1212,7 @@ const RESPONSES = {
     ],
     "quota": [
       "“Yes,” Victoria says. “I was wondering when you would ask about that.” She leaves the private chart closed.",
-      "Victoria answers after a brief pause. “There is a target. I am keeping its number to myself. The edges continue.”"
+      "Victoria answers after a brief pause. “There is a target. I am keeping its number to myself. The toy stays on my terms until I have taken what I want from you.”"
     ],
     "smile": [
       "“I was thinking about our conversation,” Victoria says. “And about how you looked on the last edge. Some thoughts can stay private.”",
@@ -2283,7 +2283,7 @@ class Hardware {
   }
   async load(){
     if(this.initialized)return this;
-    const m=this.modules||Object.assign({},...await Promise.all([import('../app/engine.js?v=20261104-v21c'),import('../app/devices.js?v=20261104-v21c')]));
+    const m=this.modules||Object.assign({},...await Promise.all([import('../app/engine.js?v=20261106-v132'),import('../app/devices.js?v=20261106-v132')]));
     // SUC-only extension of the existing CTMP state machine. We select a
     // deterministic treatment before _settle issues the first output of each
     // cycle. CTMP's pressure stop, recovery and hardware driver caps are intact.

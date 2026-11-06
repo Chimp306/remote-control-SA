@@ -26,7 +26,8 @@ class Characteristic extends EventTarget {
     this.writes.push(new Uint8Array(bytes));
     if (this.writeHook) await this.writeHook(bytes);
   }
-  async startNotifications() { return this; }
+  async startNotifications() { this.started = (this.started || 0) + 1; return this; }
+  async stopNotifications() { this.stopped = (this.stopped || 0) + 1; return this; }
   notify(bytes) {
     this.value = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     this.dispatchEvent(new Event('characteristicvaluechanged'));
@@ -172,12 +173,13 @@ test('Civet connect subscribes, starts reports, zeroes, and reports disconnect',
   await adapter.connect();
   assert.equal(adapter.connected, true);
   assert.deepEqual(fake.tx.writes[0], civetReportingCommand(true));
+  assert.deepEqual(fake.tx.writes[1], civetReportingCommand(true));
   const bytes = new Uint8Array(17); bytes[0] = 0xd0;
   new DataView(bytes.buffer).setInt16(8, 2255, true);
   fake.rx.notify(bytes);
   assert.deepEqual(readings, [[22.55, 12345]]);
   await adapter.zero();
-  assert.deepEqual(fake.tx.writes[1], civetZeroCommand());
+  assert.deepEqual(fake.tx.writes[2], civetZeroCommand());
   fake.device.gatt.disconnect();
   assert.equal(adapter.connected, false);
   assert.equal(statuses.at(-1).state, 'disconnected');
@@ -631,4 +633,26 @@ test('disconnect does not claim physical stop success if the HTTP stop fails', a
   assert.equal(adapter.connected, false);
   assert.match(statuses.at(-1).message, /not confirmed/);
   await assert.rejects(adapter.stop(), /not connected/);
+});
+
+test('Civet reconnect clears a silent subscription and re-arms reporting', async () => {
+  const fake = bluetoothFixture('civet');
+  fake.bluetooth.getDevices = async () => [fake.device];
+  const statuses = [];
+  const adapter = new CivetDevice({ bluetooth: fake.bluetooth, now: () => 1000, onStatus: event => statuses.push(event) });
+  await adapter.connect();
+  assert.equal(fake.rx.started, 1);
+  assert.equal(fake.rx.stopped, 1);
+  assert.equal(fake.tx.writes.filter(bytes => bytes[0] === 0x50 && bytes[2] === 0xd0).length, 2);
+  await adapter.disconnect();
+  assert.equal(adapter.connected, false);
+  await adapter.reconnect();
+  assert.equal(adapter.connected, true);
+  assert.equal(fake.rx.started, 2);
+  assert.equal(fake.rx.stopped, 2);
+  assert.equal(statuses.filter(event => event.state === 'connected').length, 2);
+  const bytes = new Uint8Array(17); bytes[0] = 0xd0;
+  new DataView(bytes.buffer).setInt16(8, 1000, true);
+  fake.rx.notify(bytes);
+  assert.equal(statuses.at(-1).state, 'connected');
 });
