@@ -312,12 +312,7 @@ function applyPattern(name) {
 function schedulePatternRotation() {
   if (patternTimer) clearTimeout(patternTimer);
   patternTimer = null;
-  if (view !== 'play') return;
-  const wait = 30000 + Math.floor(Math.random() * 60000);
-  patternTimer = setTimeout(() => {
-    if (view !== 'play' || !ACTIVE.has(engine.phase)) return;
-    applyPattern(randomPattern(engine.snapshot().opossumPattern));
-  }, wait);
+  // Patterns change only at start and after each edge; no timed rotation.
 }
 
 function stopPatternRotation() {
