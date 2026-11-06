@@ -15,7 +15,8 @@ export const CIVET_SERVICE = 0x180c;
 export const CIVET_WRITE = 0x150a;
 export const CIVET_NOTIFY = 0x150b;
 export const LUSH_MAX_NATIVE = 13;
-export const OPOSSUM_MAX_NATIVE = 80; // 40% per channel of the documented 0–200 scale.
+export const OPOSSUM_NATIVE_FULL = 200; // Documented per-channel command scale.
+export const OPOSSUM_MAX_NATIVE = 80; // Default ceiling: 40% of OPOSSUM_NATIVE_FULL.
 export const VACUGLIDE_MAX_NATIVE = 35;
 export const LUSH_PROFILES = Object.freeze([
   { service: '53300001-0023-4bd4-bbd5-a6920e4c5653', write: '53300002-0023-4bd4-bbd5-a6920e4c5653' },
@@ -37,7 +38,19 @@ const percent = value => {
 };
 
 export const lushNativeLevel = displayPercent => Math.min(LUSH_MAX_NATIVE, Math.floor(percent(displayPercent) * LUSH_MAX_NATIVE / 100 + 1e-9));
-export const opossumNativeLevel = displayPercent => Math.min(OPOSSUM_MAX_NATIVE, Math.floor(percent(displayPercent) * OPOSSUM_MAX_NATIVE / 100 + 1e-9));
+export function opossumNativeCap(maxNative = OPOSSUM_MAX_NATIVE) {
+  return Math.max(0, Math.min(OPOSSUM_NATIVE_FULL, Math.floor(Number.isFinite(Number(maxNative)) ? Number(maxNative) : 0)));
+}
+
+export function opossumHardwareNative(maxHardwarePercent = 40) {
+  const percentOfHardware = Math.max(5, Math.min(100, Math.round(Number(maxHardwarePercent))));
+  return opossumNativeCap(percentOfHardware * OPOSSUM_NATIVE_FULL / 100);
+}
+
+export const opossumNativeLevel = (displayPercent, maxNative = OPOSSUM_MAX_NATIVE) => {
+  const cap = opossumNativeCap(maxNative);
+  return Math.min(cap, Math.floor(percent(displayPercent) * cap / 100 + 1e-9));
+};
 export const vacuglideNativeLevel = displayPercent => Math.min(VACUGLIDE_MAX_NATIVE, Math.floor(percent(displayPercent) * VACUGLIDE_MAX_NATIVE / 10 + 1e-9) / 10);
 
 export function civetReportingCommand(enabled) {
@@ -61,11 +74,13 @@ export function parseCivetPressure(value) {
   return view.getInt16(8, true) / 100;
 }
 
-export function opossumStrengthCommand(native, channel = 'A') {
-  const limit = value => Math.max(0, Math.min(OPOSSUM_MAX_NATIVE, Math.floor(Number.isFinite(value) ? value : 0)));
+export function opossumStrengthCommand(native, channel = 'A', maxNative = OPOSSUM_MAX_NATIVE) {
+  const cap = opossumNativeCap(typeof channel === 'number' ? channel : maxNative);
+  const selected = typeof channel === 'number' ? 'A' : channel;
+  const limit = value => Math.max(0, Math.min(cap, Math.floor(Number.isFinite(value) ? value : 0)));
   if (native && typeof native === 'object') return new Uint8Array([0xb3, limit(native.a), limit(native.b)]);
-  if (!['A', 'B'].includes(channel)) throw new TypeError('Opossum channel must be A or B.');
-  return new Uint8Array([0xb3, channel === 'A' ? limit(native) : 0, channel === 'B' ? limit(native) : 0]);
+  if (!['A', 'B'].includes(selected)) throw new TypeError('Opossum channel must be A or B.');
+  return new Uint8Array([0xb3, selected === 'A' ? limit(native) : 0, selected === 'B' ? limit(native) : 0]);
 }
 
 export function opossumPulseCommand(active, channel = 'A') {
@@ -80,12 +95,13 @@ export function opossumPulseCommand(active, channel = 'A') {
   return bytes;
 }
 
-export function opossumDisplayCommand(a, b) {
+export function opossumDisplayCommand(a, b, maxNative = OPOSSUM_MAX_NATIVE) {
+  const cap = opossumNativeCap(maxNative);
   const fixed = 'b2ffff00ffffffffffffffffffffffffffffffff0809';
   const bytes = new Uint8Array(24);
   bytes.set(fixed.match(/../g).map(hex => parseInt(hex, 16)));
-  bytes[22] = Math.max(0, Math.min(OPOSSUM_MAX_NATIVE, Math.floor(Number.isFinite(a) ? a : 0)));
-  bytes[23] = Math.max(0, Math.min(OPOSSUM_MAX_NATIVE, Math.floor(Number.isFinite(b) ? b : 0)));
+  bytes[22] = Math.max(0, Math.min(cap, Math.floor(Number.isFinite(a) ? a : 0)));
+  bytes[23] = Math.max(0, Math.min(cap, Math.floor(Number.isFinite(b) ? b : 0)));
   return bytes;
 }
 
@@ -472,15 +488,20 @@ export class LushDevice extends BluetoothAdapter {
 
 /**
  * Opossum uses a 0–200 channel strength plus a streamed 0–100 Pulse carrier.
- * The 40% cap is enforced independently on both channel strengths (at most 80).
+ * The default ceiling is 40% of the documented 0–200 scale (native 80), applied
+ * independently on both channel strengths. A higher ceiling may be set per device;
+ * writes are still clamped to that ceiling and never above 200.
  * B3 sets both strengths together; B0 carries both channels in the same frame.
  * This describes command scale, not calibrated motor power.
  * Official protocol does not guarantee what hardware does after a missing frame.
  */
 export class OpossumDevice extends BluetoothAdapter {
-  constructor({ now = () => Date.now(), ...options } = {}) {
+  constructor({ now = () => Date.now(), maxHardwarePercent = 40, ...options } = {}) {
     super(options);
     this.now = now;
+    this._maxHardwarePercent = 40;
+    this._maxNative = OPOSSUM_MAX_NATIVE;
+    this.setMaxHardwarePercent(maxHardwarePercent);
     this._native = { a: 0, b: 0 };
     this._lastNative = null;
     this._lastCommandedNative = null;
@@ -535,7 +556,7 @@ export class OpossumDevice extends BluetoothAdapter {
       this._check(epoch);
       if (this._faultReported) throw new Error('Opossum reported an invalid channel setting.');
       this._ready = true;
-      this._status('connected', 'Opossum connected. Channels A and B are independently capped at 40% command intensity.');
+      this._status('connected', `Opossum connected. Channels A and B are independently capped at ${this._maxHardwarePercent}% of hardware maximum.`);
       return this;
     } catch (error) {
       this._error(asError(error), epoch);
@@ -547,18 +568,18 @@ export class OpossumDevice extends BluetoothAdapter {
   _handleNotification(view, epoch) {
     if (epoch !== this._epoch || !(view instanceof DataView) || view.byteLength < 3 || view.getUint8(0) !== 0xb3) return;
     const a = view.getUint8(1), b = view.getUint8(2);
-    const overCap = a > OPOSSUM_MAX_NATIVE || b > OPOSSUM_MAX_NATIVE;
+    const overCap = a > this._maxNative || b > this._maxNative;
     const unexpected = this._ready && !this._expectedReport(a, b);
     if (overCap || unexpected) {
       this._error(new Error(overCap
-        ? 'Opossum channel setting exceeded the 40% cap. Stop requested; check physical controls.'
+        ? `Opossum channel setting exceeded the ${this._maxHardwarePercent}% cap. Stop requested; check physical controls.`
         : 'Opossum channel settings changed outside the current app commands. Stop requested; check physical controls.'), epoch);
       this.stop().catch(() => {});
       return;
     }
     // Manufacturer B2 is 24 bytes although its overview table says 20. Never
     // split it into invented packets: surface any browser/MTU write failure.
-    this._queuedWrite(opossumDisplayCommand(a, b), { key: 'display' }).catch(() => {});
+    this._queuedWrite(opossumDisplayCommand(a, b, this._maxNative), { key: 'display' }).catch(() => {});
   }
 
   _rememberStrength(native) {
@@ -604,9 +625,19 @@ export class OpossumDevice extends BluetoothAdapter {
 
   setPercent(displayPercent) { return this.setOutput(displayPercent); }
 
+  setMaxHardwarePercent(percent) {
+    const next = Math.max(5, Math.min(100, Math.round(Number(percent))));
+    this._maxHardwarePercent = Number.isFinite(next) ? next : 40;
+    this._maxNative = opossumHardwareNative(this._maxHardwarePercent);
+    if (this._native) {
+      this._native = { a: Math.min(this._native.a, this._maxNative), b: Math.min(this._native.b, this._maxNative) };
+    }
+    return this._maxNative;
+  }
+
   setLevels({ a = 0, b = 0 } = {}) {
     // Compute both before changing state, so malformed updates are atomic.
-    const native = { a: opossumNativeLevel(a), b: opossumNativeLevel(b) };
+    const native = { a: opossumNativeLevel(a, this._maxNative), b: opossumNativeLevel(b, this._maxNative) };
     if (native.a === 0 && native.b === 0) return this.stop();
     if (!this.connected) return Promise.reject(new Error('Opossum is not connected and ready.'));
     if (sameLevels(native, this._native) && this._pulseTimer !== null) {
@@ -639,7 +670,7 @@ export class OpossumDevice extends BluetoothAdapter {
       this._check(epoch);
       if (!sameLevels(native, this._lastNative)) {
         this._rememberStrength(native);
-        await writeCharacteristic(characteristic, opossumStrengthCommand(native));
+        await writeCharacteristic(characteristic, opossumStrengthCommand(native, this._maxNative));
         this._check(epoch);
         this._lastNative = native;
       }
@@ -690,7 +721,7 @@ export class OpossumDevice extends BluetoothAdapter {
       this._check(epoch);
       let failure;
       // Attempt both documented zeros even if one command fails.
-      for (const bytes of [opossumStrengthCommand(0), opossumPulseCommand(false)]) {
+      for (const bytes of [opossumStrengthCommand(0, this._maxNative), opossumPulseCommand(false)]) {
         try {
           if (bytes[0] === 0xb3) this._rememberStrength({ a: 0, b: 0 });
           await writeCharacteristic(characteristic, bytes);
