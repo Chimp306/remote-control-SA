@@ -5,9 +5,9 @@
  * devices with the same connect/output interface; the real Bluetooth
  * path is unused while that mode is on.
  */
-import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261106-v24';
-import { CivetDevice, OpossumDevice, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261106-v24';
-import { BUILD } from './config.js?v=20261106-v24';
+import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261106-v26';
+import { CivetDevice, OpossumDevice, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261106-v26';
+import { BUILD } from './config.js?v=20261106-v26';
 
 const PLAY_PATTERNS = OPOSSUM_PATTERNS.filter(name => name !== 'custom');
 const PATTERN_LABELS = {
@@ -68,13 +68,16 @@ let toyMaxPower = readStoredToyMax();
 let patternTimer = null;
 let patternsSeen = [];
 
+const SIM_REST = 20.3;
+const SIM_REST_MIN = 20.05;
+const SIM_REST_MAX = 20.7;
+
 class SimulatedCivet {
-  constructor({ onPressure = () => {}, onStatus = () => {}, getStimLevel = () => 0, now = () => Date.now() } = {}) {
+  constructor({ onPressure = () => {}, onStatus = () => {}, now = () => Date.now() } = {}) {
     this.onPressure = onPressure;
     this.onStatus = onStatus;
-    this.getStimLevel = getStimLevel;
     this.now = now;
-    this.pressure = 20.4;
+    this.pressure = SIM_REST;
     this._connected = false;
     this._timer = null;
     this._spikeUntil = 0;
@@ -85,7 +88,7 @@ class SimulatedCivet {
   connect() {
     if (this._connected) return Promise.resolve(this);
     this._connected = true;
-    this.pressure = 20.4;
+    this.pressure = SIM_REST;
     this._spikeUntil = 0;
     this._status('connected', 'Simulated Civet connected. No hardware is used.');
     this._start();
@@ -97,7 +100,7 @@ class SimulatedCivet {
 
   async zero() {
     if (!this._connected) throw new Error('Connect the simulated Civet before zeroing.');
-    this.pressure = 20.4;
+    this.pressure = SIM_REST;
     this._spikeUntil = 0;
     this._emit();
     return { sent: true };
@@ -105,8 +108,9 @@ class SimulatedCivet {
 
   simulateEdge(threshold = 22.9) {
     if (!this._connected) throw new Error('Simulated Civet is not connected.');
-    this.pressure = Number(threshold) + 0.8;
-    this._spikeUntil = this.now() + 280;
+    const cutoff = Number(threshold);
+    this.pressure = (Number.isFinite(cutoff) ? cutoff : 22.9) + 0.8;
+    this._spikeUntil = this.now() + 220;
     this._emit();
     return this.pressure;
   }
@@ -135,18 +139,11 @@ class SimulatedCivet {
     if (!this._connected) return;
     const at = this.now();
     if (at < this._spikeUntil) {
-      this.pressure += (Math.random() - 0.5) * 0.06;
+      this.pressure += (Math.random() - 0.5) * 0.04;
+    } else if (this.pressure > SIM_REST_MAX) {
+      this.pressure = Math.max(SIM_REST, this.pressure - 2.4 * 0.1);
     } else {
-      const stim = clamp(Number(this.getStimLevel()) || 0, 0, 100);
-      const noise = (Math.random() - 0.5) * 0.16;
-      if (stim > 0) {
-        const rate = 0.55 + stim * 0.004;
-        this.pressure += rate * 0.1 + noise;
-        this.pressure = Math.min(24.2, this.pressure);
-      } else {
-        this.pressure += -1.7 * 0.1 + noise;
-        this.pressure = Math.max(20.2, this.pressure);
-      }
+      this.pressure = clamp(SIM_REST + (Math.random() - 0.5) * 0.12, SIM_REST_MIN, SIM_REST_MAX);
     }
     this._emit(at);
   }
@@ -227,13 +224,34 @@ class SimulatedOpossum {
   }
 }
 
+let outputBlendFrom = null;
+
+function blendedOutput(levels) {
+  if (!outputBlendFrom) return levels;
+  if (levels.a === 0 && levels.b === 0) return levels;
+  const span = Math.max(1, outputBlendFrom.ms);
+  const t = clamp((Date.now() - outputBlendFrom.at) / span, 0, 1);
+  const ease = t * t * (3 - 2 * t);
+  const next = {
+    a: outputBlendFrom.a + (levels.a - outputBlendFrom.a) * ease,
+    b: outputBlendFrom.b + (levels.b - outputBlendFrom.b) * ease,
+  };
+  if (t >= 1) outputBlendFrom = null;
+  return next;
+}
+
+function startOutputBlendFromZero() {
+  outputBlendFrom = { a: 0, b: 0, at: Date.now(), ms: 1600 };
+}
+
 const engine = new SessionEngine({
   onOutput(percent, levels) {
-    const stopped = levels.a === 0 && levels.b === 0;
+    const mixed = blendedOutput(levels);
+    const stopped = mixed.a === 0 && mixed.b === 0;
     if (stopped) return opossum && (opossum.connected || opossumHint.toLowerCase().includes('error')) ? opossum.stop() : undefined;
     if (document.hidden && !testMode) return Promise.reject(new Error('Keep this page visible before resuming.'));
     if (!opossum?.connected) return Promise.reject(new Error('Opossum is disconnected.'));
-    return opossum.setLevels({ a: levels.a, b: levels.b });
+    return opossum.setLevels({ a: mixed.a, b: mixed.b });
   },
   onEvent(event) {
     const state = event.snapshot;
@@ -273,10 +291,7 @@ function createRealDevices() {
 
 function createSimulatedDevices() {
   opossum = new SimulatedOpossum({ ...opossumCallbacks(), maxHardwarePercent: toyMaxPower });
-  civet = new SimulatedCivet({
-    ...civetCallbacks(),
-    getStimLevel() { return Math.max(opossum?.levels?.a || 0, opossum?.levels?.b || 0, engine.snapshot().outputPercent || 0); },
-  });
+  civet = new SimulatedCivet(civetCallbacks());
 }
 
 function setToyMaxPower(value, persist = true) {
@@ -341,6 +356,8 @@ function testSnapshot() {
     writeCount: opossum?.writeCount ?? 0,
     ceilingOk: (opossum?.maxNativeWritten ?? 0) <= (opossum?._maxNative ?? opossumHardwareNative(toyMaxPower)),
     barsOk: state.outputPercentA <= 100 && state.outputPercentB <= 100 && state.outputPercentA >= 0 && state.outputPercentB >= 0,
+    paused: state.phase === 'paused',
+    reason: state.reason || '',
   };
 }
 
@@ -432,7 +449,7 @@ function phaseCopy(state) {
   if (state.phase === 'running') return 'Output active';
   if (state.phase === 'cooldown') return `Recovery · ${Math.max(0, Math.ceil(state.remainingCooldown))}s`;
   if (state.phase === 'settling') return 'Waiting for pressure to settle';
-  if (state.phase === 'paused') return 'Paused';
+  if (state.phase === 'paused') return 'PAUSED';
   if (state.phase === 'fault') return state.reason || 'Stopped by a fault';
   if (state.phase === 'stopped') return 'Stopped';
   return 'Ready';
@@ -469,7 +486,7 @@ function setupHTML() {
         </div>
       </section>
       <section class="panel power">
-        <p class="note">Toy max power is a percentage of the Opossum's hardware maximum. App bars from 0 to 100% scale into that range. Default is 40%.</p>
+        <p class="note">Toy max power is a percentage of the Opossum's hardware maximum. App bars from 0 to 100% scale into the range you set here.</p>
         <div class="field">
           <label for="toy-max">Toy max power</label>
           <div class="power-line">
@@ -506,7 +523,7 @@ function playHTML() {
       <div class="play-top">
         <span>Edges</span>
         <div class="edges" id="edge-count">${state.edgeCount}</div>
-        <div class="phase" id="phase-label">${escapeHtml(phaseCopy(state))}</div>
+        <div class="phase${state.phase === 'paused' ? ' is-paused' : ''}" id="phase-label">${escapeHtml(phaseCopy(state))}</div>
         <div class="pattern-name" id="pattern-name">${escapeHtml(patternLabel(state.opossumPattern))}</div>
         <div class="toy-max-label" id="toy-max-label">Toy max ${toyMaxPower}%</div>
       </div>
@@ -522,7 +539,7 @@ function playHTML() {
       </section>
       ${testMode ? `
       <section class="panel output-panel">
-        <p class="note">Simulated Opossum output. These bars follow the live pattern and power changes. 100% on a bar equals ${toyMaxPower}% of the toy's hardware maximum.</p>
+        <p class="test-caption">Test</p>
         <div class="output-bars">
           <div class="bar-row"><span>A</span><div class="bar" aria-hidden="true"><i id="bar-a" style="width:${clamp(levelA, 0, 100)}%"></i></div><b id="level-a">${formatPercent(levelA)}</b></div>
           <div class="bar-row"><span>B</span><div class="bar" aria-hidden="true"><i id="bar-b" style="width:${clamp(levelB, 0, 100)}%"></i></div><b id="level-b">${formatPercent(levelB)}</b></div>
@@ -538,8 +555,10 @@ function playHTML() {
         </div>
       </section>
       ${error ? `<p class="error" id="play-error">${escapeHtml(error)}</p>` : '<p class="error" id="play-error" hidden></p>'}
-      <div class="stack">
-        ${paused ? '<button class="button button-primary" type="button" data-act="resume">Resume</button>' : ''}
+      <div class="stack play-actions">
+        ${paused
+          ? '<button class="button button-primary button-pause" type="button" data-act="resume">Resume</button>'
+          : '<button class="button button-pause" type="button" data-act="pause">Pause</button>'}
         <button class="button button-danger" type="button" data-act="stop">Stop</button>
       </div>
     </div>`;
@@ -560,15 +579,21 @@ function updateSetupReadings() {
   if (play) play.disabled = !canPlay();
 }
 
+function displayedLevels(state) {
+  if (testMode && opossum?.levels) return { a: opossum.levels.a, b: opossum.levels.b };
+  return { a: state.outputPercentA, b: state.outputPercentB };
+}
+
 function updateOutputBars(state) {
+  const levels = displayedLevels(state);
   const barA = document.getElementById('bar-a');
   const barB = document.getElementById('bar-b');
   const levelA = document.getElementById('level-a');
   const levelB = document.getElementById('level-b');
-  if (barA) barA.style.width = `${clamp(state.outputPercentA, 0, 100)}%`;
-  if (barB) barB.style.width = `${clamp(state.outputPercentB, 0, 100)}%`;
-  if (levelA) levelA.textContent = formatPercent(state.outputPercentA);
-  if (levelB) levelB.textContent = formatPercent(state.outputPercentB);
+  if (barA) barA.style.width = `${clamp(levels.a, 0, 100)}%`;
+  if (barB) barB.style.width = `${clamp(levels.b, 0, 100)}%`;
+  if (levelA) levelA.textContent = formatPercent(levels.a);
+  if (levelB) levelB.textContent = formatPercent(levels.b);
 }
 
 function updatePlay() {
@@ -582,7 +607,10 @@ function updatePlay() {
   const recovery = document.getElementById('recovery-now');
   const playError = document.getElementById('play-error');
   if (edges) edges.textContent = String(state.edgeCount);
-  if (phase) phase.textContent = phaseCopy(state);
+  if (phase) {
+    phase.textContent = phaseCopy(state);
+    phase.classList.toggle('is-paused', state.phase === 'paused');
+  }
   if (pressure) pressure.textContent = formatKpa(state.pressure);
   if (cutoff) cutoff.textContent = formatKpa(state.threshold);
   if (recovery) recovery.textContent = `Next recovery will be a random time between these limits. Current recovery ${Number(state.recoverySeconds || recoveryMin).toFixed(1)}s.`;
@@ -648,6 +676,7 @@ async function onPlay() {
     if (state.phase === 'fault') { error = state.reason || 'Could not start.'; render(); return; }
     lastEdgeCount = 0;
     patternsSeen = [];
+    outputBlendFrom = null;
     notePattern(engine.snapshot().opossumPattern);
     view = 'play';
     startTicker();
@@ -660,9 +689,19 @@ async function onPlay() {
   }
 }
 
+function onPause(reason = 'Paused.') {
+  if (!ACTIVE.has(engine.phase)) return;
+  error = '';
+  outputBlendFrom = null;
+  try { engine.pause(reason); } catch { /* already idle */ }
+  opossum?.stop?.().catch(() => {});
+  if (view === 'play') render();
+}
+
 async function onStop() {
   stopTicker();
   stopPatternRotation();
+  outputBlendFrom = null;
   try { engine.stop(); } catch { /* already idle */ }
   try { await opossum?.stop?.(); } catch { /* best effort */ }
   await releaseWake();
@@ -677,8 +716,12 @@ async function onResume() {
   try {
     if (!civet?.connected || !opossum?.connected) throw new Error('Reconnect Civet and Opossum first.');
     if (!fresh()) throw new Error('Wait for a live Civet reading first.');
+    startOutputBlendFromZero();
     const state = engine.resume();
-    if (state.phase === 'fault') throw new Error(state.reason || 'Could not resume.');
+    if (state.phase === 'fault') {
+      outputBlendFrom = null;
+      throw new Error(state.reason || 'Could not resume.');
+    }
     startTicker();
     await requestWake();
     render();
@@ -701,6 +744,7 @@ async function onToggleTest() {
 
 function onSimulateEdge() {
   if (!testMode || typeof civet?.simulateEdge !== 'function') return;
+  if (engine.phase === 'paused' || engine.phase === 'fault') return;
   try {
     civet.simulateEdge(engine.snapshot().threshold);
     updatePlay();
@@ -727,6 +771,7 @@ app.addEventListener('click', event => {
   } else if (act === 'zero') {
     civet.zero().then(() => { message = 'Civet zeroed.'; refresh(); }).catch(err => { error = err.message || String(err); refresh(); });
   } else if (act === 'play') onPlay();
+  else if (act === 'pause') onPause();
   else if (act === 'stop') onStop();
   else if (act === 'resume') onResume();
   else if (act === 'cutoff-down') { engine.adjustCutoff(-0.1); updatePlay(); }
@@ -746,11 +791,8 @@ app.addEventListener('input', event => {
 document.addEventListener('visibilitychange', () => {
   if (testMode) return;
   if (document.hidden && ACTIVE.has(engine.phase)) {
-    engine.pause('Page hidden. Output stopped until you resume.');
-    opossum?.stop?.().catch(() => {});
+    onPause('Page hidden. Output stopped until you resume.');
     releaseWake();
-    error = 'Page was hidden, so output paused.';
-    if (view === 'play') render();
   }
 });
 
