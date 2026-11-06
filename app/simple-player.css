@@ -130,3 +130,63 @@ button { touch-action: manipulation; }
   body { padding-top: 40px; }
   #app { max-width: 460px; }
 }
+
+.test-toggle {
+  width: 100%;
+  min-height: 64px;
+  border: 1px solid var(--accent);
+  background: #2a2218;
+  color: var(--accent);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.test-toggle.on {
+  background: var(--accent);
+  color: #20160d;
+  box-shadow: 0 0 0 4px #d7b07a33;
+}
+.test-badge {
+  justify-self: center;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #20160d;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.16em;
+}
+.sim-tag {
+  flex: none;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.output-panel { display: grid; gap: 12px; }
+.output-bars { display: grid; gap: 12px; }
+.bar-row {
+  display: grid;
+  grid-template-columns: 22px 1fr 52px;
+  gap: 10px;
+  align-items: center;
+}
+.bar-row span { color: var(--muted); font-weight: 700; }
+.bar-row b { text-align: right; font-variant-numeric: tabular-nums; }
+.bar {
+  height: 16px;
+  border-radius: 99px;
+  background: #121018;
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #8d6a3c, var(--accent));
+  transition: width 120ms linear;
+}
+
