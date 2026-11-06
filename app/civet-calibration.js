@@ -12,6 +12,11 @@
  * the measured post-command samples. It does not invent a 0, and it does
  * not reject a stable offset merely for being away from 0. Zero is an
  * unloaded step. Relaxed is a separate loaded resting step.
+ * A typed number is not a hardware reset and is not a measured hold.
+ * Typed readings carry no sample count and no measured standard
+ * deviation. Each one is given the fixed uncertainty enteredNoiseKpa
+ * (0.2 kPa), which is four times the 0.05 kPa floor used for a real
+ * hold. One typed reading raises the whole profile to that uncertainty.
  * Nothing here is a medical or physiological limit.
  */
 export const CIVET_CALIBRATION = Object.freeze({
@@ -32,6 +37,7 @@ export const CIVET_CALIBRATION = Object.freeze({
   hysteresisSpanFraction: 0.2,
   cutoffSpanFraction: 0.7,
   roundingKpa: 0.1,
+  enteredNoiseKpa: 0.2,
   realStorageKey: 'ctmp.civet-calibration.v1',
   simStorageKey: 'ctmp.civet-calibration.sim.v1',
   simulatedDeviceId: 'simulated-civet',
@@ -101,6 +107,7 @@ export function assessSamples(samples, now) {
   }
   return {
     ok: true,
+    source: 'captured',
     mean: round2(mean),
     std: round2(std),
     range: round2(range),
@@ -121,29 +128,86 @@ export function captureTimedOut(capture, now) {
   return capture.samples.length < C.sampleCount && now > capture.collectAfter + C.maxWindowMs;
 }
 
-function noiseOf(zero, relaxed, half, full) {
-  return Math.max(zero.std || 0, relaxed.std || 0, half.std || 0, full.std || 0, C.noiseFloorKpa);
+const READING_NAMES = ['zero', 'relaxed', 'half', 'full'];
+const READING_LABELS = {
+  zero: 'Post-zero baseline',
+  relaxed: 'Relaxed',
+  half: 'Half',
+  full: 'Full',
+};
+
+export function parseEnteredKpa(text) {
+  const raw = String(text ?? '').trim().replace(/^\+/, '');
+  if (!raw) return { ok: false, empty: true, reason: 'Enter a kPa number.' };
+  if (!/^-?(?:\d+\.?\d*|\.\d+)$/.test(raw)) return { ok: false, reason: 'Enter a finite kPa number.' };
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return { ok: false, reason: 'Enter a finite kPa number.' };
+  const mean = round2(value);
+  if (!finiteKpa(mean)) return { ok: false, reason: 'That number is outside the sensor range (−327.6 to 327.6 kPa).' };
+  return { ok: true, mean };
 }
 
-export function deriveProfile({ device, simulated = false, zero, relaxed, half, full, acceptedAt = Date.now() }) {
-  const identity = deviceIdentity(device);
-  if (!identity) throw new Error('This sensor has no browser device id, so a profile cannot be saved for it.');
-  if (Boolean(simulated) !== (identity.id === C.simulatedDeviceId)) {
-    throw new Error('Simulated and real sensors cannot share a calibration profile.');
+export function enteredReading(value) {
+  const parsed = typeof value === 'number'
+    ? (finiteKpa(round2(value)) ? { ok: true, mean: round2(value) } : { ok: false, reason: 'That number is outside the sensor range (−327.6 to 327.6 kPa).' })
+    : parseEnteredKpa(value);
+  if (!parsed.ok) throw new Error(parsed.reason || 'Enter a finite kPa number.');
+  return { source: 'entered', mean: parsed.mean, commandSent: false };
+}
+
+export function sourceLabel(reading, name = '') {
+  if (!reading) return 'No reading yet';
+  if (reading.source === 'entered') return name === 'zero' ? 'Entered · hardware was not reset' : 'Entered · not measured';
+  if (reading.source === 'captured') {
+    const samples = reading.count === C.sampleCount ? ` · ${C.sampleCount} samples` : '';
+    return reading.commandSent ? `Captured after hardware reset${samples}` : `Captured${samples}`;
   }
-  for (const [name, reading] of [['zero', zero], ['relaxed', relaxed], ['half', half], ['full', full]]) {
-    if (!reading || reading.commandSent === false || !finiteKpa(reading.mean) || !Number.isFinite(reading.std)) {
-      throw new Error(`The ${name} reading is missing.`);
+  return 'No reading yet';
+}
+
+function hasMeasuredProof(reading) {
+  return reading.count != null || Number.isFinite(reading.std) || Number.isFinite(reading.range) || Number.isFinite(reading.startedAt) || Number.isFinite(reading.endedAt);
+}
+
+function normalizeReading(reading, name) {
+  const label = READING_LABELS[name];
+  if (!reading || typeof reading !== 'object') return { error: `${label} is missing.` };
+  const legacyCaptured = !reading.source && reading.count === C.sampleCount && Number.isFinite(reading.std) && finiteKpa(reading.mean);
+  const source = reading.source || (legacyCaptured ? 'captured' : '');
+  if (source === 'entered') {
+    if (reading.commandSent === true) return { error: `${label} was marked as a hardware reset. Typing a number does not send that command.` };
+    if (hasMeasuredProof(reading)) return { error: `${label} is typed, so it cannot include sample counts or measured variation.` };
+    if (!finiteKpa(reading.mean)) return { error: `${label} must be a finite kPa number.` };
+    return { reading: { source: 'entered', mean: round2(reading.mean), commandSent: false } };
+  }
+  if (source === 'captured') {
+    if (reading.count !== C.sampleCount || !Number.isFinite(reading.std) || !finiteKpa(reading.mean)) {
+      return { error: `${label} is missing a real ${C.sampleCount}-sample hold.` };
     }
+    if (name === 'zero' && reading.commandSent !== true) return { error: 'A captured zero must follow a sent hardware reset. Typing a number does not send that command.' };
+    if (name !== 'zero' && reading.commandSent === true) return { error: `${label} cannot be marked as a hardware reset.` };
+    return {
+      reading: {
+        source: 'captured',
+        mean: round2(reading.mean),
+        std: round2(reading.std),
+        range: Number.isFinite(reading.range) ? round2(reading.range) : round2(reading.std),
+        count: C.sampleCount,
+        ...(Number.isFinite(reading.startedAt) ? { startedAt: reading.startedAt } : {}),
+        ...(Number.isFinite(reading.endedAt) ? { endedAt: reading.endedAt } : {}),
+        commandSent: name === 'zero',
+      },
+    };
   }
-  if (!zero.commandSent) throw new Error('Hardware zero was not confirmed from post-command samples.');
-  const noise = noiseOf(zero, relaxed, half, full);
+  return { error: `${label} is missing.` };
+}
+
+function evidenceNoise(reading) {
+  return reading.source === 'entered' ? C.enteredNoiseKpa : reading.std;
+}
+
+function placeThresholds(zero, relaxed, half, full, noise) {
   const stepRelaxedToHalf = half.mean - relaxed.mean;
-  const stepHalfToFull = full.mean - half.mean;
-  const minStep = Math.max(C.minStepKpa, C.relaxedClearanceSigma * noise);
-  if (stepRelaxedToHalf < minStep || stepHalfToFull < minStep) {
-    throw new Error('Relaxed, half, and full readings are too close together for the measured variation.');
-  }
   const minHysteresis = ceilTenth(Math.max(C.minHysteresisKpa, 2 * noise));
   const resetFloor = ceilTenth(relaxed.mean + 2 * noise);
   const cutoffFloor = ceilTenth(Math.max(
@@ -153,44 +217,94 @@ export function deriveProfile({ device, simulated = false, zero, relaxed, half, 
   const halfCap = floorTenth(half.mean);
   const fullCap = floorTenth(full.mean - Math.max(minHysteresis, 2 * noise));
   if (!(cutoffFloor < halfCap) || !(cutoffFloor < fullCap)) {
-    throw new Error('The full and half holds do not leave room for a cutoff above the relaxed variation.');
+    return { ok: false, field: 'full', reason: 'The full and half readings do not leave room for a cutoff above the relaxed variation.' };
   }
   let cutoff = relaxed.mean + C.cutoffSpanFraction * stepRelaxedToHalf;
   cutoff = Math.min(halfCap, fullCap, Math.max(cutoffFloor, ceilTenth(cutoff)));
   const resetMax = floorTenth(cutoff - minHysteresis);
   if (resetFloor > resetMax) {
-    throw new Error('Could not place a reset level above the relaxed reading and clearly below the cutoff.');
+    return { ok: false, field: 'relaxed', reason: 'Could not place a reset level above the relaxed reading and clearly below the cutoff.' };
   }
   let reset = floorTenth(cutoff - Math.max(minHysteresis, C.hysteresisNoiseSigma * noise, C.hysteresisSpanFraction * stepRelaxedToHalf));
   if (reset < resetFloor) reset = resetFloor;
   if (reset > resetMax) reset = resetMax;
   if (!(reset >= resetFloor && reset <= resetMax && cutoff - reset >= minHysteresis - 1e-9 && cutoff <= halfCap && cutoff <= fullCap)) {
-    throw new Error('Could not place a reset level above the relaxed reading and clearly below the cutoff.');
+    return { ok: false, field: 'relaxed', reason: 'Could not place a reset level above the relaxed reading and clearly below the cutoff.' };
   }
-  const bounds = {
-    cutoffMin: cutoffFloor,
-    cutoffMax: fullCap,
-    minHysteresis,
-    resetFloor,
-  };
+  const bounds = { cutoffMin: cutoffFloor, cutoffMax: fullCap, minHysteresis, resetFloor };
   if (!(bounds.cutoffMin <= cutoff && cutoff <= bounds.cutoffMax && bounds.cutoffMax > bounds.cutoffMin)) {
-    throw new Error('The measured range cannot contain an adjustable cutoff.');
+    return { ok: false, field: 'full', reason: 'The measured range cannot contain an adjustable cutoff.' };
   }
-  const applied = { threshold: cutoff, resetThreshold: reset };
+  return { ok: true, applied: { threshold: cutoff, resetThreshold: reset }, bounds };
+}
+
+export function draftErrors(parts) {
+  const errors = { zero: '', relaxed: '', half: '', full: '' };
+  const readings = {};
+  for (const name of READING_NAMES) {
+    const result = normalizeReading(parts?.[name], name);
+    if (result.error) errors[name] = result.error;
+    else readings[name] = result.reading;
+  }
+  if (READING_NAMES.some(name => errors[name])) {
+    return { ok: false, errors, reason: READING_NAMES.map(name => errors[name]).find(Boolean) };
+  }
+  const noise = Math.max(...READING_NAMES.map(name => evidenceNoise(readings[name])), C.noiseFloorKpa);
+  if (!(readings.zero.mean + noise < readings.relaxed.mean)) {
+    errors.zero = 'Post-zero baseline must sit below the relaxed reading by more than the assumed variation.';
+    errors.relaxed = errors.zero;
+  }
+  const minStep = Math.max(C.minStepKpa, C.relaxedClearanceSigma * noise);
+  if (readings.half.mean - readings.relaxed.mean < minStep) errors.half = 'Half must be above relaxed by more than the variation allows.';
+  if (readings.full.mean - readings.half.mean < minStep) errors.full = 'Full must be above half by more than the variation allows.';
+  if (READING_NAMES.some(name => errors[name])) {
+    return { ok: false, errors, reason: READING_NAMES.map(name => errors[name]).find(Boolean), noiseKpa: round2(noise) };
+  }
+  const placed = placeThresholds(readings.zero, readings.relaxed, readings.half, readings.full, noise);
+  if (!placed.ok) {
+    errors[placed.field] = placed.reason;
+    return { ok: false, errors, reason: placed.reason, noiseKpa: round2(noise) };
+  }
+  return { ok: true, errors, readings, noiseKpa: round2(noise), applied: placed.applied, bounds: placed.bounds };
+}
+
+export function migrateProfile(profile) {
+  if (!profile || typeof profile !== 'object') return profile;
+  let changed = false;
+  const next = { ...profile };
+  for (const name of READING_NAMES) {
+    const reading = profile[name];
+    if (!reading || reading.source) continue;
+    const normalized = normalizeReading(reading, name);
+    if (!normalized.reading || normalized.reading.source !== 'captured') continue;
+    next[name] = { ...reading, source: 'captured', commandSent: name === 'zero' };
+    changed = true;
+  }
+  return changed ? next : profile;
+}
+
+export function deriveProfile({ device, simulated = false, zero, relaxed, half, full, acceptedAt = Date.now() }) {
+  const identity = deviceIdentity(device);
+  if (!identity) throw new Error('This sensor has no browser device id, so a profile cannot be saved for it.');
+  if (Boolean(simulated) !== (identity.id === C.simulatedDeviceId)) {
+    throw new Error('Simulated and real sensors cannot share a calibration profile.');
+  }
+  const draft = draftErrors({ zero, relaxed, half, full });
+  if (!draft.ok) throw new Error(draft.reason);
   return {
     version: C.version,
     unit: C.unit,
     simulated: Boolean(simulated),
     device: identity,
     acceptedAt,
-    zero: { ...zero, commandSent: true },
-    relaxed: { ...relaxed },
-    half: { ...half },
-    full: { ...full },
-    noiseKpa: round2(noise),
-    suggested: { ...applied },
-    applied: { ...applied },
-    bounds,
+    zero: draft.readings.zero,
+    relaxed: draft.readings.relaxed,
+    half: draft.readings.half,
+    full: draft.readings.full,
+    noiseKpa: draft.noiseKpa,
+    suggested: { ...draft.applied },
+    applied: { ...draft.applied },
+    bounds: draft.bounds,
   };
 }
 
@@ -219,12 +333,23 @@ export function profileMatches(profile, device, simulated = false) {
   if (!profile || profile.version !== C.version || !identity) return false;
   if (Boolean(profile.simulated) !== Boolean(simulated)) return false;
   if (profile.device?.id !== identity.id) return false;
-  if (profile.simulated && identity.id !== C.simulatedDeviceId) return false;
-  if (!profile.simulated && identity.id === C.simulatedDeviceId) return false;
-  if (!profile.zero?.commandSent || !finiteKpa(profile.relaxed?.mean) || !finiteKpa(profile.half?.mean) || !finiteKpa(profile.full?.mean)) return false;
+  if (Boolean(profile.simulated) !== (identity.id === C.simulatedDeviceId)) return false;
+  const draft = draftErrors(profile);
+  if (!draft.ok || profile.noiseKpa !== draft.noiseKpa) return false;
+  for (const name of READING_NAMES) {
+    const stored = profile[name];
+    const canonical = draft.readings[name];
+    if (!stored || stored.mean !== canonical.mean) return false;
+    if (stored.source && stored.source !== canonical.source) return false;
+    if (!stored.source && canonical.source !== 'captured') return false;
+    if (Boolean(stored.commandSent) !== canonical.commandSent) return false;
+    if (canonical.source === 'captured' && (stored.count !== C.sampleCount || !Number.isFinite(stored.std))) return false;
+    if (canonical.source === 'entered' && hasMeasuredProof(stored)) return false;
+  }
   const applied = profile.applied;
   const bounds = profile.bounds;
   if (!applied || !bounds) return false;
+  if (['cutoffMin', 'cutoffMax', 'minHysteresis', 'resetFloor'].some(key => bounds[key] !== draft.bounds[key])) return false;
   if (!Number.isFinite(applied.threshold) || !Number.isFinite(applied.resetThreshold)) return false;
   if (applied.threshold < bounds.cutoffMin || applied.threshold > bounds.cutoffMax) return false;
   if (applied.resetThreshold < bounds.resetFloor) return false;
@@ -291,8 +416,17 @@ export function forgetProfile(storage, device, simulated = false) {
 export function storedProfile(storage, device, simulated = false) {
   const identity = deviceIdentity(device);
   if (!identity) return null;
-  const profile = readStore(storage, simulated)[identity.id] || null;
-  return profileMatches(profile, identity, simulated) ? profile : null;
+  const saved = readStore(storage, simulated)[identity.id] || null;
+  if (!saved) return null;
+  const migrated = migrateProfile(saved);
+  if (!profileMatches(migrated, identity, simulated)) return null;
+  if (migrated !== saved) {
+    const devices = readStore(storage, simulated);
+    devices[identity.id] = migrated;
+    writeStore(storage, devices, simulated);
+    return readStore(storage, simulated)[identity.id];
+  }
+  return migrated;
 }
 
 export class SimulatedCivetSensor {

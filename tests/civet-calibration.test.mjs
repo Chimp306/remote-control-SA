@@ -9,11 +9,16 @@ import {
   assessZero,
   captureTimedOut,
   deriveProfile,
+  draftErrors,
+  enteredReading,
   forgetProfile,
   legacyProfileUnusable,
+  migrateProfile,
   outputPermitted,
+  parseEnteredKpa,
   profileMatches,
   rememberProfile,
+  sourceLabel,
   storedProfile,
 } from '../app/civet-calibration.js';
 
@@ -96,7 +101,7 @@ test('too little range or too much variation is refused', () => {
     relaxed: reading(10, { std: 0.4 }),
     half: reading(10.5, { std: 0.4 }),
     full: reading(11, { std: 0.4 }),
-  }), /too close|not enough room/);
+  }), /too close|not enough room|variation allows|do not leave room/);
 });
 
 test('adjustment stays inside the measured bounds and keeps hysteresis', () => {
@@ -209,4 +214,124 @@ test('both hosts stop output before zero and say the sensor is unloaded', () => 
   assert.match(suc, /Zero only while the sensor is unloaded/);
   assert.match(suc, /not clenching/);
   assert.match(suc, /outputPermitted/);
+  const typed = slice(root, 'function editCalibrationField', 'function clearCaptureTimer');
+  assert.match(typed, /forgetProfile/);
+  assert.doesNotMatch(typed, /\.zero\(/);
+  assert.doesNotMatch(slice(root, 'function playHTML', 'function escapeHtml'), /data-cal-field/);
+  const sucTyped = slice(suc, 'editReading(name,raw)', 'adjustCutoff(next)');
+  assert.match(sucTyped, /forgetProfile/);
+  assert.doesNotMatch(sucTyped, /\.zero\(/);
+  assert.match(root, /enteredNoiseKpa/);
+  assert.match(suc, /0\.2 kPa/);
+});
+
+function manualReadings() {
+  return {
+    zero: enteredReading(0.15),
+    relaxed: enteredReading(6),
+    half: enteredReading(12),
+    full: enteredReading(20),
+  };
+}
+
+test('typed numbers are not a reset and use the 0.2 kPa assumption', () => {
+  assert.deepEqual(parseEnteredKpa(''), { ok: false, empty: true, reason: 'Enter a kPa number.' });
+  assert.match(parseEnteredKpa('abc').reason, /finite/);
+  assert.match(parseEnteredKpa('1e2').reason, /finite/);
+  assert.match(parseEnteredKpa('NaN').reason, /finite/);
+  assert.match(parseEnteredKpa('400').reason, /range/);
+  assert.equal(parseEnteredKpa(' 6.006 ').mean, 6.01);
+  const entered = enteredReading(6);
+  assert.equal(entered.source, 'entered');
+  assert.equal(entered.commandSent, false);
+  assert.equal(entered.count, undefined);
+  assert.equal(entered.std, undefined);
+  assert.equal(sourceLabel(entered, 'zero'), 'Entered · hardware was not reset');
+  const profile = deriveProfile({ device: real, ...manualReadings() });
+  assert.equal(profile.noiseKpa, C.enteredNoiseKpa);
+  assert.equal(profile.applied.threshold, 10.2);
+  assert.equal(profile.applied.resetThreshold, 9);
+  assert.equal(profile.bounds.cutoffMin, 6.9);
+  assert.equal(profile.bounds.cutoffMax, 19.6);
+  assert.equal(profile.bounds.minHysteresis, 0.4);
+  assert.equal(profile.bounds.resetFloor, 6.4);
+  assert.equal(profile.zero.commandSent, false);
+  assert.equal(profile.zero.count, undefined);
+  assert.equal(profile.relaxed.std, undefined);
+  assert.equal(sourceLabel(profile.relaxed, 'relaxed'), 'Entered · not measured');
+  for (let cutoff = profile.bounds.cutoffMin; cutoff <= profile.bounds.cutoffMax + 1e-9; cutoff = Math.round((cutoff + 0.1) * 10) / 10) {
+    const next = adjustApplied(profile, cutoff);
+    assert.ok(next.applied.resetThreshold >= next.bounds.resetFloor);
+    assert.ok(next.applied.threshold - next.applied.resetThreshold >= next.bounds.minHysteresis - 1e-9);
+  }
+});
+
+test('mixed captured and typed readings keep their own sources', () => {
+  const profile = deriveProfile({
+    device: real,
+    zero: reading(0.15, { commandSent: true }),
+    relaxed: reading(6),
+    half: enteredReading(12),
+    full: enteredReading(20),
+  });
+  assert.equal(profile.zero.source, 'captured');
+  assert.equal(profile.zero.commandSent, true);
+  assert.equal(profile.zero.count, 12);
+  assert.equal(profile.relaxed.source, 'captured');
+  assert.equal(profile.half.source, 'entered');
+  assert.equal(profile.half.commandSent, false);
+  assert.equal(profile.half.std, undefined);
+  assert.equal(profile.full.count, undefined);
+  assert.equal(profile.noiseKpa, C.enteredNoiseKpa);
+  assert.equal(profile.applied.threshold, 10.2);
+  assert.equal(profile.applied.resetThreshold, 9);
+  const captured = accepted();
+  assert.equal(captured.zero.source, 'captured');
+  assert.equal(captured.noiseKpa, C.noiseFloorKpa);
+  assert.equal(captured.applied.threshold, 10.2);
+  assert.equal(captured.applied.resetThreshold, 9);
+});
+
+test('invalid drafts and forged proof cannot authorise output', () => {
+  const bad = [
+    { ...manualReadings(), half: enteredReading(6.2) },
+    { ...manualReadings(), zero: enteredReading(6) },
+    { ...manualReadings(), zero: { source: 'entered', mean: 0.15, commandSent: true } },
+    { ...manualReadings(), relaxed: { source: 'entered', mean: 6, count: 12, std: 0.01, commandSent: false } },
+    { ...manualReadings(), zero: { source: 'captured', mean: 0.15, std: 0.02, count: 12, commandSent: false } },
+  ];
+  for (const readings of bad) {
+    const issues = draftErrors(readings);
+    assert.equal(issues.ok, false);
+    assert.equal(Object.values(issues.errors).some(Boolean), true);
+    assert.throws(() => deriveProfile({ device: real, ...readings }), /./);
+  }
+  const storage = memoryStorage();
+  const saved = rememberProfile(storage, deriveProfile({ device: real, ...manualReadings() }));
+  assert.equal(outputPermitted(saved, other, false, { kpa: 6, at: 1000 }, 1100), false);
+  assert.equal(outputPermitted(saved, sim, true, { kpa: 6, at: 1000 }, 1100), false);
+  forgetProfile(storage, real, false);
+  assert.equal(storedProfile(storage, real, false), null);
+  assert.equal(outputPermitted(storedProfile(storage, real, false), real, false, { kpa: 6, at: 1000 }, 1100), false);
+  const simStorage = memoryStorage();
+  rememberProfile(simStorage, deriveProfile({ device: sim, simulated: true, ...manualReadings() }));
+  assert.equal(simStorage.getItem(C.realStorageKey), null);
+  assert.equal(storedProfile(simStorage, real, false), null);
+});
+
+test('saved captured profiles gain source metadata without losing their proof', () => {
+  const legacy = accepted();
+  for (const name of ['zero', 'relaxed', 'half', 'full']) delete legacy[name].source;
+  delete legacy.relaxed.commandSent;
+  const storage = memoryStorage();
+  storage.setItem(C.realStorageKey, JSON.stringify({ version: 1, devices: { [real.id]: legacy } }));
+  const loaded = storedProfile(storage, real, false);
+  assert.equal(loaded.zero.source, 'captured');
+  assert.equal(loaded.zero.commandSent, true);
+  assert.equal(loaded.zero.count, 12);
+  assert.equal(loaded.relaxed.source, 'captured');
+  assert.equal(Number.isFinite(loaded.relaxed.std), true);
+  assert.equal(loaded.noiseKpa, C.noiseFloorKpa);
+  assert.equal(outputPermitted(loaded, real, false, { kpa: 6, at: 1000 }, 1100), true);
+  assert.equal(migrateProfile(loaded), loaded);
 });
