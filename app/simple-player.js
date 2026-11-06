@@ -5,14 +5,50 @@
  * devices with the same connect/output interface; the real Bluetooth
  * path is unused while that mode is on.
  */
-import { SessionEngine } from './engine.js?v=20261106-v23';
-import { CivetDevice, OpossumDevice } from './devices.js?v=20261106-v23';
-import { BUILD } from './config.js?v=20261106-v23';
+import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261106-v24';
+import { CivetDevice, OpossumDevice, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261106-v24';
+import { BUILD } from './config.js?v=20261106-v24';
 
-const PATTERNS = ['synchronized', 'alternating', 'offset-wave', 'pulse'];
+const PLAY_PATTERNS = OPOSSUM_PATTERNS.filter(name => name !== 'custom');
+const PATTERN_LABELS = {
+  synchronized: 'Synchronized',
+  alternating: 'Opposites',
+  'sine-wave': 'Sine wave',
+  'offset-wave': 'Offset waves',
+  chase: 'Chase',
+  'ramp-up': 'Ramp up',
+  'ramp-down': 'Ramp down',
+  staircase: 'Staircase',
+  heartbeat: 'Heartbeat',
+  'random-walk': 'Random walk',
+  'tease-build': 'Teasing build',
+  'ping-pong': 'Ping-pong',
+  'steady-pulse': 'Steady + pulse',
+  sawtooth: 'Sawtooth',
+  bursts: 'Bursts',
+  'slow-swell': 'Slow swell',
+  'edge-tease': 'Edge tease',
+  pulse: 'Pulse',
+  custom: 'Custom',
+};
+const TOY_MAX_KEY = 'ctmp-toy-max-power';
 const ACTIVE = new Set(['running', 'cooldown', 'settling']);
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-const randomPattern = () => PATTERNS[Math.floor(Math.random() * PATTERNS.length)];
+const randomPattern = except => {
+  const pool = PLAY_PATTERNS.filter(name => name !== except);
+  const list = pool.length ? pool : PLAY_PATTERNS;
+  return list[Math.floor(Math.random() * list.length)];
+};
+const patternLabel = name => PATTERN_LABELS[name] || name || '—';
+const readStoredToyMax = () => {
+  try {
+    const stored = localStorage.getItem(TOY_MAX_KEY);
+    if (stored == null || stored === '') return 40;
+    const raw = Number(stored);
+    if (Number.isFinite(raw)) return clamp(Math.round(raw), 5, 100);
+  } catch { /* private mode */ }
+  return 40;
+};
 const app = document.getElementById('app');
 
 let view = 'setup';
@@ -28,6 +64,9 @@ let opossumHint = 'Not connected';
 let testMode = new URLSearchParams(location.search).has('test');
 let civet = null;
 let opossum = null;
+let toyMaxPower = readStoredToyMax();
+let patternTimer = null;
+let patternsSeen = [];
 
 class SimulatedCivet {
   constructor({ onPressure = () => {}, onStatus = () => {}, getStimLevel = () => 0, now = () => Date.now() } = {}) {
@@ -118,37 +157,63 @@ class SimulatedCivet {
 }
 
 class SimulatedOpossum {
-  constructor({ onStatus = () => {} } = {}) {
+  constructor({ onStatus = () => {}, maxHardwarePercent = 40 } = {}) {
     this.onStatus = onStatus;
     this.levels = { a: 0, b: 0 };
+    this.nativeLevels = { a: 0, b: 0 };
+    this.maxDisplayWritten = 0;
+    this.maxNativeWritten = 0;
+    this.writeCount = 0;
     this._connected = false;
+    this.setMaxHardwarePercent(maxHardwarePercent);
   }
 
   get connected() { return this._connected; }
+
+  setMaxHardwarePercent(percent) {
+    const next = clamp(Math.round(Number(percent) || 40), 5, 100);
+    this._maxHardwarePercent = next;
+    this._maxNative = opossumHardwareNative(next);
+    this.nativeLevels = {
+      a: Math.min(this.nativeLevels?.a || 0, this._maxNative),
+      b: Math.min(this.nativeLevels?.b || 0, this._maxNative),
+    };
+    return this._maxNative;
+  }
 
   connect() {
     if (this._connected) return Promise.resolve(this);
     this._connected = true;
     this.levels = { a: 0, b: 0 };
-    this._status('connected', 'Simulated Opossum connected. No hardware output.');
+    this.nativeLevels = { a: 0, b: 0 };
+    this._status('connected', `Simulated Opossum connected. Ceiling ${this._maxHardwarePercent}% of hardware (native ${this._maxNative}/200).`);
     return Promise.resolve(this);
   }
 
   reconnect() { return this.connect(); }
 
   setLevels({ a = 0, b = 0 } = {}) {
-    const next = { a: clamp(Number(a) || 0, 0, 100), b: clamp(Number(b) || 0, 0, 100) };
-    this.levels = next;
-    if (next.a === 0 && next.b === 0) return this.stop();
+    const display = { a: clamp(Number(a) || 0, 0, 100), b: clamp(Number(b) || 0, 0, 100) };
+    const native = {
+      a: Math.min(this._maxNative, opossumNativeLevel(display.a, this._maxNative)),
+      b: Math.min(this._maxNative, opossumNativeLevel(display.b, this._maxNative)),
+    };
+    this.levels = display;
+    this.nativeLevels = native;
+    this.maxDisplayWritten = Math.max(this.maxDisplayWritten, display.a, display.b);
+    this.maxNativeWritten = Math.max(this.maxNativeWritten, native.a, native.b);
+    this.writeCount += 1;
+    if (native.a === 0 && native.b === 0) return this.stop();
     if (!this._connected) return Promise.reject(new Error('Simulated Opossum is not connected.'));
-    return Promise.resolve({ sent: true });
+    return Promise.resolve({ sent: true, nativeLevels: { ...native } });
   }
 
   setOutput(displayPercent) { return this.setLevels({ a: displayPercent, b: 0 }); }
 
   stop() {
     this.levels = { a: 0, b: 0 };
-    return Promise.resolve({ sent: true });
+    this.nativeLevels = { a: 0, b: 0 };
+    return Promise.resolve({ sent: true, nativeLevels: { a: 0, b: 0 } });
   }
 
   async disconnect() {
@@ -174,7 +239,7 @@ const engine = new SessionEngine({
     const state = event.snapshot;
     if (event.type === 'edge' && state.edgeCount !== lastEdgeCount) {
       lastEdgeCount = state.edgeCount;
-      try { engine.configure({ opossumPattern: randomPattern() }); } catch { /* keep current pattern */ }
+      applyPattern(randomPattern(engine.snapshot().opossumPattern));
     }
     if (view === 'play') updatePlay();
   },
@@ -203,15 +268,85 @@ function opossumCallbacks() {
 
 function createRealDevices() {
   civet = new CivetDevice(civetCallbacks());
-  opossum = new OpossumDevice(opossumCallbacks());
+  opossum = new OpossumDevice({ ...opossumCallbacks(), maxHardwarePercent: toyMaxPower });
 }
 
 function createSimulatedDevices() {
-  opossum = new SimulatedOpossum(opossumCallbacks());
+  opossum = new SimulatedOpossum({ ...opossumCallbacks(), maxHardwarePercent: toyMaxPower });
   civet = new SimulatedCivet({
     ...civetCallbacks(),
     getStimLevel() { return Math.max(opossum?.levels?.a || 0, opossum?.levels?.b || 0, engine.snapshot().outputPercent || 0); },
   });
+}
+
+function setToyMaxPower(value, persist = true) {
+  toyMaxPower = clamp(Math.round(Number(value) || 40), 5, 100);
+  if (persist) {
+    try { localStorage.setItem(TOY_MAX_KEY, String(toyMaxPower)); } catch { /* private mode */ }
+  }
+  opossum?.setMaxHardwarePercent?.(toyMaxPower);
+  const slider = document.getElementById('toy-max');
+  const number = document.getElementById('toy-max-number');
+  const label = document.getElementById('toy-max-value');
+  if (slider && document.activeElement !== slider) slider.value = String(toyMaxPower);
+  if (number && document.activeElement !== number) number.value = String(toyMaxPower);
+  if (label) label.textContent = `${toyMaxPower}%`;
+  const playLabel = document.getElementById('toy-max-label');
+  if (playLabel) playLabel.textContent = `Toy max ${toyMaxPower}%`;
+}
+
+function notePattern(name) {
+  if (name && patternsSeen[patternsSeen.length - 1] !== name) patternsSeen.push(name);
+}
+
+function applyPattern(name) {
+  if (!PLAY_PATTERNS.includes(name) && name !== 'custom') return;
+  try {
+    engine.configure({ opossumPattern: name, patternBlendSeconds: 1.6 });
+    notePattern(name);
+    schedulePatternRotation();
+  } catch { /* keep current pattern */ }
+  if (view === 'play') updatePlay();
+}
+
+function schedulePatternRotation() {
+  if (patternTimer) clearTimeout(patternTimer);
+  patternTimer = null;
+  if (view !== 'play') return;
+  const wait = 30000 + Math.floor(Math.random() * 60000);
+  patternTimer = setTimeout(() => {
+    if (view !== 'play' || !ACTIVE.has(engine.phase)) return;
+    applyPattern(randomPattern(engine.snapshot().opossumPattern));
+  }, wait);
+}
+
+function stopPatternRotation() {
+  if (patternTimer) clearTimeout(patternTimer);
+  patternTimer = null;
+}
+
+function testSnapshot() {
+  const state = engine.snapshot();
+  return {
+    pattern: state.opossumPattern,
+    patternLabel: patternLabel(state.opossumPattern),
+    patternsSeen: [...patternsSeen],
+    phase: state.phase,
+    edges: state.edgeCount,
+    barA: state.outputPercentA,
+    barB: state.outputPercentB,
+    displayA: opossum?.levels?.a ?? state.outputPercentA,
+    displayB: opossum?.levels?.b ?? state.outputPercentB,
+    nativeA: opossum?.nativeLevels?.a ?? null,
+    nativeB: opossum?.nativeLevels?.b ?? null,
+    maxDisplayWritten: opossum?.maxDisplayWritten ?? 0,
+    maxNativeWritten: opossum?.maxNativeWritten ?? 0,
+    maxNativeAllowed: opossum?._maxNative ?? opossumHardwareNative(toyMaxPower),
+    toyMaxPower,
+    writeCount: opossum?.writeCount ?? 0,
+    ceilingOk: (opossum?.maxNativeWritten ?? 0) <= (opossum?._maxNative ?? opossumHardwareNative(toyMaxPower)),
+    barsOk: state.outputPercentA <= 100 && state.outputPercentB <= 100 && state.outputPercentA >= 0 && state.outputPercentB >= 0,
+  };
 }
 
 async function detachCurrentDevices() {
@@ -249,6 +384,7 @@ engine.configure({
   recoveryMaxSeconds: recoveryMax,
   adaptiveEnabled: true,
   opossumPattern: 'synchronized',
+  patternBlendSeconds: 1.6,
 });
 
 function handleDeviceLoss(name) {
@@ -337,6 +473,17 @@ function setupHTML() {
           <button class="button button-ghost" type="button" data-act="zero" ${civetOn ? '' : 'disabled'}>Zero Civet</button>
         </div>
       </section>
+      <section class="panel power">
+        <p class="note">Toy max power is a percentage of the Opossum's hardware maximum. App bars from 0 to 100% scale into that range. Default is 40%.</p>
+        <div class="field">
+          <label for="toy-max">Toy max power</label>
+          <div class="power-line">
+            <input id="toy-max" type="range" min="5" max="100" step="1" value="${toyMaxPower}" aria-valuemin="5" aria-valuemax="100" aria-valuenow="${toyMaxPower}">
+            <input id="toy-max-number" type="number" min="5" max="100" inputmode="numeric" value="${toyMaxPower}" aria-label="Toy max power percent">
+            <b id="toy-max-value">${toyMaxPower}%</b>
+          </div>
+        </div>
+      </section>
       <section class="panel recovery">
         <p class="note">Each edge picks a recovery at random between these two times. You can change them while playing.</p>
         <div class="recovery-line">
@@ -348,7 +495,7 @@ function setupHTML() {
       ${error ? `<p class="error">${escapeHtml(error)}</p>` : ''}
       ${message ? `<p class="note">${escapeHtml(message)}</p>` : ''}
       <button class="button button-primary" type="button" data-act="play" ${canPlay() ? '' : 'disabled'}>Play</button>
-      <p class="note">${testMode ? 'Press Play to run a simulated session. Cutoff, edges and recovery use the same engine as a live session.' : 'Connect both devices, then press Play. During play you will only see cutoff adjusters, the edge count, recovery times and Stop. Maximum power stays at the existing Opossum safety cap.'}</p>
+      <p class="note">${testMode ? 'Press Play to run a simulated session. Cutoff, edges and recovery use the same engine as a live session.' : 'Connect both devices, then press Play. During play you will see cutoff adjusters, the edge count, the current pattern, recovery times and Stop. Output never exceeds the toy max power you set above.'}</p>
       <p class="fineprint">Build ${escapeHtml(BUILD)}</p>
     </div>`;
 }
@@ -365,6 +512,8 @@ function playHTML() {
         <span>Edges</span>
         <div class="edges" id="edge-count">${state.edgeCount}</div>
         <div class="phase" id="phase-label">${escapeHtml(phaseCopy(state))}</div>
+        <div class="pattern-name" id="pattern-name">${escapeHtml(patternLabel(state.opossumPattern))}</div>
+        <div class="toy-max-label" id="toy-max-label">Toy max ${toyMaxPower}%</div>
       </div>
       <section class="panel">
         <div class="metrics">
@@ -378,7 +527,7 @@ function playHTML() {
       </section>
       ${testMode ? `
       <section class="panel output-panel">
-        <p class="note">Simulated Opossum output. These bars follow the live pattern and power changes.</p>
+        <p class="note">Simulated Opossum output. These bars follow the live pattern and power changes. 100% on a bar equals ${toyMaxPower}% of the toy's hardware maximum.</p>
         <div class="output-bars">
           <div class="bar-row"><span>A</span><div class="bar" aria-hidden="true"><i id="bar-a" style="width:${clamp(levelA, 0, 100)}%"></i></div><b id="level-a">${formatPercent(levelA)}</b></div>
           <div class="bar-row"><span>B</span><div class="bar" aria-hidden="true"><i id="bar-b" style="width:${clamp(levelB, 0, 100)}%"></i></div><b id="level-b">${formatPercent(levelB)}</b></div>
@@ -442,6 +591,10 @@ function updatePlay() {
   if (pressure) pressure.textContent = formatKpa(state.pressure);
   if (cutoff) cutoff.textContent = formatKpa(state.threshold);
   if (recovery) recovery.textContent = `Next recovery will be a random time between these limits. Current recovery ${Number(state.recoverySeconds || recoveryMin).toFixed(1)}s.`;
+  const patternName = document.getElementById('pattern-name');
+  const toyMaxLabel = document.getElementById('toy-max-label');
+  if (patternName) patternName.textContent = patternLabel(state.opossumPattern);
+  if (toyMaxLabel) toyMaxLabel.textContent = `Toy max ${toyMaxPower}%`;
   if (playError) {
     if (error) { playError.hidden = false; playError.textContent = error; }
     else playError.hidden = true;
@@ -466,10 +619,19 @@ function readRecoveryFrom(minId, maxId) {
   if (document.activeElement !== maxNode) maxNode.value = String(recoveryMax);
 }
 
+function readToyMaxFromSetup() {
+  const slider = document.getElementById('toy-max');
+  const number = document.getElementById('toy-max-number');
+  const source = document.activeElement === number ? number : (slider || number);
+  if (!source) return;
+  setToyMaxPower(source.value);
+}
+
 async function onPlay() {
   error = '';
   message = '';
   readRecoveryFrom('setup-min', 'setup-max');
+  readToyMaxFromSetup();
   if (!civet?.connected || !opossum?.connected) { error = 'Connect Civet and Opossum first.'; render(); return; }
   if (!fresh()) { error = 'Wait for a live Civet reading first.'; render(); return; }
   try {
@@ -483,13 +645,18 @@ async function onPlay() {
       recoveryMinSeconds: recoveryMin,
       recoveryMaxSeconds: recoveryMax,
       adaptiveEnabled: true,
+      patternBlendSeconds: 1.6,
       opossumPattern: randomPattern(),
     });
+    opossum?.setMaxHardwarePercent?.(toyMaxPower);
     const state = engine.start();
     if (state.phase === 'fault') { error = state.reason || 'Could not start.'; render(); return; }
     lastEdgeCount = 0;
+    patternsSeen = [];
+    notePattern(engine.snapshot().opossumPattern);
     view = 'play';
     startTicker();
+    schedulePatternRotation();
     await requestWake();
     render();
   } catch (err) {
@@ -500,6 +667,7 @@ async function onPlay() {
 
 async function onStop() {
   stopTicker();
+  stopPatternRotation();
   try { engine.stop(); } catch { /* already idle */ }
   try { await opossum?.stop?.(); } catch { /* best effort */ }
   await releaseWake();
@@ -573,6 +741,11 @@ app.addEventListener('click', event => {
 app.addEventListener('change', event => {
   if (event.target.id === 'setup-min' || event.target.id === 'setup-max') readRecoveryFrom('setup-min', 'setup-max');
   if (event.target.id === 'play-min' || event.target.id === 'play-max') readRecoveryFrom('play-min', 'play-max');
+  if (event.target.id === 'toy-max' || event.target.id === 'toy-max-number') readToyMaxFromSetup();
+});
+
+app.addEventListener('input', event => {
+  if (event.target.id === 'toy-max' || event.target.id === 'toy-max-number') readToyMaxFromSetup();
 });
 
 document.addEventListener('visibilitychange', () => {
@@ -587,6 +760,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 if (testMode) {
+  window.__ctmpTest = testSnapshot;
   enableTestMode().finally(render);
 } else {
   createRealDevices();

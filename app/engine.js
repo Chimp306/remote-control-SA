@@ -12,9 +12,17 @@ export const ENGINE_DEFAULTS = Object.freeze({
   adaptiveEnabled: true, shortPhaseSeconds: 5, shortPhaseCount: 3,
   stablePhaseSeconds: 12, stablePhaseCount: 3, adaptiveMaxMultiplier: 8,
   opossumPattern: 'synchronized', patternSpeedSeconds: 4, phaseOffset: 0.25,
-  patternMinA: 0, patternMinB: 0,
+  patternMinA: 0, patternMinB: 0, patternBlendSeconds: 0,
   threshold: 22.9, resetThreshold: 21.6,
 });
+
+export const OPOSSUM_PATTERNS = Object.freeze([
+  'synchronized', 'alternating', 'sine-wave', 'offset-wave', 'chase',
+  'ramp-up', 'ramp-down', 'staircase', 'heartbeat', 'random-walk',
+  'tease-build', 'ping-pong', 'steady-pulse', 'sawtooth', 'bursts',
+  'slow-swell', 'edge-tease', 'pulse', 'custom',
+]);
+const OPOSSUM_PATTERN_SET = new Set(OPOSSUM_PATTERNS);
 
 const ACTIVE = new Set(['running', 'cooldown', 'settling']);
 const PATTERNS = new Set(['steady', 'pulse', 'wave', 'synchronized', 'alternating', 'offset-wave', 'custom']);
@@ -63,6 +71,8 @@ export class SessionEngine {
     this._armed = false;
     this._generation = 0;
     this._lastTickAt = null;
+    this._blendFrom = null;
+    this._patternMemory = null;
   }
 
   configure(values = {}) {
@@ -100,10 +110,16 @@ export class SessionEngine {
     if (values.adaptiveMaxMultiplier !== undefined) next.adaptiveMaxMultiplier = clamp(finite(values.adaptiveMaxMultiplier, 'Maximum adaptive multiplier'), 1, 32);
     if (next.stablePhaseSeconds <= next.shortPhaseSeconds) throw new RangeError('Stable-phase threshold must be above the short-phase threshold.');
     if (values.opossumPattern !== undefined) {
-      if (!['synchronized','alternating','offset-wave','pulse','custom'].includes(values.opossumPattern)) throw new TypeError('Unsupported Opossum pattern.');
+      if (!OPOSSUM_PATTERN_SET.has(values.opossumPattern)) throw new TypeError('Unsupported Opossum pattern.');
+      if (values.opossumPattern !== this.config.opossumPattern && ACTIVE.has(this.phase)) {
+        const blend = values.patternBlendSeconds !== undefined ? values.patternBlendSeconds : next.patternBlendSeconds;
+        if (blend > 0) this._blendFrom = { a: this.outputPercentA, b: this.outputPercentB, at: this.now() };
+      }
       next.opossumPattern = values.opossumPattern;
+      this._patternMemory = null;
     }
     if (values.patternSpeedSeconds !== undefined) next.patternSpeedSeconds = clamp(finite(values.patternSpeedSeconds, 'Pattern speed'), 0.4, 30);
+    if (values.patternBlendSeconds !== undefined) next.patternBlendSeconds = clamp(finite(values.patternBlendSeconds, 'Pattern blend'), 0, 10);
     if (values.phaseOffset !== undefined) next.phaseOffset = clamp(finite(values.phaseOffset, 'Phase offset'), 0, 1);
     if (values.patternMinA !== undefined) next.patternMinA = clamp(finite(values.patternMinA, 'Channel A minimum'), 0, 100);
     if (values.patternMinB !== undefined) next.patternMinB = clamp(finite(values.patternMinB, 'Channel B minimum'), 0, 100);
@@ -161,6 +177,8 @@ export class SessionEngine {
     this._lastTickAt = this.now();
     this.reason = '';
     this.phase = 'settling';
+    this._blendFrom = null;
+    this._patternMemory = null;
     this._output(0, true);
     if (this.phase === 'fault') return this.snapshot();
     if (!this._fresh(this.now())) return this.fault('Fresh pressure data is required before starting.');
@@ -448,35 +466,115 @@ export class SessionEngine {
     if (this.config.toy !== 'vacuglide' && this.pattern === 'pulse') multiplier = elapsed % 2000 < 1000 ? 1 : 0;
     else if (this.config.toy !== 'vacuglide' && this.pattern === 'wave') multiplier = (1 - Math.cos(2 * Math.PI * (elapsed % 4000) / 4000)) / 2;
     if (this.config.toy === 'opossum') {
-      const mode = ['alternating','offset-wave','custom'].includes(this.pattern) ? this.pattern : this.pattern === 'wave' ? 'offset-wave' : this.pattern === 'pulse' ? 'pulse' : 'synchronized';
+      const mode = OPOSSUM_PATTERN_SET.has(this.pattern) ? this.pattern
+        : this.pattern === 'wave' ? 'offset-wave'
+        : this.pattern === 'steady' ? 'synchronized'
+        : this.pattern === 'pulse' ? 'pulse'
+        : 'synchronized';
       return this._opossumPattern(elapsed, this.guestPercentA, this.guestPercentB, mode);
     }
     return clamp(this.guestPercent, 0, 100) * multiplier;
   }
 
+  _ensurePatternMemory(mode, elapsed) {
+    if (!this._patternMemory || this._patternMemory.mode !== mode) {
+      this._patternMemory = { mode, walkA: 0.35, walkB: 0.55, lastStep: elapsed };
+    }
+    return this._patternMemory;
+  }
+
   _opossumPattern(elapsed, maxA, maxB, mode) {
     const speedMs = Math.max(400, this.config.patternSpeedSeconds * 1000);
-    const cycle = (elapsed % speedMs) / speedMs;
-    const sine = phase => (1 - Math.cos(2 * Math.PI * ((cycle + phase) % 1))) / 2;
+    const cycleOf = period => {
+      const span = Math.max(400, period);
+      return ((elapsed % span) + span) % span / span;
+    };
+    const cycle = cycleOf(speedMs);
+    const sine = (phase = 0, period = speedMs) => (1 - Math.cos(2 * Math.PI * ((cycleOf(period) + phase) % 1))) / 2;
     const scale = (max, minimum, factor) => {
       const hi = clamp(max, 0, 100), lo = clamp(Math.min(minimum, hi), 0, hi);
       return lo + (hi - lo) * clamp(factor, 0, 1);
     };
-    if (mode === 'alternating') return { a: scale(maxA, this.config.patternMinA, sine(0)), b: scale(maxB, this.config.patternMinB, sine(0.5)) };
-    if (mode === 'offset-wave') return { a: scale(maxA, this.config.patternMinA, sine(0)), b: scale(maxB, this.config.patternMinB, sine(this.config.phaseOffset)) };
-    if (mode === 'pulse') {
-      const on = cycle < 0.45 ? 1 : 0;
-      return { a: scale(maxA, this.config.patternMinA, on), b: scale(maxB, this.config.patternMinB, on) };
+    const pair = (fa, fb = fa) => ({ a: scale(maxA, this.config.patternMinA, fa), b: scale(maxB, this.config.patternMinB, fb) });
+    const bump = (t, center, width) => Math.max(0, 1 - Math.abs(((t % 1) + 1) % 1 - center) / width);
+    const saw = (phase = 0) => {
+      const t = (cycle + phase) % 1;
+      return t < 0.84 ? t / 0.84 : 1 - (t - 0.84) / 0.16;
+    };
+    switch (mode) {
+      case 'alternating': return pair(sine(0), sine(0.5));
+      case 'sine-wave': return pair(sine(0), sine(0));
+      case 'offset-wave':
+      case 'custom': return pair(sine(0), sine(this.config.phaseOffset));
+      case 'chase': return pair(bump(cycle, 0.25, 0.28), bump(cycle, 0.75, 0.28));
+      case 'ramp-up': {
+        const f = cycle < 0.8 ? cycle / 0.8 : 1 - (cycle - 0.8) / 0.2;
+        return pair(f);
+      }
+      case 'ramp-down': {
+        const f = cycle < 0.2 ? cycle / 0.2 : 1 - (cycle - 0.2) / 0.8;
+        return pair(f);
+      }
+      case 'staircase': {
+        const seq = [0, 0.25, 0.5, 0.75, 1, 0.75, 0.5, 0.25];
+        const i = Math.min(seq.length - 1, Math.floor(cycle * seq.length));
+        return pair(seq[i], seq[(i + 2) % seq.length]);
+      }
+      case 'heartbeat': {
+        const t = cycleOf(speedMs * 0.7);
+        return pair(
+          Math.max(bump(t, 0.14, 0.07), bump(t, 0.28, 0.09)),
+          Math.max(bump(t, 0.17, 0.07), bump(t, 0.31, 0.09)),
+        );
+      }
+      case 'random-walk': {
+        const mem = this._ensurePatternMemory(mode, elapsed);
+        if (elapsed - mem.lastStep >= 280) {
+          mem.walkA = clamp(mem.walkA + (this.random() - 0.5) * 0.24, 0.12, 1);
+          mem.walkB = clamp(mem.walkB + (this.random() - 0.5) * 0.24, 0.12, 1);
+          mem.lastStep = elapsed;
+        }
+        return pair(mem.walkA, mem.walkB);
+      }
+      case 'tease-build': {
+        const f = cycle < 0.58 ? cycle / 0.58 * 0.9 : cycle < 0.72 ? 0.9 : 0.9 - (cycle - 0.72) / 0.28 * 0.72;
+        return pair(f, Math.max(0, f - 0.08));
+      }
+      case 'ping-pong': return pair(sine(0), 1 - sine(0));
+      case 'steady-pulse': return pair(0.72, cycle < 0.42 ? 1 : 0.12);
+      case 'sawtooth': return pair(saw(0), saw(0.5));
+      case 'bursts': {
+        const hit = (t, start) => { const d = t - start; return d >= 0 && d < 0.09; };
+        return pair(
+          hit(cycle, 0.08) || hit(cycle, 0.22) || hit(cycle, 0.36) ? 1 : 0.05,
+          hit(cycle, 0.12) || hit(cycle, 0.26) || hit(cycle, 0.40) ? 1 : 0.05,
+        );
+      }
+      case 'slow-swell': return pair(sine(0, speedMs * 2.4));
+      case 'edge-tease': {
+        const flutter = 0.8 + 0.12 * sine(0, speedMs * 0.55);
+        const f = cycle > 0.78 && cycle < 0.9 ? 0.28 + 0.1 * sine(0.2) : flutter;
+        return pair(f, f * 0.92 + 0.04);
+      }
+      case 'pulse': return pair(cycle < 0.45 ? 1 : 0);
+      default: return pair(1, 1);
     }
-    if (mode === 'custom') return { a: scale(maxA, this.config.patternMinA, sine(0)), b: scale(maxB, this.config.patternMinB, sine(this.config.phaseOffset)) };
-    return { a: clamp(maxA, 0, 100), b: clamp(maxB, 0, 100) };
   }
 
   _output(percentOrChannels, force = false) {
     const normalize = value => tenth(clamp(Number.isFinite(value) ? value : 0, 0, 100));
     const channels = typeof percentOrChannels === 'object' && percentOrChannels !== null ? percentOrChannels : { a: percentOrChannels, b: 0 };
-    const a = normalize(channels.a);
-    const b = this.config.toy === 'opossum' ? normalize(channels.b) : 0;
+    let a = normalize(channels.a);
+    let b = this.config.toy === 'opossum' ? normalize(channels.b) : 0;
+    if (a === 0 && b === 0) this._blendFrom = null;
+    else if (this.config.patternBlendSeconds > 0 && this._blendFrom) {
+      const span = this.config.patternBlendSeconds * 1000;
+      const t = span <= 0 ? 1 : clamp((this.now() - this._blendFrom.at) / span, 0, 1);
+      const ease = t * t * (3 - 2 * t);
+      a = normalize(this._blendFrom.a + (a - this._blendFrom.a) * ease);
+      b = normalize(this._blendFrom.b + (b - this._blendFrom.b) * ease);
+      if (t >= 1) this._blendFrom = null;
+    }
     const value = Math.max(a, b);
     if (!force && a === this.outputPercentA && b === this.outputPercentB) return;
     this.outputPercent = value;

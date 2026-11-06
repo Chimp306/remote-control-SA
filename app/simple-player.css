@@ -190,3 +190,32 @@ button { touch-action: manipulation; }
   transition: width 120ms linear;
 }
 
+.pattern-name {
+  margin-top: 6px;
+  color: var(--ink);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+.toy-max-label {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.power { display: grid; gap: 12px; }
+.power-line {
+  display: grid;
+  grid-template-columns: 1fr 84px 58px;
+  gap: 8px;
+  align-items: center;
+}
+.power-line input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.power-line b {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
