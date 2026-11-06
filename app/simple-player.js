@@ -5,9 +5,10 @@
  * devices with the same connect/output interface; the real Bluetooth
  * path is unused while that mode is on.
  */
-import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261106-v26';
-import { CivetDevice, OpossumDevice, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261106-v26';
-import { BUILD } from './config.js?v=20261106-v26';
+import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261106-v27';
+import { CivetDevice, OpossumDevice, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261106-v27';
+import { BUILD } from './config.js?v=20261106-v27';
+import { PlayTimer, formatPlayDuration } from './play-timer.js?v=20261106-v27';
 
 const PLAY_PATTERNS = OPOSSUM_PATTERNS.filter(name => name !== 'custom');
 const PATTERN_LABELS = {
@@ -67,6 +68,13 @@ let opossum = null;
 let toyMaxPower = readStoredToyMax();
 let patternTimer = null;
 let patternsSeen = [];
+let finalElapsedVisible = false;
+const playTimer = new PlayTimer();
+const elapsedNow = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+
+function elapsedLabel() {
+  return formatPlayDuration(playTimer.sync(engine.phase, elapsedNow()));
+}
 
 const SIM_REST = 20.3;
 const SIM_REST_MIN = 20.05;
@@ -356,6 +364,8 @@ function testSnapshot() {
     writeCount: opossum?.writeCount ?? 0,
     ceilingOk: (opossum?.maxNativeWritten ?? 0) <= (opossum?._maxNative ?? opossumHardwareNative(toyMaxPower)),
     barsOk: state.outputPercentA <= 100 && state.outputPercentB <= 100 && state.outputPercentA >= 0 && state.outputPercentB >= 0,
+    elapsedMs: playTimer.sync(state.phase, elapsedNow()),
+    elapsedLabel: formatPlayDuration(playTimer.displayMs(elapsedNow())),
     paused: state.phase === 'paused',
     reason: state.reason || '',
   };
@@ -506,6 +516,7 @@ function setupHTML() {
       </section>
       ${error ? `<p class="error">${escapeHtml(error)}</p>` : ''}
       ${message ? `<p class="note">${escapeHtml(message)}</p>` : ''}
+      ${finalElapsedVisible ? `<p class="final-time" id="final-play-time"><span>Time being tormented</span><b>${elapsedLabel()}</b></p>` : ''}
       <button class="button button-primary" type="button" data-act="play" ${canPlay() ? '' : 'disabled'}>Play</button>
       <p class="note">${testMode ? 'Press Play to run a simulated session. Cutoff, edges and recovery use the same engine as a live session.' : 'Connect both devices, then press Play. During play you will see cutoff adjusters, the edge count, the current pattern, recovery times and Stop. Output never exceeds the toy max power you set above.'}</p>
       <p class="fineprint">Build ${escapeHtml(BUILD)}</p>
@@ -521,8 +532,16 @@ function playHTML() {
     <div class="shell" data-view="play" data-test-mode="${testMode ? '1' : '0'}">
       ${testMode ? '<div class="test-badge" id="test-badge">TEST MODE</div>' : ''}
       <div class="play-top">
-        <span>Edges</span>
-        <div class="edges" id="edge-count">${state.edgeCount}</div>
+        <div class="session-stats">
+          <div class="stat">
+            <span class="stat-label" id="edge-label">Orgasms avoided</span>
+            <div class="edges" id="edge-count" aria-labelledby="edge-label">${state.edgeCount}</div>
+          </div>
+          <div class="stat">
+            <span class="stat-label" id="play-time-label">Time being tormented</span>
+            <div class="play-time" id="play-time" aria-labelledby="play-time-label">${elapsedLabel()}</div>
+          </div>
+        </div>
         <div class="phase${state.phase === 'paused' ? ' is-paused' : ''}" id="phase-label">${escapeHtml(phaseCopy(state))}</div>
         <div class="pattern-name" id="pattern-name">${escapeHtml(patternLabel(state.opossumPattern))}</div>
         <div class="toy-max-label" id="toy-max-label">Toy max ${toyMaxPower}%</div>
@@ -601,12 +620,14 @@ function updatePlay() {
   if (!document.querySelector('[data-view="play"]')) { render(); return; }
   const state = engine.snapshot();
   const edges = document.getElementById('edge-count');
+  const playTime = document.getElementById('play-time');
   const phase = document.getElementById('phase-label');
   const pressure = document.getElementById('live-pressure');
   const cutoff = document.getElementById('cutoff-value');
   const recovery = document.getElementById('recovery-now');
   const playError = document.getElementById('play-error');
   if (edges) edges.textContent = String(state.edgeCount);
+  if (playTime) playTime.textContent = elapsedLabel();
   if (phase) {
     phase.textContent = phaseCopy(state);
     phase.classList.toggle('is-paused', state.phase === 'paused');
@@ -674,6 +695,8 @@ async function onPlay() {
     opossum?.setMaxHardwarePercent?.(toyMaxPower);
     const state = engine.start();
     if (state.phase === 'fault') { error = state.reason || 'Could not start.'; render(); return; }
+    playTimer.reset();
+    finalElapsedVisible = false;
     lastEdgeCount = 0;
     patternsSeen = [];
     outputBlendFrom = null;
@@ -703,6 +726,7 @@ async function onStop() {
   stopPatternRotation();
   outputBlendFrom = null;
   try { engine.stop(); } catch { /* already idle */ }
+  finalElapsedVisible = true;
   try { await opossum?.stop?.(); } catch { /* best effort */ }
   await releaseWake();
   view = 'setup';
