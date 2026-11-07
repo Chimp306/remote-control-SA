@@ -20,7 +20,10 @@ import {
   rememberProfile,
   sourceLabel,
   storedProfile,
+  toCents,
+  fromCents,
 } from '../app/civet-calibration.js';
+import { SessionEngine } from '../app/engine.js';
 
 function memoryStorage() {
   const data = new Map();
@@ -83,25 +86,33 @@ test('captures reject short, stale, gapped, reordered, and unstable samples', ()
   assert.match(assessSamples(samples(6, 10_000, C.sampleCount, 100, 0.5), now).reason, /moved too much/);
 });
 
-test('derived cutoff stays above the relaxed spread and below the half reading', () => {
+test('derived cutoff stays inside relaxed and half and keeps a reset above relaxed', () => {
   const profile = accepted();
-  const noise = profile.noiseKpa;
-  assert.ok(profile.applied.threshold >= profile.relaxed.mean + C.relaxedClearanceSigma * noise);
+  assert.equal(profile.applied.threshold, 10.2);
+  assert.equal(profile.applied.resetThreshold, 9);
   assert.ok(profile.applied.threshold <= profile.half.mean);
   assert.ok(profile.applied.resetThreshold > profile.relaxed.mean);
-  assert.ok(profile.applied.threshold - profile.applied.resetThreshold >= C.minHysteresisKpa - 0.001);
-  const restNoise = profile.relaxed.mean + 3 * noise;
-  assert.ok(restNoise < profile.applied.threshold);
+  assert.equal(profile.bounds.adjustmentStep, 0.1);
+  assert.equal(profile.noiseKpa, 0.02);
 });
 
-test('too little range or too much variation is refused', () => {
+test('a half reading that cannot fit a reset is refused, and small real gaps are not', () => {
   assert.throws(() => deriveProfile({
     device: real,
     zero: reading(0.1, { commandSent: true }),
-    relaxed: reading(10, { std: 0.4 }),
-    half: reading(10.5, { std: 0.4 }),
-    full: reading(11, { std: 0.4 }),
-  }), /too close|not enough room|variation allows|do not leave room/);
+    relaxed: reading(0.18),
+    half: reading(0.19),
+    full: reading(0.22),
+  }), /0\.02 kPa/);
+  const subtle = deriveProfile({
+    device: real,
+    zero: reading(0.18, { commandSent: true, std: 0.4 }),
+    relaxed: reading(0.18, { std: 0.4 }),
+    half: reading(0.21, { std: 0.4 }),
+    full: reading(0.22, { std: 0.4 }),
+  });
+  assert.equal(subtle.applied.threshold, 0.2);
+  assert.equal(subtle.applied.resetThreshold, 0.19);
 });
 
 test('adjustment stays inside the measured bounds and keeps hysteresis', () => {
@@ -165,7 +176,7 @@ test('rounding keeps reset reachable below every allowed cutoff', () => {
     assert.ok(next.applied.threshold <= next.full.mean);
     assert.ok(next.applied.threshold <= next.half.mean || next.applied.threshold <= next.bounds.cutoffMax);
   }
-  assert.ok(profile.bounds.cutoffMax < profile.full.mean);
+  assert.ok(profile.bounds.cutoffMax <= profile.full.mean);
   assert.ok(profile.applied.threshold <= profile.half.mean);
 });
 
@@ -221,8 +232,10 @@ test('both hosts stop output before zero and say the sensor is unloaded', () => 
   const sucTyped = slice(suc, 'editReading(name,raw)', 'adjustCutoff(next)');
   assert.match(sucTyped, /forgetProfile/);
   assert.doesNotMatch(sucTyped, /\.zero\(/);
-  assert.match(root, /enteredNoiseKpa/);
-  assert.match(suc, /0\.2 kPa/);
+  assert.match(root, /0\.01 kPa/);
+  assert.match(suc, /0\.01 kPa/);
+  assert.doesNotMatch(root, /enteredNoiseKpa|uncertain by 0\.2/);
+  assert.doesNotMatch(suc, /uncertain by 0\.2/);
 });
 
 function manualReadings() {
@@ -234,35 +247,50 @@ function manualReadings() {
   };
 }
 
-test('typed numbers are not a reset and use the 0.2 kPa assumption', () => {
+test('typed numbers are not a reset and keep Steve’s 0.01 kPa readings', () => {
   assert.deepEqual(parseEnteredKpa(''), { ok: false, empty: true, reason: 'Enter a kPa number.' });
   assert.match(parseEnteredKpa('abc').reason, /finite/);
   assert.match(parseEnteredKpa('1e2').reason, /finite/);
   assert.match(parseEnteredKpa('NaN').reason, /finite/);
   assert.match(parseEnteredKpa('400').reason, /range/);
-  assert.equal(parseEnteredKpa(' 6.006 ').mean, 6.01);
-  const entered = enteredReading(6);
-  assert.equal(entered.source, 'entered');
-  assert.equal(entered.commandSent, false);
-  assert.equal(entered.count, undefined);
-  assert.equal(entered.std, undefined);
-  assert.equal(sourceLabel(entered, 'zero'), 'Entered · hardware was not reset');
-  const profile = deriveProfile({ device: real, ...manualReadings() });
-  assert.equal(profile.noiseKpa, C.enteredNoiseKpa);
-  assert.equal(profile.applied.threshold, 10.2);
-  assert.equal(profile.applied.resetThreshold, 9);
-  assert.equal(profile.bounds.cutoffMin, 6.9);
-  assert.equal(profile.bounds.cutoffMax, 19.6);
-  assert.equal(profile.bounds.minHysteresis, 0.4);
-  assert.equal(profile.bounds.resetFloor, 6.4);
-  assert.equal(profile.zero.commandSent, false);
-  assert.equal(profile.zero.count, undefined);
-  assert.equal(profile.relaxed.std, undefined);
-  assert.equal(sourceLabel(profile.relaxed, 'relaxed'), 'Entered · not measured');
-  for (let cutoff = profile.bounds.cutoffMin; cutoff <= profile.bounds.cutoffMax + 1e-9; cutoff = Math.round((cutoff + 0.1) * 10) / 10) {
-    const next = adjustApplied(profile, cutoff);
-    assert.ok(next.applied.resetThreshold >= next.bounds.resetFloor);
-    assert.ok(next.applied.threshold - next.applied.resetThreshold >= next.bounds.minHysteresis - 1e-9);
+  assert.equal(parseEnteredKpa(' 0.185 ').mean, 0.19);
+  for (const cents of [18, 21, 22]) {
+    const packet = new DataView(new ArrayBuffer(2));
+    packet.setInt16(0, cents, true);
+    assert.equal(packet.getInt16(0, true) / 100, fromCents(cents));
+  }
+  const steve = (zero) => deriveProfile({
+    device: real,
+    zero: enteredReading(zero),
+    relaxed: enteredReading(0.18),
+    half: enteredReading(0.21),
+    full: enteredReading(0.22),
+  });
+  for (const baseline of [0.18, 0, 0.3]) {
+    const profile = steve(baseline);
+    assert.equal(profile.zero.mean, baseline);
+    assert.equal(profile.zero.commandSent, false);
+    assert.equal(profile.zero.count, undefined);
+    assert.equal(profile.noiseKpa, 0);
+    assert.equal(profile.applied.threshold, 0.2);
+    assert.equal(profile.applied.resetThreshold, 0.19);
+    assert.equal(profile.bounds.adjustmentStep, 0.01);
+    assert.equal(profile.bounds.minHysteresis, 0.01);
+    assert.equal(profile.bounds.resetFloor, 0.19);
+    const now = 50_000;
+    assert.equal(outputPermitted(profile, real, false, { kpa: 0.18, at: now - 100 }, now), true);
+    assert.equal(outputPermitted(profile, real, false, { kpa: 0.19, at: now - 100 }, now), false);
+    assert.equal(outputPermitted(profile, real, false, { kpa: 0, at: now - 100 }, now), true);
+  }
+  const wide = deriveProfile({ device: real, ...manualReadings() });
+  assert.equal(wide.applied.threshold, 10.2);
+  assert.equal(wide.applied.resetThreshold, 9);
+  assert.equal(wide.bounds.adjustmentStep, 0.1);
+  for (let cents = toCents(wide.bounds.cutoffMin); cents <= toCents(wide.bounds.cutoffMax); cents += toCents(wide.bounds.adjustmentStep)) {
+    const next = adjustApplied(wide, fromCents(cents));
+    assert.equal(toCents(next.applied.threshold), cents);
+    assert.ok(toCents(next.applied.resetThreshold) >= toCents(next.bounds.resetFloor));
+    assert.ok(toCents(next.applied.threshold) - toCents(next.applied.resetThreshold) >= toCents(next.bounds.minHysteresis));
   }
 });
 
@@ -282,20 +310,20 @@ test('mixed captured and typed readings keep their own sources', () => {
   assert.equal(profile.half.commandSent, false);
   assert.equal(profile.half.std, undefined);
   assert.equal(profile.full.count, undefined);
-  assert.equal(profile.noiseKpa, C.enteredNoiseKpa);
+  assert.equal(profile.noiseKpa, 0.02);
   assert.equal(profile.applied.threshold, 10.2);
   assert.equal(profile.applied.resetThreshold, 9);
   const captured = accepted();
   assert.equal(captured.zero.source, 'captured');
-  assert.equal(captured.noiseKpa, C.noiseFloorKpa);
+  assert.equal(captured.noiseKpa, 0.02);
   assert.equal(captured.applied.threshold, 10.2);
   assert.equal(captured.applied.resetThreshold, 9);
 });
 
 test('invalid drafts and forged proof cannot authorise output', () => {
   const bad = [
-    { ...manualReadings(), half: enteredReading(6.2) },
-    { ...manualReadings(), zero: enteredReading(6) },
+    { ...manualReadings(), half: enteredReading(6.01) },
+    { ...manualReadings(), full: enteredReading(11) },
     { ...manualReadings(), zero: { source: 'entered', mean: 0.15, commandSent: true } },
     { ...manualReadings(), relaxed: { source: 'entered', mean: 6, count: 12, std: 0.01, commandSent: false } },
     { ...manualReadings(), zero: { source: 'captured', mean: 0.15, std: 0.02, count: 12, commandSent: false } },
@@ -331,7 +359,39 @@ test('saved captured profiles gain source metadata without losing their proof', 
   assert.equal(loaded.zero.count, 12);
   assert.equal(loaded.relaxed.source, 'captured');
   assert.equal(Number.isFinite(loaded.relaxed.std), true);
-  assert.equal(loaded.noiseKpa, C.noiseFloorKpa);
+  assert.equal(loaded.version, 2);
+  assert.equal(loaded.applied.threshold, 10.2);
+  assert.equal(loaded.applied.resetThreshold, 9);
+  assert.equal(loaded.noiseKpa, 0.02);
   assert.equal(outputPermitted(loaded, real, false, { kpa: 6, at: 1000 }, 1100), true);
   assert.equal(migrateProfile(loaded), loaded);
+});
+
+test('start at relaxed 0.18 and edge once at half 0.21', () => {
+  let time = 1_000;
+  const engine = new SessionEngine({ now: () => time });
+  const profile = deriveProfile({
+    device: real,
+    zero: enteredReading(0.18),
+    relaxed: enteredReading(0.18),
+    half: enteredReading(0.21),
+    full: enteredReading(0.22),
+  });
+  engine.configure({ toy: 'opossum', threshold: profile.applied.threshold, resetThreshold: profile.applied.resetThreshold });
+  assert.equal(engine.snapshot().threshold, 0.2);
+  assert.equal(engine.snapshot().resetThreshold, 0.19);
+  engine.updatePressure(0.18, time);
+  engine.start();
+  assert.equal(engine.snapshot().phase, 'running');
+  assert.equal(engine.snapshot().edgeCount, 0);
+  time += 100;
+  engine.updatePressure(0.18, time);
+  assert.equal(engine.snapshot().edgeCount, 0);
+  time += 100;
+  engine.updatePressure(0.21, time);
+  assert.equal(engine.snapshot().phase, 'cooldown');
+  assert.equal(engine.snapshot().edgeCount, 1);
+  time += 100;
+  engine.updatePressure(0.21, time);
+  assert.equal(engine.snapshot().edgeCount, 1);
 });

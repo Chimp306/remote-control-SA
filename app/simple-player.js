@@ -5,10 +5,10 @@
  * devices with the same connect/output interface; the real Bluetooth
  * path is unused while that mode is on.
  */
-import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261106-v29';
-import { CivetDevice, OpossumDevice, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261106-v29';
-import { BUILD } from './config.js?v=20261106-v29';
-import { PlayTimer, formatPlayDuration } from './play-timer.js?v=20261106-v29';
+import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261107-v210';
+import { CivetDevice, OpossumDevice, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261107-v210';
+import { BUILD } from './config.js?v=20261107-v210';
+import { PlayTimer, formatPlayDuration } from './play-timer.js?v=20261107-v210';
 import {
   CIVET_CALIBRATION,
   SIM_HOLDS,
@@ -26,7 +26,7 @@ import {
   rememberProfile,
   sourceLabel,
   storedProfile,
-} from './civet-calibration.js?v=20261106-v29';
+} from './civet-calibration.js?v=20261107-v210';
 
 const PLAY_PATTERNS = OPOSSUM_PATTERNS.filter(name => name !== 'custom');
 const PATTERN_LABELS = {
@@ -130,8 +130,13 @@ class SimulatedCivet {
 
   setHold(name) {
     if (!Object.prototype.hasOwnProperty.call(SIM_HOLDS, name)) throw new Error('Unknown simulated hold.');
-    this._hold = SIM_HOLDS[name];
-    this.pressure = this._hold;
+    this.setPressure(SIM_HOLDS[name]);
+  }
+
+  setPressure(kpa) {
+    if (typeof kpa !== 'number' || !Number.isFinite(kpa)) throw new Error('Enter a finite kPa number.');
+    this._hold = kpa;
+    this.pressure = kpa;
     this._spikeUntil = 0;
     if (this._connected) this._emit();
   }
@@ -542,7 +547,7 @@ function paintCalibration() {
   const status = document.getElementById('calibration-status');
   if (status) {
     status.textContent = calibrationMessage || (profileReady()
-      ? `This sensor is calibrated. Cutoff ${activeProfile.applied.threshold.toFixed(1)} kPa, reset ${activeProfile.applied.resetThreshold.toFixed(1)} kPa.`
+      ? `This sensor is calibrated. Cutoff ${activeProfile.applied.threshold.toFixed(2)} kPa, reset ${activeProfile.applied.resetThreshold.toFixed(2)} kPa.`
       : 'No accepted profile for the connected sensor.');
   }
   for (const name of ['zero', 'relaxed', 'half', 'full']) {
@@ -641,7 +646,7 @@ function noteCalibrationSample(kpa, at) {
     calibrationErrors[capture.kind] = '';
     calibrationDirty = true;
     const label = capture.kind === 'zero' ? 'post-zero' : capture.kind;
-    calibrationMessage = `${label} measured ${verdict.mean.toFixed(2)} kPa from ${verdict.count} samples.`;
+    calibrationMessage = `${label} measured ${verdict.mean.toFixed(2)} kPa from ${verdict.count} samples. Variation ${verdict.std.toFixed(2)} kPa is recorded, not used as a minimum gap.`;
     render();
   }
 }
@@ -740,7 +745,7 @@ function acceptCalibration() {
     if (!calibrationCapture && !ACTIVE.has(engine.phase)) outputHeld = false;
     syncDraftFromProfile(activeProfile);
     const typed = ['zero', 'relaxed', 'half', 'full'].some(name => activeProfile[name].source === 'entered');
-    calibrationMessage = `Starting cutoff ${activeProfile.applied.threshold.toFixed(1)} kPa, reset ${activeProfile.applied.resetThreshold.toFixed(1)} kPa. ${typed ? `Entered readings use an assumed ${CIVET_CALIBRATION.enteredNoiseKpa.toFixed(1)} kPa uncertainty and did not send a hardware reset.` : 'Captured holds keep their measured variation. This is a software estimate in the vendor-documented kPa units, not a medical limit.'}`;
+    calibrationMessage = `Starting cutoff ${activeProfile.applied.threshold.toFixed(2)} kPa, reset ${activeProfile.applied.resetThreshold.toFixed(2)} kPa. ${typed ? 'Typed values are used as entered and did not send a hardware reset.' : 'Captured variation is recorded and is not a minimum gap.'}`;
   } catch (err) {
     activeProfile = null;
     calibrationDirty = true;
@@ -797,7 +802,16 @@ function phaseCopy(state) {
 }
 
 function formatKpa(value) {
-  return Number.isFinite(value) ? value.toFixed(1) : '—';
+  return Number.isFinite(value) ? value.toFixed(2) : '—';
+}
+
+function cutoffStep() {
+  const step = activeProfile?.bounds?.adjustmentStep;
+  return step === CIVET_CALIBRATION.resolutionKpa || step === CIVET_CALIBRATION.wideAdjustmentKpa ? step : CIVET_CALIBRATION.wideAdjustmentKpa;
+}
+
+function formatCutoffStep(step = cutoffStep()) {
+  return step >= CIVET_CALIBRATION.wideAdjustmentKpa ? '0.1' : '0.01';
 }
 
 function formatPercent(value) {
@@ -844,19 +858,20 @@ function setupHTML() {
         <div class="reading"><span>Live reading</span><b id="setup-pressure">${formatKpa(engine.snapshot().pressure)} ${CIVET_CALIBRATION.unit}</b></div>
       </section>
       <section class="panel calibration-panel" data-simulated="${testMode ? '1' : '0'}">
-        <p class="note">${testMode ? 'Simulated sensor. These holds are not a real Civet, and they are stored separately. ' : ''}Zero only while the sensor is unloaded and you are not clenching. Relaxed is a separate step after it is fitted and at rest. You can capture a hold or type a known kPa value. Typing does not send the hardware reset and is not a measurement. Each typed value is treated as uncertain by ${CIVET_CALIBRATION.enteredNoiseKpa.toFixed(1)} kPa. Output stays off until a profile for this sensor is accepted.</p>
+        <p class="note">${testMode ? 'Simulated sensor. These holds are not a real Civet, and they are stored separately. ' : ''}Zero only while the sensor is unloaded and you are not clenching. The baseline is a reference and may match or sit above the loaded rest. You can capture a hold or type a known value. Typing does not send the hardware reset. Readings are used at 0.01 kPa. Output stays off until a profile for this sensor is accepted.</p>
         ${testMode ? `<div class="sim-holds">
           <button class="button" type="button" data-act="sim-hold" data-hold="relaxed">Hold relaxed</button>
           <button class="button" type="button" data-act="sim-hold" data-hold="half">Hold half</button>
           <button class="button" type="button" data-act="sim-hold" data-hold="full">Hold full</button>
           <button class="button ${civet?._unstable ? 'on' : ''}" type="button" data-act="sim-unstable" aria-pressed="${civet?._unstable ? 'true' : 'false'}">Unstable samples</button>
           <button class="button" type="button" data-act="sim-drop">Drop simulated Civet</button>
+          <label class="field">Sim pressure kPa<input id="sim-pressure" data-sim-pressure type="text" inputmode="decimal" autocomplete="off"></label>
         </div>` : ''}
         <div class="stack">
           ${calibrationFieldsHTML(civetOn)}
           <button class="button button-primary" type="button" data-act="cal-accept" ${calibrationCapture ? 'disabled' : ''}>Accept starting cutoff</button>
         </div>
-        <p class="note" id="calibration-status">${escapeHtml(calibrationMessage || (profileReady() ? `This sensor is calibrated. Cutoff ${activeProfile.applied.threshold.toFixed(1)} kPa, reset ${activeProfile.applied.resetThreshold.toFixed(1)} kPa.` : 'No accepted profile for the connected sensor.'))}</p>
+        <p class="note" id="calibration-status">${escapeHtml(calibrationMessage || (profileReady() ? `This sensor is calibrated. Cutoff ${activeProfile.applied.threshold.toFixed(2)} kPa, reset ${activeProfile.applied.resetThreshold.toFixed(2)} kPa.` : 'No accepted profile for the connected sensor.'))}</p>
       </section>
       <section class="panel power">
         <p class="note">Toy max power is a percentage of the Opossum's hardware maximum. App bars from 0 to 100% scale into the range you set here.</p>
@@ -915,8 +930,8 @@ function playHTML() {
           <div class="metric"><span>Cutoff</span><b id="cutoff-value">${formatKpa(state.threshold)}</b></div>
         </div>
         <div class="adjust">
-          <button class="button" type="button" data-act="cutoff-down" aria-label="Lower cutoff by 0.1 kilopascal">− 0.1</button>
-          <button class="button" type="button" data-act="cutoff-up" aria-label="Raise cutoff by 0.1 kilopascal">+ 0.1</button>
+          <button class="button" type="button" data-act="cutoff-down" data-step="${cutoffStep()}" aria-label="Lower cutoff by ${formatCutoffStep()} kilopascal">− ${formatCutoffStep()}</button>
+          <button class="button" type="button" data-act="cutoff-up" data-step="${cutoffStep()}" aria-label="Raise cutoff by ${formatCutoffStep()} kilopascal">+ ${formatCutoffStep()}</button>
         </div>
       </section>
       ${testMode ? `
@@ -1170,8 +1185,8 @@ app.addEventListener('click', event => {
   else if (act === 'pause') onPause();
   else if (act === 'stop') onStop();
   else if (act === 'resume') onResume();
-  else if (act === 'cutoff-down') changeCutoff(-0.1);
-  else if (act === 'cutoff-up') changeCutoff(0.1);
+  else if (act === 'cutoff-down') changeCutoff(-Number(button.dataset.step || cutoffStep()));
+  else if (act === 'cutoff-up') changeCutoff(Number(button.dataset.step || cutoffStep()));
   else if (act === 'cal-zero') void startZero();
   else if (act === 'cal-level') void startLevel(button.dataset.level);
   else if (act === 'cal-accept') acceptCalibration();
@@ -1190,6 +1205,13 @@ app.addEventListener('input', event => {
   if (event.target.dataset?.calField) {
     editCalibrationField(event.target.dataset.calField, event.target.value);
     return;
+  }
+  if (event.target.dataset?.simPressure !== undefined) {
+    const parsed = parseEnteredKpa(event.target.value);
+    if (!parsed.ok) return;
+    try { civet?.setPressure?.(parsed.mean); } catch (err) { calibrationMessage = err.message; }
+    const live = document.getElementById('setup-pressure');
+    if (live) live.textContent = `${formatKpa(engine.snapshot().pressure)} ${CIVET_CALIBRATION.unit}`;
   }
   if (event.target.id === 'toy-max' || event.target.id === 'toy-max-number') readToyMaxFromSetup();
 });
@@ -1213,6 +1235,7 @@ document.addEventListener('visibilitychange', () => {
 
 if (testMode) {
   window.__ctmpTest = testSnapshot;
+  window.__ctmpSimPressure = value => civet?.setPressure?.(Number(value));
   enableTestMode().finally(render);
 } else {
   createRealDevices();

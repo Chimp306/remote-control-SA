@@ -32,10 +32,11 @@ const finite = (value, name) => {
 };
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const tenth = value => Math.round((value + Number.EPSILON) * 10) / 10;
+const centi = value => Math.round(value * 100 + Math.sign(value || 1) * 1e-8) / 100;
 const pressureLevel = (value, name) => {
   finite(value, name);
   if (value < -327.6 || value > 327.6) throw new RangeError(`${name} is outside the sensor's numeric range.`);
-  return tenth(value);
+  return centi(value);
 };
 
 export class SessionEngine {
@@ -301,7 +302,7 @@ export class SessionEngine {
     const threshold = pressureLevel(value, 'Cutoff');
     this.config.threshold = threshold;
     // Keep the calibrated reset level unless it would meet/cross the new cutoff.
-    if (this.config.resetThreshold >= threshold) this.config.resetThreshold = tenth(threshold - 0.1);
+    if (this.config.resetThreshold >= threshold) this.config.resetThreshold = centi(threshold - 0.01);
     this.tick(); // A lower cutoff is effective immediately, not at the next UI tick.
     this._emit('state');
     return this.snapshot();

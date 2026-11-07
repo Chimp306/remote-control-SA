@@ -14,13 +14,13 @@
  * unloaded step. Relaxed is a separate loaded resting step.
  * A typed number is not a hardware reset and is not a measured hold.
  * Typed readings carry no sample count and no measured standard
- * deviation. Each one is given the fixed uncertainty enteredNoiseKpa
- * (0.2 kPa), which is four times the 0.05 kPa floor used for a real
- * hold. One typed reading raises the whole profile to that uncertainty.
- * Nothing here is a medical or physiological limit.
+ * deviation. They are trusted configuration at the protocol resolution
+ * of 0.01 kPa. The baseline is reference metadata: it may match the
+ * loaded rest or sit above it, and it is not a lower bound on live
+ * pressure. Nothing here is a medical or physiological limit.
  */
 export const CIVET_CALIBRATION = Object.freeze({
-  version: 1,
+  version: 2,
   unit: 'kPa',
   sampleCount: 12,
   minHoldMs: 900,
@@ -28,16 +28,11 @@ export const CIVET_CALIBRATION = Object.freeze({
   maxSampleAgeMs: 1000,
   discardAfterZeroMs: 500,
   maxWindowMs: 5000,
-  minStepKpa: 0.4,
-  noiseFloorKpa: 0.05,
-  relaxedClearanceSigma: 4,
+  resolutionKpa: 0.01,
   stabilityRangeKpa: 0.6,
-  minHysteresisKpa: 0.3,
-  hysteresisNoiseSigma: 3,
   hysteresisSpanFraction: 0.2,
   cutoffSpanFraction: 0.7,
-  roundingKpa: 0.1,
-  enteredNoiseKpa: 0.2,
+  wideAdjustmentKpa: 0.1,
   realStorageKey: 'ctmp.civet-calibration.v1',
   simStorageKey: 'ctmp.civet-calibration.sim.v1',
   simulatedDeviceId: 'simulated-civet',
@@ -51,9 +46,14 @@ export const SIM_HOLDS = Object.freeze({
 });
 
 const C = CIVET_CALIBRATION;
-const round2 = value => Math.round((value + Number.EPSILON) * 100) / 100;
-const ceilTenth = value => Math.ceil(value * 10 - 1e-8) / 10;
-const floorTenth = value => Math.floor(value * 10 + 1e-8) / 10;
+const round2 = value => fromCents(toCents(value));
+export function toCents(value) {
+  if (!Number.isFinite(value)) return NaN;
+  return Math.round(value * 100 + Math.sign(value || 1) * 1e-8);
+}
+export function fromCents(cents) {
+  return cents / 100;
+}
 
 function finiteKpa(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= -327.6 && value <= 327.6;
@@ -202,40 +202,47 @@ function normalizeReading(reading, name) {
   return { error: `${label} is missing.` };
 }
 
-function evidenceNoise(reading) {
-  return reading.source === 'entered' ? C.enteredNoiseKpa : reading.std;
+function measuredNoise(readings) {
+  const stds = READING_NAMES
+    .filter(name => readings[name].source === 'captured')
+    .map(name => readings[name].std);
+  return stds.length ? round2(Math.max(...stds)) : 0;
 }
 
-function placeThresholds(zero, relaxed, half, full, noise) {
-  const stepRelaxedToHalf = half.mean - relaxed.mean;
-  const minHysteresis = ceilTenth(Math.max(C.minHysteresisKpa, 2 * noise));
-  const resetFloor = ceilTenth(relaxed.mean + 2 * noise);
-  const cutoffFloor = ceilTenth(Math.max(
-    relaxed.mean + C.relaxedClearanceSigma * noise + C.roundingKpa,
-    resetFloor + minHysteresis,
-  ));
-  const halfCap = floorTenth(half.mean);
-  const fullCap = floorTenth(full.mean - Math.max(minHysteresis, 2 * noise));
-  if (!(cutoffFloor < halfCap) || !(cutoffFloor < fullCap)) {
-    return { ok: false, field: 'full', reason: 'The full and half readings do not leave room for a cutoff above the relaxed variation.' };
+function placeThresholds(relaxed, half, full) {
+  const relaxedCents = toCents(relaxed.mean);
+  const halfCents = toCents(half.mean);
+  const fullCents = toCents(full.mean);
+  const step = halfCents - relaxedCents;
+  if (step < 2) {
+    return { ok: false, field: 'half', reason: 'Half must be at least 0.02 kPa above relaxed so a reset can sit between them on the sensor’s 0.01 kPa steps.' };
   }
-  let cutoff = relaxed.mean + C.cutoffSpanFraction * stepRelaxedToHalf;
-  cutoff = Math.min(halfCap, fullCap, Math.max(cutoffFloor, ceilTenth(cutoff)));
-  const resetMax = floorTenth(cutoff - minHysteresis);
-  if (resetFloor > resetMax) {
-    return { ok: false, field: 'relaxed', reason: 'Could not place a reset level above the relaxed reading and clearly below the cutoff.' };
+  if (fullCents < halfCents) {
+    return { ok: false, field: 'full', reason: 'Full is below the half reading, so the cutoff has no top.' };
   }
-  let reset = floorTenth(cutoff - Math.max(minHysteresis, C.hysteresisNoiseSigma * noise, C.hysteresisSpanFraction * stepRelaxedToHalf));
-  if (reset < resetFloor) reset = resetFloor;
-  if (reset > resetMax) reset = resetMax;
-  if (!(reset >= resetFloor && reset <= resetMax && cutoff - reset >= minHysteresis - 1e-9 && cutoff <= halfCap && cutoff <= fullCap)) {
-    return { ok: false, field: 'relaxed', reason: 'Could not place a reset level above the relaxed reading and clearly below the cutoff.' };
+  const hysteresis = Math.max(1, Math.round(C.hysteresisSpanFraction * step));
+  const cutoffMin = relaxedCents + hysteresis + 1;
+  const cutoffMax = fullCents;
+  if (cutoffMax < cutoffMin) {
+    return { ok: false, field: 'half', reason: 'These readings do not leave 0.01 kPa steps for a reset below the cutoff and above relaxed.' };
   }
-  const bounds = { cutoffMin: cutoffFloor, cutoffMax: fullCap, minHysteresis, resetFloor };
-  if (!(bounds.cutoffMin <= cutoff && cutoff <= bounds.cutoffMax && bounds.cutoffMax > bounds.cutoffMin)) {
-    return { ok: false, field: 'full', reason: 'The measured range cannot contain an adjustable cutoff.' };
+  let cutoff = relaxedCents + Math.round(C.cutoffSpanFraction * step);
+  const halfCap = Math.min(halfCents, cutoffMax);
+  if (halfCap >= cutoffMin) cutoff = Math.min(Math.max(cutoff, cutoffMin), halfCap);
+  else cutoff = Math.min(Math.max(cutoff, cutoffMin), cutoffMax);
+  const reset = cutoff - hysteresis;
+  if (!(reset > relaxedCents && reset < cutoff && cutoff <= cutoffMax)) {
+    return { ok: false, field: 'relaxed', reason: 'Could not place a reset above relaxed and a cutoff at or below half.' };
   }
-  return { ok: true, applied: { threshold: cutoff, resetThreshold: reset }, bounds };
+  const span = cutoffMax - cutoffMin;
+  const bounds = {
+    cutoffMin: fromCents(cutoffMin),
+    cutoffMax: fromCents(cutoffMax),
+    minHysteresis: fromCents(hysteresis),
+    resetFloor: fromCents(relaxedCents + 1),
+    adjustmentStep: span <= 100 ? C.resolutionKpa : C.wideAdjustmentKpa,
+  };
+  return { ok: true, applied: { threshold: fromCents(cutoff), resetThreshold: fromCents(reset) }, bounds };
 }
 
 export function draftErrors(parts) {
@@ -249,38 +256,52 @@ export function draftErrors(parts) {
   if (READING_NAMES.some(name => errors[name])) {
     return { ok: false, errors, reason: READING_NAMES.map(name => errors[name]).find(Boolean) };
   }
-  const noise = Math.max(...READING_NAMES.map(name => evidenceNoise(readings[name])), C.noiseFloorKpa);
-  if (!(readings.zero.mean + noise < readings.relaxed.mean)) {
-    errors.zero = 'Post-zero baseline must sit below the relaxed reading by more than the assumed variation.';
-    errors.relaxed = errors.zero;
-  }
-  const minStep = Math.max(C.minStepKpa, C.relaxedClearanceSigma * noise);
-  if (readings.half.mean - readings.relaxed.mean < minStep) errors.half = 'Half must be above relaxed by more than the variation allows.';
-  if (readings.full.mean - readings.half.mean < minStep) errors.full = 'Full must be above half by more than the variation allows.';
-  if (READING_NAMES.some(name => errors[name])) {
-    return { ok: false, errors, reason: READING_NAMES.map(name => errors[name]).find(Boolean), noiseKpa: round2(noise) };
-  }
-  const placed = placeThresholds(readings.zero, readings.relaxed, readings.half, readings.full, noise);
+  const placed = placeThresholds(readings.relaxed, readings.half, readings.full);
   if (!placed.ok) {
     errors[placed.field] = placed.reason;
-    return { ok: false, errors, reason: placed.reason, noiseKpa: round2(noise) };
+    return { ok: false, errors, reason: placed.reason, noiseKpa: measuredNoise(readings) };
   }
-  return { ok: true, errors, readings, noiseKpa: round2(noise), applied: placed.applied, bounds: placed.bounds };
+  return { ok: true, errors, readings, noiseKpa: measuredNoise(readings), applied: placed.applied, bounds: placed.bounds };
+}
+
+function appliedFits(applied, draft) {
+  if (!applied || !Number.isFinite(applied.threshold) || !Number.isFinite(applied.resetThreshold)) return false;
+  const cutoff = toCents(applied.threshold);
+  const reset = toCents(applied.resetThreshold);
+  return cutoff >= toCents(draft.bounds.cutoffMin)
+    && cutoff <= toCents(draft.bounds.cutoffMax)
+    && reset >= toCents(draft.bounds.resetFloor)
+    && cutoff - reset >= toCents(draft.bounds.minHysteresis)
+    && reset < cutoff;
 }
 
 export function migrateProfile(profile) {
   if (!profile || typeof profile !== 'object') return profile;
-  let changed = false;
   const next = { ...profile };
   for (const name of READING_NAMES) {
     const reading = profile[name];
     if (!reading || reading.source) continue;
     const normalized = normalizeReading(reading, name);
-    if (!normalized.reading || normalized.reading.source !== 'captured') continue;
-    next[name] = { ...reading, source: 'captured', commandSent: name === 'zero' };
-    changed = true;
+    if (normalized.reading?.source === 'captured') next[name] = { ...reading, source: 'captured', commandSent: name === 'zero' };
   }
-  return changed ? next : profile;
+  const draft = draftErrors(next);
+  if (!draft.ok) return next === profile ? profile : next;
+  const applied = appliedFits(next.applied, draft)
+    ? { threshold: fromCents(toCents(next.applied.threshold)), resetThreshold: fromCents(toCents(next.applied.resetThreshold)) }
+    : { ...draft.applied };
+  const migrated = {
+    ...next,
+    version: C.version,
+    zero: draft.readings.zero,
+    relaxed: draft.readings.relaxed,
+    half: draft.readings.half,
+    full: draft.readings.full,
+    noiseKpa: draft.noiseKpa,
+    suggested: { ...draft.applied },
+    applied,
+    bounds: draft.bounds,
+  };
+  return JSON.stringify(migrated) === JSON.stringify(profile) ? profile : migrated;
 }
 
 export function deriveProfile({ device, simulated = false, zero, relaxed, half, full, acceptedAt = Date.now() }) {
@@ -310,22 +331,22 @@ export function deriveProfile({ device, simulated = false, zero, relaxed, half, 
 
 export function adjustApplied(profile, nextCutoff) {
   if (!profile || profile.version !== C.version) throw new Error('No accepted calibration for this sensor.');
-  const cutoff = Math.round(Number(nextCutoff) * 10) / 10;
+  const cutoff = toCents(Number(nextCutoff));
   const { bounds } = profile;
-  if (!Number.isFinite(cutoff) || cutoff < bounds.cutoffMin || cutoff > bounds.cutoffMax) {
-    throw new Error(`Cutoff must stay between ${bounds.cutoffMin.toFixed(1)} and ${bounds.cutoffMax.toFixed(1)} kPa for this calibration.`);
+  const min = toCents(bounds.cutoffMin);
+  const max = toCents(bounds.cutoffMax);
+  if (!Number.isFinite(cutoff) || cutoff < min || cutoff > max) {
+    throw new Error(`Cutoff must stay between ${bounds.cutoffMin.toFixed(2)} and ${bounds.cutoffMax.toFixed(2)} kPa for this calibration.`);
   }
-  const resetMax = floorTenth(cutoff - bounds.minHysteresis);
-  if (bounds.resetFloor > resetMax) {
+  const resetMax = cutoff - toCents(bounds.minHysteresis);
+  const resetFloor = toCents(bounds.resetFloor);
+  if (resetFloor > resetMax) throw new Error('That cutoff does not leave a usable reset level for this calibration.');
+  let reset = Math.min(toCents(profile.applied.resetThreshold), resetMax);
+  if (reset < resetFloor) reset = resetFloor;
+  if (reset > resetMax || cutoff - reset < toCents(bounds.minHysteresis)) {
     throw new Error('That cutoff does not leave a usable reset level for this calibration.');
   }
-  let reset = Math.min(profile.applied.resetThreshold, resetMax);
-  if (reset < bounds.resetFloor) reset = bounds.resetFloor;
-  if (reset > resetMax) reset = resetMax;
-  if (!(reset >= bounds.resetFloor && reset <= resetMax && cutoff - reset >= bounds.minHysteresis - 1e-9)) {
-    throw new Error('That cutoff does not leave a usable reset level for this calibration.');
-  }
-  return { ...profile, applied: { threshold: cutoff, resetThreshold: reset } };
+  return { ...profile, applied: { threshold: fromCents(cutoff), resetThreshold: fromCents(reset) } };
 }
 
 export function profileMatches(profile, device, simulated = false) {
@@ -335,7 +356,7 @@ export function profileMatches(profile, device, simulated = false) {
   if (profile.device?.id !== identity.id) return false;
   if (Boolean(profile.simulated) !== (identity.id === C.simulatedDeviceId)) return false;
   const draft = draftErrors(profile);
-  if (!draft.ok || profile.noiseKpa !== draft.noiseKpa) return false;
+  if (!draft.ok) return false;
   for (const name of READING_NAMES) {
     const stored = profile[name];
     const canonical = draft.readings[name];
@@ -349,21 +370,16 @@ export function profileMatches(profile, device, simulated = false) {
   const applied = profile.applied;
   const bounds = profile.bounds;
   if (!applied || !bounds) return false;
-  if (['cutoffMin', 'cutoffMax', 'minHysteresis', 'resetFloor'].some(key => bounds[key] !== draft.bounds[key])) return false;
-  if (!Number.isFinite(applied.threshold) || !Number.isFinite(applied.resetThreshold)) return false;
-  if (applied.threshold < bounds.cutoffMin || applied.threshold > bounds.cutoffMax) return false;
-  if (applied.resetThreshold < bounds.resetFloor) return false;
-  return applied.threshold - applied.resetThreshold >= bounds.minHysteresis - 1e-9;
+  if (['cutoffMin', 'cutoffMax', 'minHysteresis', 'resetFloor', 'adjustmentStep'].some(key => toCents(bounds[key]) !== toCents(draft.bounds[key]))) return false;
+  if (!appliedFits(applied, draft)) return false;
+  return toCents(applied.threshold) - toCents(applied.resetThreshold) >= toCents(bounds.minHysteresis);
 }
 
 export function outputPermitted(profile, device, simulated, sample, now) {
   if (!profileMatches(profile, device, simulated)) return false;
   if (!sample || !finiteKpa(sample.kpa) || !Number.isFinite(sample.at) || !Number.isFinite(now)) return false;
   if (sample.at > now || now - sample.at > C.maxSampleAgeMs) return false;
-  const margin = Math.max(C.stabilityRangeKpa, Number(profile.noiseKpa) || C.noiseFloorKpa);
-  if (sample.kpa > profile.full.mean + margin) return false;
-  if (sample.kpa < profile.zero.mean - margin) return false;
-  return sample.kpa < profile.applied.resetThreshold;
+  return toCents(sample.kpa) < toCents(profile.applied.resetThreshold);
 }
 
 export function storageKey(simulated) {
@@ -374,7 +390,7 @@ export function readStore(storage, simulated = false) {
   if (!storage) return {};
   try {
     const parsed = JSON.parse(storage.getItem(storageKey(simulated)) || 'null');
-    if (!parsed || parsed.version !== C.version || typeof parsed.devices !== 'object' || !parsed.devices) return {};
+    if (!parsed || (parsed.version !== 1 && parsed.version !== C.version) || typeof parsed.devices !== 'object' || !parsed.devices) return {};
     return parsed.devices;
   } catch {
     return {};
@@ -467,8 +483,13 @@ export class SimulatedCivetSensor {
 
   setHold(name) {
     if (!Object.prototype.hasOwnProperty.call(SIM_HOLDS, name)) throw new Error('Unknown simulated hold.');
-    this.hold = SIM_HOLDS[name];
-    this.pressure = this.hold;
+    this.setPressure(SIM_HOLDS[name]);
+  }
+
+  setPressure(kpa) {
+    if (typeof kpa !== 'number' || !Number.isFinite(kpa)) throw new Error('Enter a finite kPa number.');
+    this.hold = kpa;
+    this.pressure = kpa;
     if (this.connected) this._emit();
   }
 

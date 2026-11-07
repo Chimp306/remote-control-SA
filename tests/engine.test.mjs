@@ -291,7 +291,7 @@ test('lowering cutoff by 0.1 is applied immediately and avoids decimal drift', (
   assert.equal(engine.snapshot().threshold, 12.9);
   assert.equal(engine.snapshot().edgeCount, 1);
   engine.setCutoff(9.5);
-  assert.equal(engine.snapshot().resetThreshold, 9.4);
+  assert.equal(engine.snapshot().resetThreshold, 9.49);
 });
 
 test('stale pressure faults and fresh input alone never restarts', () => {

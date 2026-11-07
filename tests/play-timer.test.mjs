@@ -152,8 +152,8 @@ test('simple player labels the existing count and shows the shared timer', () =>
   assert.match(player, /playTimer\.sync\(engine\.phase/);
   assert.match(player, /id="edge-count"/);
   assert.match(player, /id="play-time"/);
-  assert.match(config, /BUILD = '2026\.11\.06-v2\.9'/);
-  assert.match(html, /const version = '20261106-v29'/);
+  assert.match(config, /BUILD = '2026\.11\.07-v2\.10'/);
+  assert.match(html, /const version = '20261107-v210'/);
   const suc = fs.readFileSync(new URL('../suc/index.html', import.meta.url), 'utf8');
-  assert.match(suc, /const VERSION = '1\.4\.7'/);
+  assert.match(suc, /const VERSION = '1\.4\.8'/);
 });
