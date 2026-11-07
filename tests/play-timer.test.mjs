@@ -154,6 +154,11 @@ test('simple player labels the existing count and shows the shared timer', () =>
   assert.match(player, /id="play-time"/);
   assert.match(config, /BUILD = '2026\.11\.07-v2\.13'/);
   assert.match(html, /const version = '20261107-v213'/);
+  assert.match(player, /from '\.\/config\.js\?v=20261107-v213'/);
+  assert.equal(player.includes('config.js?v=20261107-v212'), false);
+  const pc = fs.readFileSync(new URL('../PC/index.html', import.meta.url), 'utf8');
+  assert.match(pc, /const version = '20261107-v213'/);
+  assert.match(player, /from '\.\/pc-media\.js\?v=20261107-v213'/);
   const suc = fs.readFileSync(new URL('../suc/index.html', import.meta.url), 'utf8');
   assert.match(suc, /const VERSION = '1\.4\.10'/);
 });
