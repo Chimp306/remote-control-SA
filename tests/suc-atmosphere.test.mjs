@@ -37,9 +37,9 @@ function artValue(key) {
   return art.slice(start, end);
 }
 
-test('SUC version is 1.4.7 and the simple player story hooks are untouched', () => {
-  assert.match(html, /const VERSION = '1\.4\.7';/);
-  assert.equal(html.includes("const VERSION = '1.4.6'"), false);
+test('SUC version is 1.4.8 and the simple player story hooks are untouched', () => {
+  assert.match(html, /const VERSION = '1\.4\.8';/);
+  assert.equal(html.includes("const VERSION = '1.4.7'"), false);
   assert.equal(rootHtml.includes('HALL_AIR'), false);
   assert.equal(rootHtml.includes('hallAirFor'), false);
 });
