@@ -67,7 +67,7 @@ test('SOLO uses absolute current assets and FREQ cannot save entries', () => {
   assert.match(freq, /data-freq="checking"/);
   assert.match(freq, /Nothing has been saved/);
   assert.match(freq, /\/app\/freq\.js\?v=\$\{version\}/);
-  assert.match(freq, /const version = '20261107-v216'/);
+  assert.match(freq, /const version = '20261107-v217'/);
   assert.equal(freq.includes('simple-player'), false);
   assert.equal(freq.includes('ctmp-control'), false);
   assert.equal(freq.includes('<form'), false);

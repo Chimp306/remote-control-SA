@@ -83,6 +83,50 @@ export function presentEntries(userId, entries) {
   return visibleEntries(entries, userId);
 }
 
+export const AUTH_CALLBACK_KEYS = [
+  'code', 'access_token', 'refresh_token', 'provider_token', 'provider_refresh_token',
+  'token', 'token_hash', 'expires_in', 'expires_at', 'token_type', 'type',
+  'error', 'error_code', 'error_description',
+];
+
+export function pathWithoutAuthCallback(href) {
+  const url = new URL(href);
+  for (const key of AUTH_CALLBACK_KEYS) url.searchParams.delete(key);
+  url.hash = '';
+  const query = url.searchParams.toString();
+  return url.pathname + (query ? `?${query}` : '');
+}
+
+function callbackParams(href) {
+  const url = new URL(href);
+  const query = url.searchParams;
+  const hash = new URLSearchParams(url.hash.replace(/^#/, ''));
+  const read = key => query.get(key) || hash.get(key) || '';
+  return {
+    errorCode: read('error_code'),
+    hasError: query.has('error') || hash.has('error') || Boolean(read('error_code') || read('error_description')),
+    hasCode: query.has('code') || hash.has('code'),
+  };
+}
+
+export function describeAuthCallback(href, hasSession) {
+  let params;
+  try { params = callbackParams(href); }
+  catch { return ''; }
+  if (params.hasError) {
+    if (params.errorCode === 'otp_expired') {
+      return 'This sign-in link has expired or was already used. Request another in this browser.';
+    }
+    return 'The sign-in link was rejected. Request another in this browser.';
+  }
+  if (params.hasCode && !hasSession) {
+    return 'This link only finishes sign-in in the browser that requested it. Open it there.';
+  }
+  return '';
+}
+
+export const LINK_REQUEST_MESSAGE = 'If this address already has an account, a one-time link was sent. Open that link in this same browser. It expires after one hour. Another device cannot finish it.';
+
 export function summarize(entries) {
   const rows = [...entries].sort((a, b) => {
     if (a.occurred_on === b.occurred_on) return String(b.created_at || '').localeCompare(String(a.created_at || ''));
@@ -174,7 +218,7 @@ export function renderLog(root, state, doc = root.ownerDocument || globalThis.do
       form.append(el(doc, 'button', 'Sign in', { class: 'button button-primary', type: 'submit' }));
       form.append(el(doc, 'button', 'Email me a sign-in link', { class: 'button', type: 'button', 'data-act': 'magic-link' }));
       panel.append(form);
-      panel.append(el(doc, 'p', 'This page cannot create the account. Sign-in works after that account exists.', { class: 'note' }));
+      panel.append(el(doc, 'p', 'This page cannot create the account. The email link works only in this browser, once, for one hour.', { class: 'note' }));
     } else if (state.mode === 'offline' || state.mode === 'error') {
       panel.append(el(doc, 'button', 'Try again', { class: 'button', type: 'button', 'data-act': 'retry' }));
     }

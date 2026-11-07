@@ -30,7 +30,7 @@ These are project Auth settings, not rows in `freq_entries`. The connector or da
 
 - Turn off public sign-ups so the publishable key cannot register a stranger.
 - Create one confirmed user for Steve in the dashboard. Choose the email and password there.
-- If magic links will be used, allow redirect URLs `https://ctmp.uk/FREQ/` and `http://127.0.0.1:4173/FREQ/`. Password sign-in does not need a redirect URL.
+- For email links, set Site URL to `https://ctmp.uk`. The documented hosted default is `http://localhost:3000`. Allow the exact redirect `https://ctmp.uk/FREQ/`, and `http://127.0.0.1:4173/FREQ/` for local checks. A redirect that is not on that list is ignored and the link opens the Site URL instead. Password sign-in does not need a redirect URL. The link still has to be opened in the browser that requested it.
 
 ## Apply the table
 
