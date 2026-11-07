@@ -34,11 +34,11 @@ These are project Auth settings, not rows in `freq_entries`. The connector or da
 
 ## Apply the table
 
-The parent connector should apply this one file after review:
+The connector applied this migration once. The history version is `20261107225111`, which is the filename:
 
-`supabase/migrations/20261107224500_freq_entries.sql`
+`supabase/migrations/20261107225111_freq_entries.sql`
 
-It is the only FREQ migration. It has not been applied. Do not run a second copy alongside it. The coding agent will not apply it. The file creates only `public.freq_entries` and its trigger. It does not alter `ctmp_v2_*` tables or `ctmp-control`.
+Do not run it again and do not add a second copy. The old filename `20261107224500` is not a separate migration. The table, trigger, and policies are already in project `hqciviafxtfescteyvnn`. Auth for Steve is still to be created in the dashboard.
 
 The migration:
 

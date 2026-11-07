@@ -38,6 +38,51 @@ export function visibleEntries(rows, userId) {
   return (Array.isArray(rows) ? rows : []).filter(row => row && row.user_id === userId && row.id);
 }
 
+export function initialAuth() {
+  return { generation: 0, userId: null };
+}
+
+export function authTransition(state, event, nextUserId) {
+  const nextId = nextUserId || null;
+  const prevId = state.userId;
+  if (event === 'TOKEN_REFRESHED' && nextId && nextId === prevId) {
+    return { generation: state.generation, userId: nextId, action: 'refresh', clearPrivate: false };
+  }
+  if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && nextId && nextId === prevId) {
+    return { generation: state.generation, userId: nextId, action: 'refresh', clearPrivate: false };
+  }
+  if (event === 'INITIAL_SESSION' && state.generation === 0) {
+    return { generation: 0, userId: nextId, action: 'initial', clearPrivate: false };
+  }
+  return {
+    generation: state.generation + 1,
+    userId: nextId,
+    action: nextId ? (nextId === prevId ? 'same' : 'switch') : 'clear',
+    clearPrivate: nextId !== prevId,
+  };
+}
+
+export function localSignOut(state) {
+  return { generation: state.generation + 1, userId: null, action: 'clear', clearPrivate: true };
+}
+
+export function requestStillValid(captured, state) {
+  return Boolean(captured)
+    && captured.generation === state.generation
+    && captured.userId === state.userId
+    && state.userId != null;
+}
+
+export function acceptOwnedRows(captured, state, rows) {
+  if (!requestStillValid(captured, state)) return null;
+  return visibleEntries(rows, state.userId);
+}
+
+export function presentEntries(userId, entries) {
+  if (!userId) return [];
+  return visibleEntries(entries, userId);
+}
+
 export function summarize(entries) {
   const rows = [...entries].sort((a, b) => {
     if (a.occurred_on === b.occurred_on) return String(b.created_at || '').localeCompare(String(a.created_at || ''));

@@ -1,19 +1,25 @@
 /**
  * Signed-in personal date log. Entries stay in the account store.
  * A failed or offline attempt is not described as saved.
+ * Auth callbacks do not call other auth methods, which avoids the client lock.
  */
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/+esm';
 import { API_URL, PUBLISHABLE_KEY } from './config.js?v=20261107-v214';
 import {
   TABLE,
+  acceptOwnedRows,
+  authTransition,
   classifyProbe,
   classifyWrite,
+  initialAuth,
+  localSignOut,
   planWrite,
+  presentEntries,
   projectUrl,
   renderLog,
+  requestStillValid,
   summarize,
-  visibleEntries,
-} from './freq-log.js?v=20261107-v215';
+} from './freq-log.js?v=20261107-v216';
 
 const root = document.getElementById('app');
 const client = createClient(projectUrl(API_URL), PUBLISHABLE_KEY, {
@@ -29,6 +35,7 @@ const client = createClient(projectUrl(API_URL), PUBLISHABLE_KEY, {
 let mode = 'checking';
 let message = 'Checking the account store. Nothing has been saved.';
 let session = null;
+let auth = initialAuth();
 let entries = [];
 let editing = null;
 let draft = null;
@@ -38,15 +45,27 @@ function online() {
   return navigator.onLine !== false;
 }
 
+function capture() {
+  return { generation: auth.generation, userId: auth.userId };
+}
+
+function forgetPrivate() {
+  entries = [];
+  editing = null;
+  draft = null;
+  pendingDeleteId = null;
+}
+
 function viewState() {
+  const shown = presentEntries(auth.userId, entries);
   return {
-    mode: mode === 'ready' && !session ? 'signed-out' : mode,
+    mode: mode === 'ready' && !auth.userId ? 'signed-out' : mode,
     message,
-    entries,
-    summary: summarize(entries),
-    editing,
-    draft,
-    pendingDeleteId,
+    entries: shown,
+    summary: summarize(shown),
+    editing: auth.userId ? editing : null,
+    draft: auth.userId ? draft : null,
+    pendingDeleteId: auth.userId ? pendingDeleteId : null,
   };
 }
 
@@ -62,24 +81,45 @@ function stripAuthParams() {
   history.replaceState(null, '', url.pathname);
 }
 
-async function refreshSession() {
-  const { data } = await client.auth.getSession();
-  session = data.session || null;
-  stripAuthParams();
+function applyAuth(event, nextSession) {
+  const next = authTransition(auth, event, nextSession?.user?.id || null);
+  auth = { generation: next.generation, userId: next.userId };
+  session = next.userId ? nextSession : null;
+  if (next.clearPrivate) forgetPrivate();
+  if (!next.userId && mode === 'ready') message = 'Signed out. Entries remain in the account store.';
+  if (next.clearPrivate && mode === 'ready') paint();
+  return next;
 }
 
-async function loadEntries() {
-  if (!session?.user?.id) {
-    entries = [];
-    return;
-  }
-  const { data, error } = await client.from(TABLE).select('id,user_id,occurred_on,count,note,created_at').eq('user_id', session.user.id);
+function onAuth(event, nextSession) {
+  const next = applyAuth(event, nextSession);
+  if (event === 'INITIAL_SESSION') stripAuthParams();
+  if (next.action === 'refresh' || next.action === 'initial' || !next.userId || mode !== 'ready') return;
+  const seen = capture();
+  setTimeout(() => {
+    if (!requestStillValid(seen, auth)) return;
+    loadEntries(seen).then(() => {
+      if (requestStillValid(seen, auth)) paint();
+    });
+  }, 0);
+}
+
+client.auth.onAuthStateChange((event, nextSession) => {
+  onAuth(event, nextSession);
+});
+
+async function loadEntries(seen) {
+  if (!requestStillValid(seen, auth)) return;
+  const { data, error } = await client.from(TABLE).select('id,user_id,occurred_on,count,note,created_at').eq('user_id', seen.userId);
+  if (!requestStillValid(seen, auth)) return;
   if (error) {
     entries = [];
     message = 'Not saved. The account store did not load entries.';
     return;
   }
-  entries = visibleEntries(data, session.user.id);
+  const owned = acceptOwnedRows(seen, auth, data);
+  if (!owned) return;
+  entries = owned;
   message = entries.length ? '' : 'No entries yet.';
 }
 
@@ -99,8 +139,7 @@ async function probe() {
     mode = result.mode === 'ready' ? 'ready' : result.mode;
     message = result.message;
     if (mode === 'ready') {
-      await refreshSession();
-      if (session) await loadEntries();
+      if (auth.userId) await loadEntries(capture());
       else message = 'Sign in with the account for this log. The menu code is not this sign-in.';
     }
   } catch {
@@ -120,6 +159,7 @@ function readEntryForm() {
 
 async function saveEntry(event) {
   event.preventDefault();
+  const seen = capture();
   const plan = planWrite(session, readEntryForm(), online());
   if (plan.state !== 'ready') {
     message = plan.message;
@@ -127,43 +167,51 @@ async function saveEntry(event) {
     return;
   }
   const query = editing
-    ? client.from(TABLE).update(plan.entry).eq('id', editing).eq('user_id', session.user.id).select('id,user_id,occurred_on,count,note,created_at').single()
+    ? client.from(TABLE).update(plan.entry).eq('id', editing).eq('user_id', seen.userId).select('id,user_id,occurred_on,count,note,created_at').single()
     : client.from(TABLE).insert(plan.entry).select('id,user_id,occurred_on,count,note,created_at').single();
   let result;
   try { result = await query; }
   catch { result = { error: { message: 'Failed to fetch' }, data: null }; }
+  if (!requestStillValid(seen, auth)) return;
   const outcome = classifyWrite(result.error, result.data, online());
+  if (outcome.saved && !acceptOwnedRows(seen, auth, [result.data])) return;
   message = outcome.message;
   if (outcome.saved) {
     editing = null;
     draft = null;
-    await loadEntries();
+    await loadEntries(seen);
+    if (!requestStillValid(seen, auth)) return;
     message = outcome.message;
   }
   paint();
 }
 
 async function removeEntry(id) {
-  if (!session?.user?.id || !online()) {
+  const seen = capture();
+  if (!requestStillValid(seen, auth) || !online()) {
     message = online() ? 'Not saved. Sign in before changing an entry.' : 'Not saved. This browser is offline.';
     paint();
     return;
   }
   let result;
   try {
-    result = await client.from(TABLE).delete().eq('id', id).eq('user_id', session.user.id).select('id');
+    result = await client.from(TABLE).delete().eq('id', id).eq('user_id', seen.userId).select('id,user_id');
   } catch {
     result = { error: { message: 'Failed to fetch' }, data: null };
   }
-  const row = Array.isArray(result.data) ? result.data[0] : null;
+  if (!requestStillValid(seen, auth)) return;
+  const row = Array.isArray(result.data) ? result.data.find(item => item.user_id === seen.userId) : null;
   const outcome = classifyWrite(result.error, row, online());
-  message = outcome.saved ? 'Deleted from your account.' : outcome.message;
-  if (outcome.saved) {
-    pendingDeleteId = null;
-    if (editing === id) { editing = null; draft = null; }
-    await loadEntries();
-    message = 'Deleted from your account.';
+  if (!outcome.saved) {
+    message = outcome.message;
+    paint();
+    return;
   }
+  pendingDeleteId = null;
+  if (editing === id) { editing = null; draft = null; }
+  await loadEntries(seen);
+  if (!requestStillValid(seen, auth)) return;
+  message = 'Deleted from your account.';
   paint();
 }
 
@@ -178,12 +226,7 @@ async function signIn(event) {
   if (error) {
     message = 'Sign-in did not complete. This page cannot create the account.';
     paint();
-    return;
   }
-  await refreshSession();
-  await loadEntries();
-  message = session ? 'Signed in.' : 'Sign-in did not complete. This page cannot create the account.';
-  paint();
 }
 
 async function sendLink() {
@@ -200,6 +243,20 @@ async function sendLink() {
   paint();
 }
 
+async function signOutNow() {
+  auth = localSignOut(auth);
+  session = null;
+  forgetPrivate();
+  message = 'Signed out on this screen.';
+  paint();
+  try {
+    await client.auth.signOut();
+  } catch {
+    message = 'Signed out on this screen. The account store could not be reached.';
+    paint();
+  }
+}
+
 function bind() {
   root.querySelector('[data-freq-auth]')?.addEventListener('submit', signIn);
   root.querySelector('[data-act="magic-link"]')?.addEventListener('click', sendLink);
@@ -211,18 +268,10 @@ function bind() {
     message = '';
     paint();
   });
-  root.querySelector('[data-act="sign-out"]')?.addEventListener('click', async () => {
-    await client.auth.signOut();
-    session = null;
-    entries = [];
-    editing = null;
-    draft = null;
-    message = 'Signed out. Entries remain in the account store.';
-    paint();
-  });
+  root.querySelector('[data-act="sign-out"]')?.addEventListener('click', signOutNow);
   for (const button of root.querySelectorAll('[data-act="edit"]')) {
     button.addEventListener('click', () => {
-      const row = entries.find(item => item.id === button.dataset.id);
+      const row = entries.find(item => item.id === button.dataset.id && item.user_id === auth.userId);
       if (!row) return;
       editing = row.id;
       draft = row;

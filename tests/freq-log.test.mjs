@@ -2,11 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
+  acceptOwnedRows,
+  authTransition,
   classifyProbe,
   classifyWrite,
+  initialAuth,
+  localSignOut,
   planWrite,
+  presentEntries,
   projectUrl,
   renderLog,
+  requestStillValid,
   summarize,
   validateEntry,
   visibleEntries,
@@ -106,7 +112,7 @@ test('notes are text, including markup, and an unconfigured page has no save for
 });
 
 test('the migration isolates the owner and the page does not use the control service', () => {
-  const sql = read('../supabase/migrations/20261107224500_freq_entries.sql').replace(/--.*$/gm, '');
+  const sql = read('../supabase/migrations/20261107225111_freq_entries.sql').replace(/--.*$/gm, '');
   const page = read('../app/freq.js');
   const logic = read('../app/freq-log.js');
   const constraintSql = sql.slice(0, sql.indexOf('create or replace function'));
@@ -132,4 +138,54 @@ test('the migration isolates the owner and the page does not use the control ser
   const setup = read('../supabase/freq-setup.md');
   assert.match(setup, /Do not paste the service-role key/);
   assert.match(setup, /does not choose an email/);
+  const raw = read('../supabase/migrations/20261107225111_freq_entries.sql');
+  assert.match(raw, /20261107225111/);
+  assert.equal(raw.includes('create table if not exists'), true);
+});
+
+function row(id, userId, note) {
+  return { id, user_id: userId, occurred_on: '2026-11-01', count: 1, note, created_at: '1' };
+}
+
+test('a late read or write cannot restore entries after sign-out, expiry, or an account switch', () => {
+  let state = authTransition(initialAuth(), 'SIGNED_IN', 'account-a');
+  const first = { generation: state.generation, userId: state.userId };
+  for (let i = 0; i < 5; i += 1) state = authTransition(state, 'TOKEN_REFRESHED', 'account-a');
+  assert.equal(state.generation, first.generation);
+  assert.equal(state.action, 'refresh');
+  assert.equal(requestStillValid(first, state), true);
+  state = authTransition(state, 'TOKEN_REFRESHED', null);
+  assert.equal(state.userId, null);
+  assert.equal(state.clearPrivate, true);
+  assert.equal(acceptOwnedRows(first, state, [row('a', 'account-a', 'private')]), null);
+  assert.deepEqual(presentEntries(state.userId, [row('a', 'account-a', 'private')]), []);
+  state = authTransition(initialAuth(), 'SIGNED_IN', 'account-a');
+  const duringA = { generation: state.generation, userId: state.userId };
+  state = authTransition(state, 'SIGNED_OUT', null);
+  assert.equal(state.action, 'clear');
+  assert.equal(acceptOwnedRows(duringA, state, [row('a', 'account-a', 'private')]), null);
+  state = authTransition(state, 'SIGNED_IN', 'account-b');
+  const duringB = { generation: state.generation, userId: state.userId };
+  const visible = acceptOwnedRows(duringB, state, [row('a', 'account-a', 'private'), row('b', 'account-b', 'mine')]);
+  assert.deepEqual(visible.map(item => item.id), ['b']);
+  assert.equal(acceptOwnedRows(duringA, state, [row('a', 'account-a', 'private')]), null);
+  const signedOut = localSignOut(state);
+  assert.equal(signedOut.clearPrivate, true);
+  assert.equal(signedOut.userId, null);
+  assert.equal(requestStillValid(duringB, signedOut), false);
+});
+
+test('the page subscribes to auth changes and clears the screen before sign-out can fail', () => {
+  const page = read('../app/freq.js');
+  const callback = page.slice(page.indexOf('client.auth.onAuthStateChange'), page.indexOf('async function loadEntries'));
+  assert.match(callback, /onAuthStateChange\(\(event, nextSession\) =>/);
+  assert.equal(callback.includes('await'), false);
+  assert.equal(callback.includes('getSession'), false);
+  assert.equal(callback.includes('.signOut'), false);
+  const signOut = page.slice(page.indexOf('async function signOutNow'), page.indexOf('function bind'));
+  const cleared = signOut.indexOf('forgetPrivate()');
+  const awaited = signOut.indexOf('await client.auth.signOut');
+  assert.ok(cleared > -1 && awaited > cleared);
+  assert.match(signOut, /localSignOut\(auth\)/);
+  assert.match(signOut, /catch/);
 });

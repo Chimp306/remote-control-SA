@@ -1,3 +1,5 @@
+-- Recorded in supabase_migrations.schema_migrations as version 20261107225111.
+-- The filename matches that applied version. Do not execute this script again.
 -- Personal date log, separate from device-control tables.
 -- The browser uses the signed-in user's JWT. ctmp-control is not granted a path
 -- to this table. service_role bypasses row level security on this platform, so
