@@ -294,3 +294,55 @@ button { touch-action: manipulation; }
   text-transform: uppercase;
 }
 
+[data-pc="1"] { padding-bottom: 108px; }
+[data-pc="1"] .play-top {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  background: #0b0a0ff2;
+  padding-bottom: 8px;
+}
+.pc-frame {
+  display: grid;
+  place-items: center;
+  min-height: 120px;
+  max-height: min(24vh, 200px);
+  overflow: hidden;
+  border-radius: 16px;
+  background: #09080d;
+}
+.pc-frame img {
+  width: 100%;
+  max-height: min(24vh, 200px);
+  object-fit: contain;
+}
+.pc-stage .stack { grid-template-columns: 1fr 1fr; }
+.pc-stage .stack .button { min-height: 44px; }
+.pc-caption { margin: 0; color: var(--muted); font-size: 0.85rem; word-break: break-word; }
+.pc-trace { width: 100%; height: 96px; display: block; background: #09080d; border-radius: 12px; }
+@media (max-width: 700px) {
+  .pc-frame, .pc-frame img { max-height: 120px; }
+  .pc-trace { height: 72px; }
+}
+.pc-stage .button, .pc-stage label.button { width: 100%; }
+[data-pc="1"] .pc-dock {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(720px, 100%);
+  bottom: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  background: #0b0a0fe6;
+  box-shadow: 0 -12px 30px #00000088;
+}
+[data-pc="1"] .pc-dock .button,
+[data-pc="1"] .pc-dock .button-pause {
+  min-height: 52px;
+  font-size: 0.92rem;
+}
+#app:has([data-pc="1"]) { max-width: 720px; }
+
