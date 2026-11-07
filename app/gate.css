@@ -1,0 +1,64 @@
+:root {
+  --bg: #0b0a0f;
+  --panel: #16131c;
+  --panel-2: #1f1b26;
+  --ink: #f4efe7;
+  --muted: #9a9186;
+  --line: #2d2836;
+  --accent: #d7b07a;
+  --shadow: 0 18px 40px #00000066;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink); }
+body {
+  font: 16px/1.45 "Sora", "Avenir Next", "Segoe UI", sans-serif;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+}
+#app, .shell { max-width: 430px; margin: 0 auto; }
+.shell { display: grid; gap: 18px; }
+.brand { display: flex; align-items: baseline; justify-content: space-between; padding: 6px 2px; }
+.brand h1, h1 { margin: 0; font-size: 1.35rem; letter-spacing: 0.14em; }
+.brand small, .eyebrow { color: var(--muted); letter-spacing: 0.14em; text-transform: uppercase; font-size: 0.72rem; }
+h2 { margin: 0 0 8px; font-size: 1.2rem; }
+.panel {
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+.note { color: var(--muted); margin: 0; }
+form { display: grid; gap: 10px; margin-top: 14px; }
+label { font-size: 0.85rem; color: var(--muted); }
+input {
+  width: 100%;
+  min-height: 56px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: #09080d;
+  color: var(--ink);
+  padding: 12px 14px;
+  font: inherit;
+}
+.button, .menu-link {
+  appearance: none;
+  display: grid;
+  border: 0;
+  border-radius: 16px;
+  min-height: 64px;
+  padding: 14px 18px;
+  background: #2a2430;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 650;
+  text-decoration: none;
+  text-align: left;
+}
+.button-primary { background: var(--accent); color: #20160d; text-align: center; }
+.menu { display: grid; gap: 10px; }
+.menu-link b { font-size: 1.05rem; letter-spacing: 0.12em; }
+.menu-link span { color: var(--muted); font-size: 0.86rem; font-weight: 450; }
+.legacy { margin: 0; }
+.legacy a, .text-link { color: var(--accent); }
+.unavailable { border-color: #6a5a38; }

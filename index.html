@@ -6,19 +6,30 @@
   <meta name="robots" content="noindex,nofollow,noarchive">
   <meta name="referrer" content="no-referrer">
   <meta name="theme-color" content="#0b0a0f">
-  <meta name="description" content="Private device control and live pressure monitoring.">
-  <title>CTMP · Private control</title>
+  <meta name="description" content="CTMP menu.">
+  <title>CTMP</title>
   <script type="module">
-    const version = '20261107-v213';
-    const classic = new URLSearchParams(location.search).has('classic');
-    const css = document.createElement('link');
-    css.rel = 'stylesheet';
-    css.href = `${classic ? '/app/styles.css' : '/app/simple-player.css'}?v=${version}`;
-    document.head.append(css);
-    await import(`${classic ? '/app/main.js' : '/app/simple-player.js'}?v=${version}`);
+    const params = new URLSearchParams(location.search);
+    if (params.has('test')) {
+      location.replace('/SOLO/?test=1');
+    } else if (params.has('classic')) {
+      const version = '20261101-dual40';
+      const css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = `/app/styles.css?v=${version}`;
+      document.head.append(css);
+      await import(`/app/main.js?v=${version}`);
+    } else {
+      const version = '20261107-v214';
+      const css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = `/app/gate.css?v=${version}`;
+      document.head.append(css);
+      await import(`/app/gate.js?v=${version}`);
+    }
   </script>
 </head>
 <body>
-  <div id="app"><main class="loading-shell"><span class="brand-mark">C</span><h1>CTMP</h1><p>Opening your control panel…</p><noscript>This control panel needs JavaScript enabled.</noscript></main></div>
+  <div id="app"><main class="shell"><h1>CTMP</h1><p>Opening the menu…</p><noscript>This page needs JavaScript enabled.</noscript></main></div>
 </body>
 </html>
