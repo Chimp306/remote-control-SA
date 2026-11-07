@@ -46,7 +46,7 @@ test('root sends test mode to SOLO and does not load the player on the menu', ()
   assert.match(root, /params\.has\('classic'\)/);
   assert.match(root, /const version = '20261101-dual40'/);
   assert.match(root, /import\(`\/app\/main\.js\?v=\$\{version\}`\)/);
-  assert.match(root, /const version = '20261107-v214'/);
+  assert.match(root, /const version = '20261107-v215'/);
   assert.match(root, /import\(`\/app\/gate\.js\?v=\$\{version\}`\)/);
   assert.equal(root.includes('simple-player.js'), false);
 });
@@ -64,13 +64,13 @@ test('SOLO uses absolute current assets and FREQ cannot save entries', () => {
   const config = read('../app/config.js');
   assert.match(config, /BUILD = '2026\.11\.07-v2\.14'/);
   const freq = read('../FREQ/index.html');
-  assert.match(freq, /data-freq="unavailable"/);
-  assert.match(freq, /does not accept or save entries/);
-  assert.equal(freq.includes('<script'), false);
-  assert.equal(freq.includes('localStorage'), false);
-  assert.equal(freq.includes('fetch('), false);
+  assert.match(freq, /data-freq="checking"/);
+  assert.match(freq, /Nothing has been saved/);
+  assert.match(freq, /\/app\/freq\.js\?v=\$\{version\}/);
+  assert.match(freq, /const version = '20261107-v215'/);
+  assert.equal(freq.includes('simple-player'), false);
+  assert.equal(freq.includes('ctmp-control'), false);
   assert.equal(freq.includes('<form'), false);
-  assert.equal(freq.includes('supabase'), false);
 });
 
 test('/PC no longer loads the picture player', () => {

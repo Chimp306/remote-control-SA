@@ -6,20 +6,22 @@
   <meta name="robots" content="noindex,nofollow,noarchive">
   <meta name="referrer" content="no-referrer">
   <meta name="theme-color" content="#0b0a0f">
-  <meta name="description" content="Personal date log. Not available yet.">
+  <meta name="description" content="Personal date log.">
   <title>CTMP · FREQ</title>
-  <link rel="stylesheet" href="/app/gate.css?v=20261107-v214">
+  <link rel="stylesheet" href="/app/gate.css?v=20261107-v215">
+  <script type="module">
+    const version = '20261107-v215';
+    await import(`/app/freq.js?v=${version}`);
+  </script>
 </head>
 <body>
-  <main class="shell">
-    <p class="eyebrow">FREQ</p>
-    <h1>Dates and notes</h1>
-    <p class="note">A personal log of dates, counts, and optional short notes. Nothing here is scored, and nothing is collected automatically.</p>
-    <section class="panel unavailable" data-freq="unavailable">
-      <h2>Not available yet</h2>
-      <p class="note">Cross-device storage is not set up. This page does not accept or save entries.</p>
-    </section>
-    <a class="text-link" href="/">Back to the menu</a>
-  </main>
+  <div id="app">
+    <main class="shell" data-freq="checking">
+      <p class="eyebrow">FREQ</p>
+      <h1>Dates and notes</h1>
+      <p class="note">Checking the account store. Nothing has been saved.</p>
+      <noscript>This page needs JavaScript. Nothing is saved from this page without it.</noscript>
+    </main>
+  </div>
 </body>
 </html>
