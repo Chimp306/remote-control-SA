@@ -1,8 +1,9 @@
 /**
  * Elapsed session clock for the solo player.
  * Counts only while the engine is in play (`running`) or recovery
- * (`cooldown`). Paused, hidden-page pause, settling, fault and stopped
- * time is left out. The clock has no interval of its own: the host
+ * (`cooldown`), including while a hidden tab is still running.
+ * Explicit pause, browser freeze, settling, fault and stopped time
+ * are left out. The clock has no interval of its own: the host
  * calls sync() from the existing tick and from pause, resume, stop
  * and session start, so a second timer cannot double-count.
  */

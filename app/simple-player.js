@@ -5,10 +5,11 @@
  * devices with the same connect/output interface; the real Bluetooth
  * path is unused while that mode is on.
  */
-import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261107-v211';
-import { CivetDevice, OpossumDevice, confirmDeviceStopped, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261107-v211';
-import { BUILD } from './config.js?v=20261107-v211';
-import { PlayTimer, formatPlayDuration } from './play-timer.js?v=20261107-v211';
+import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261107-v212';
+import { CivetDevice, OpossumDevice, confirmDeviceStopped, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261107-v212';
+import { BUILD } from './config.js?v=20261107-v212';
+import { PlayTimer, formatPlayDuration } from './play-timer.js?v=20261107-v212';
+import { lifecycleDecision } from './page-lifecycle.js?v=20261107-v212';
 import {
   CIVET_CALIBRATION,
   SIM_HOLDS,
@@ -26,7 +27,7 @@ import {
   rememberProfile,
   sourceLabel,
   storedProfile,
-} from './civet-calibration.js?v=20261107-v211';
+} from './civet-calibration.js?v=20261107-v212';
 
 const PLAY_PATTERNS = OPOSSUM_PATTERNS.filter(name => name !== 'custom');
 const PATTERN_LABELS = {
@@ -318,7 +319,6 @@ const engine = new SessionEngine({
     const mixed = blendedOutput(levels);
     const stopped = mixed.a === 0 && mixed.b === 0;
     if (stopped) return opossum && (opossum.connected || opossumHint.toLowerCase().includes('error')) ? opossum.stop() : undefined;
-    if (document.hidden && !testMode) return Promise.reject(new Error('Keep this page visible before resuming.'));
     if (!opossum?.connected) return Promise.reject(new Error('Opossum is disconnected.'));
     return opossum.setLevels({ a: mixed.a, b: mixed.b });
   },
@@ -904,6 +904,7 @@ function setupHTML() {
       ${finalElapsedVisible ? `<p class="final-time" id="final-play-time"><span>Time being tormented</span><b>${elapsedLabel()}</b></p>` : ''}
       <button class="button button-primary" type="button" data-act="play" ${canPlay() ? '' : 'disabled'}>Play</button>
       <p class="note">${profileReady() && !calibrationDirty ? (testMode ? 'Simulated profile accepted. Play uses that cutoff and does not write a real sensor profile.' : 'Play uses the accepted profile for this sensor. Output never exceeds the toy max power you set above.') : 'Play stays off until this sensor has an accepted calibration. Output is held at zero while a draft is unfinished.'}</p>
+      <p class="note">Switching away from this tab does not pause output while the browser keeps the page running and the Civet reading stays under a second old. If the browser freezes or closes the page, output stops and does not restart by itself. The screen wake lock only applies while this tab is visible.</p>
       <p class="fineprint">Build ${escapeHtml(BUILD)}</p>
     </div>`;
 }
@@ -1232,13 +1233,26 @@ app.addEventListener('focusout', event => {
   event.target.value = calibrationFields[name];
 });
 
-document.addEventListener('visibilitychange', () => {
-  if (testMode) return;
-  if (document.hidden && ACTIVE.has(engine.phase)) {
-    onPause('Page hidden. Output stopped until you resume.');
-    releaseWake();
+function onPageLifecycle(event) {
+  const stillRunning = ACTIVE.has(engine.phase);
+  if (lifecycleDecision({ type: event.type, stillRunning }) !== 'stop') {
+    if (event.type === 'visibilitychange' && !document.hidden && stillRunning) void requestWake();
+    return;
   }
-});
+  if (!stillRunning) return;
+  const reason = event.type === 'pagehide'
+    ? 'This page is closing. Output stopped.'
+    : event.type === 'resume'
+      ? 'The browser resumed a frozen page. Output stays stopped until you resume.'
+      : 'The browser froze this page. Output stopped. Resume explicitly.';
+  onPause(reason);
+  releaseWake();
+}
+
+document.addEventListener('visibilitychange', onPageLifecycle);
+document.addEventListener('freeze', onPageLifecycle);
+document.addEventListener('resume', onPageLifecycle);
+window.addEventListener('pagehide', onPageLifecycle);
 
 if (testMode) {
   window.__ctmpTest = testSnapshot;

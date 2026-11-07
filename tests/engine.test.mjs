@@ -81,6 +81,37 @@ test('cutoff is inclusive, stops immediately, and counts only once until rearmed
   assert.equal(engine.snapshot().edgeCount, 2);
 });
 
+test('a delayed tick advances once and does not queue catch-up edges or output', () => {
+  const { engine, sample, setTime, outputs } = fixture();
+  sample(); engine.start();
+  setTime(30_000);
+  engine.pressureAt = 29_500;
+  const before = outputs.length;
+  engine.tick();
+  assert.equal(engine.snapshot().phase, 'running');
+  assert.equal(engine.snapshot().edgeCount, 0);
+  assert.equal(outputs.length - before, 1);
+  engine.pressure = 12;
+  engine.pressureAt = 30_100;
+  setTime(30_100);
+  engine.tick();
+  assert.equal(engine.snapshot().edgeCount, 1);
+  assert.equal(engine.snapshot().phase, 'cooldown');
+  engine.tick();
+  assert.equal(engine.snapshot().edgeCount, 1);
+});
+
+test('a gap in pressure readings faults and a later fresh sample does not resume', () => {
+  const { engine, sample, setTime, outputs } = fixture();
+  sample(); engine.start();
+  setTime(SENSOR_FRESH_MS + 1);
+  engine.tick();
+  assert.equal(engine.snapshot().phase, 'fault');
+  assert.equal(outputs.at(-1), 0);
+  sample(9, 100);
+  assert.equal(engine.snapshot().phase, 'fault');
+});
+
 test('cooldown expires only after timer and fresh post-deadline low reading', () => {
   const { engine, sample, advance, setTime } = fixture();
   sample(); engine.start(); sample(12);
