@@ -144,7 +144,7 @@ const ART={"assessment":"data:image/webp;base64,UklGRsLGAQBXRUJQVlA4ILbGAQCwnQud
 
 // ---- content.js ----
 // SUC Clinic: authored fiction. No story instruction can command hardware.
-const VERSION = '1.4.8';
+const VERSION = '1.4.9';
 const DIFFICULTIES = {
   easy: {name:'Brief petition',label:'Petition',min:85,max:115,copy:'You beg for a shorter milking. The hall may still keep you hard and leaking as long as she likes.'},
   medium: {name:'Standard quota',label:'Quota',min:105,max:135,copy:'The ordinary harvest. She will still wring every drop the chart demands from your cock.'},
@@ -2330,7 +2330,7 @@ class Hardware {
   }
   async load(){
     if(this.initialized)return this;
-    const loaded=this.modules||Object.assign({},...await Promise.all([import('../app/engine.js?v=20261107-v210'),import('../app/devices.js?v=20261107-v210'),import('../app/civet-calibration.js?v=20261107-v210')]));
+    const loaded=this.modules||Object.assign({},...await Promise.all([import('../app/engine.js?v=20261107-v211'),import('../app/devices.js?v=20261107-v211'),import('../app/civet-calibration.js?v=20261107-v211')]));
     const m=loaded;this.cal=loaded;
     // SUC-only extension of the existing CTMP state machine. We select a
     // deterministic treatment before _settle issues the first output of each
@@ -2532,10 +2532,12 @@ class Hardware {
     const capture=this.calCapture;if(!capture)return;
     if(!this.drivers?.civet?.connected){this.calCapture=null;this.calMessage='The sensor disconnected. This capture was discarded.';return;}
     if(capture.kind==='zero'&&at<capture.discardUntil)return;
-    if(capture.samples.length&&at<=capture.samples.at(-1).at){this.calCapture=null;this.blocked=true;this.calMessage='Samples must have unique, increasing timestamps.';void this.stopPhysical();return;}
+    if(capture.samples.length&&at<=capture.samples.at(-1).at)return;
     if(!capture.samples.length&&at>capture.collectAfter+this.cal.CIVET_CALIBRATION.maxWindowMs){this.calCapture=null;this.calMessage='No fresh readings arrived after the command.';return;}
     capture.samples.push({kpa,at});
-    if(capture.samples.length<this.cal.CIVET_CALIBRATION.sampleCount&&at-capture.collectAfter<=this.cal.CIVET_CALIBRATION.maxWindowMs)return;
+    const elapsed=at-capture.collectAfter;
+    const ready=capture.samples.length>=this.cal.CIVET_CALIBRATION.sampleCount&&elapsed>=this.cal.CIVET_CALIBRATION.minHoldMs;
+    if(!ready&&elapsed<=this.cal.CIVET_CALIBRATION.maxWindowMs)return;
     const verdict=capture.kind==='zero'?this.cal.assessZero(capture.samples,at):this.cal.assessSamples(capture.samples,at);
     this.calCapture=null;
     if(!verdict.ok){this.calMessage=verdict.reason;return;}
@@ -2543,12 +2545,22 @@ class Hardware {
     this.calText[capture.kind]=verdict.mean.toFixed(2);this.calErrors[capture.kind]='';this.calDirty=true;
     this.calMessage=`${capture.kind==='zero'?'post-zero':capture.kind} measured ${verdict.mean.toFixed(2)} kPa from ${verdict.count} samples. Variation ${verdict.std.toFixed(2)} kPa is recorded, not used as a minimum gap.`;
   }
+  async confirmConnectedOutputStopped(){
+    for(const name of ['lush','opossum','vacuglide']){
+      const device=this.drivers?.[name];
+      if(this.cal.deviceCanReceiveStop(device))await this.cal.confirmDeviceStopped(device);
+    }
+  }
   async beginZero(){
     this.blocked=true;
     if(this.simulated!==true&&game?.s?.preview)throw Error('Hardware zero is unavailable in preview.');
     if(!this.drivers?.civet?.connected)throw Error('Connect Civet first.');
     if(!this.sensorIdentity())throw Error('This browser did not provide a sensor id, so a profile cannot be matched later.');
-    await this.pause('Paused for calibration. Unload the sensor and do not clench.');
+    const live=['lush','opossum','vacuglide'].some(name=>this.drivers?.[name]?.connected);
+    this.calMessage=live?'Stopping output, then sending the hardware zero.':'Output is not connected, so it stays off. Sending the hardware zero.';
+    this.onState();
+    this.engine?.pause('Paused for calibration. Unload the sensor and do not clench.');
+    try{await this.confirmConnectedOutputStopped();}catch(error){this.calMessage=error.message;this.onState();throw error;}
     try{this.cal.forgetProfile(localStorage,this.sensorIdentity(),this.simulated);}catch(error){this.calMessage=error.message;throw error;}
     this.calibrationProfile=null;this.calDraft={zero:null,relaxed:null,half:null,full:null};this.calText={zero:'',relaxed:'',half:'',full:''};this.calErrors={zero:'',relaxed:'',half:'',full:''};this.calDirty=true;this.calCapture=null;
     const result=await this.drivers.civet.zero();
@@ -2560,8 +2572,12 @@ class Hardware {
   async beginLevel(kind){
     this.blocked=true;
     if(!['relaxed','half','full'].includes(kind))throw Error('Unknown calibration step.');
-    await this.pause('Paused for calibration.');
-    if(!this.sensorIdentity())throw Error('The sensor is not connected.');
+    if(!this.drivers?.civet?.connected||!this.sensorIdentity())throw Error('The sensor is not connected.');
+    const live=['lush','opossum','vacuglide'].some(name=>this.drivers?.[name]?.connected);
+    this.calMessage=live?'Stopping output, then collecting this hold.':'Output is not connected, so it stays off. Collecting this hold.';
+    this.onState();
+    this.engine?.pause('Paused for calibration.');
+    try{await this.confirmConnectedOutputStopped();}catch(error){this.calMessage=error.message;this.onState();throw error;}
     try{this.cal.forgetProfile(localStorage,this.sensorIdentity(),this.simulated);}catch(error){this.calMessage=error.message;throw error;}
     this.calibrationProfile=null;this.calDirty=true;
     const now=this.now();
