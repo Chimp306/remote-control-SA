@@ -109,6 +109,9 @@ test('the migration isolates the owner and the page does not use the control ser
   const sql = read('../supabase/migrations/20261107224500_freq_entries.sql').replace(/--.*$/gm, '');
   const page = read('../app/freq.js');
   const logic = read('../app/freq-log.js');
+  const constraintSql = sql.slice(0, sql.indexOf('create or replace function'));
+  assert.equal(constraintSql.includes('current_date'), false);
+  assert.match(sql, /new\.occurred_on > \(current_date \+ 1\)/);
   assert.match(sql, /enable row level security/);
   assert.match(sql, /force row level security/);
   assert.match(sql, /revoke all on table public\.freq_entries from public, anon, authenticated, service_role/);

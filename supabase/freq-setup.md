@@ -4,15 +4,41 @@ FREQ is a personal log of a date, a count, and an optional short note. The page 
 
 The migration in this repo has not been applied by the coding agent. This environment has no Supabase CLI, no `SUPABASE_ACCESS_TOKEN`, and no database URL. Do not paste the service-role key or a database password into the repository, a chat, or the site.
 
-## What is already public
+## Public client config
 
-- Project URL origin comes from `API_URL` in `app/config.js`.
-- The publishable key in that file is the browser key. It is not an owner password and it must not be treated as permission to read every row.
-- Device-control tables stay behind `ctmp-control` and `service_role`.
+The browser already has everything it needs. No new key belongs in the repo.
+
+| Setting | Value |
+| --- | --- |
+| Project URL | `https://hqciviafxtfescteyvnn.supabase.co` |
+| Browser key | Existing `PUBLISHABLE_KEY` in `app/config.js` |
+| Where the URL comes from | Origin of `API_URL` in that same file |
+| Script | `/app/freq.js`, library `@supabase/supabase-js@2.49.1` |
+| Auth storage key | `ctmp-freq-auth` (separate from the classic host key) |
+| Auth flow | PKCE, session persisted, redirect `/FREQ/` |
+| Magic link | `shouldCreateUser: false` |
+| Table | `public.freq_entries` through `/rest/v1/freq_entries` |
+| Columns read | `id`, `user_id`, `occurred_on`, `count`, `note`, `created_at` |
+| Columns written | `occurred_on` (`YYYY-MM-DD`), `count` (0–99), `note` (at most 280 characters), `user_id` |
+| Not used | `ctmp-control`, guest links, the menu code, the service-role key |
+
+Device-control tables stay behind `ctmp-control` and `service_role`.
+
+## Auth settings outside this SQL file
+
+These are project Auth settings, not rows in `freq_entries`. The connector or dashboard can set them. This agent must not create the user or send mail.
+
+- Turn off public sign-ups so the publishable key cannot register a stranger.
+- Create one confirmed user for Steve in the dashboard. Choose the email and password there.
+- If magic links will be used, allow redirect URLs `https://ctmp.uk/FREQ/` and `http://127.0.0.1:4173/FREQ/`. Password sign-in does not need a redirect URL.
 
 ## Apply the table
 
-Run `supabase/migrations/20261107224500_freq_entries.sql` in the existing project's SQL editor, or with the Supabase CLI as the project owner (`supabase db push` against project ref `hqciviafxtfescteyvnn`). That creates only `public.freq_entries`.
+The parent connector should apply this one file after review:
+
+`supabase/migrations/20261107224500_freq_entries.sql`
+
+It is the only FREQ migration. It has not been applied. Do not run a second copy alongside it. The coding agent will not apply it. The file creates only `public.freq_entries` and its trigger. It does not alter `ctmp_v2_*` tables or `ctmp-control`.
 
 The migration:
 

@@ -13,9 +13,7 @@ create table if not exists public.freq_entries (
   updated_at timestamptz not null default now(),
   constraint freq_entries_count_range check (count >= 0 and count <= 99),
   constraint freq_entries_note_length check (char_length(note) <= 280),
-  constraint freq_entries_occurred_range check (
-    occurred_on >= date '2000-01-01' and occurred_on <= (current_date + 1)
-  )
+  constraint freq_entries_occurred_floor check (occurred_on >= date '2000-01-01')
 );
 
 create index if not exists freq_entries_owner_day
@@ -30,6 +28,9 @@ as $$
 begin
   if auth.uid() is null then
     raise exception 'sign-in required';
+  end if;
+  if new.occurred_on > (current_date + 1) then
+    raise exception 'date outside log range';
   end if;
   new.user_id = auth.uid();
   new.updated_at = now();
