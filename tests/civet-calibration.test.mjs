@@ -217,11 +217,14 @@ test('both hosts stop output before zero and say the sensor is unloaded', () => 
   assert.match(root, /Zero only while the sensor is unloaded/);
   assert.match(root, /outputPermitted/);
   const sucZero = slice(suc, 'async beginZero()', 'async beginLevel');
-  assert.ok(sucZero.indexOf('this.blocked=true') < sucZero.indexOf('await this.pause'));
-  assert.ok(sucZero.indexOf('await this.pause') < sucZero.indexOf('forgetProfile'));
+  assert.ok(sucZero.indexOf('this.blocked=true') < sucZero.indexOf('confirmConnectedOutputStopped'));
+  assert.ok(sucZero.indexOf('confirmConnectedOutputStopped') < sucZero.indexOf('forgetProfile'));
   assert.ok(sucZero.indexOf('forgetProfile') < sucZero.indexOf('.zero()'));
+  assert.match(sucZero, /Output is not connected/);
   const sucLevel = slice(suc, 'async beginLevel', 'acceptCalibration()');
-  assert.ok(sucLevel.indexOf('await this.pause') < sucLevel.indexOf('this.calCapture='));
+  assert.ok(sucLevel.indexOf('confirmConnectedOutputStopped') < sucLevel.indexOf('this.calCapture='));
+  assert.match(slice(root, 'async function ensureOutputOff', 'function readingNow'), /confirmDeviceStopped/);
+  assert.doesNotMatch(slice(root, 'async function ensureOutputOff', 'function readingNow'), /opossum\?\.stop/);
   assert.match(suc, /Zero only while the sensor is unloaded/);
   assert.match(suc, /not clenching/);
   assert.match(suc, /outputPermitted/);

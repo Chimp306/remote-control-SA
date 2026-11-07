@@ -5,10 +5,10 @@
  * devices with the same connect/output interface; the real Bluetooth
  * path is unused while that mode is on.
  */
-import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261107-v210';
-import { CivetDevice, OpossumDevice, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261107-v210';
-import { BUILD } from './config.js?v=20261107-v210';
-import { PlayTimer, formatPlayDuration } from './play-timer.js?v=20261107-v210';
+import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261107-v211';
+import { CivetDevice, OpossumDevice, confirmDeviceStopped, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261107-v211';
+import { BUILD } from './config.js?v=20261107-v211';
+import { PlayTimer, formatPlayDuration } from './play-timer.js?v=20261107-v211';
 import {
   CIVET_CALIBRATION,
   SIM_HOLDS,
@@ -26,7 +26,7 @@ import {
   rememberProfile,
   sourceLabel,
   storedProfile,
-} from './civet-calibration.js?v=20261107-v210';
+} from './civet-calibration.js?v=20261107-v211';
 
 const PLAY_PATTERNS = OPOSSUM_PATTERNS.filter(name => name !== 'custom');
 const PATTERN_LABELS = {
@@ -311,7 +311,10 @@ function startOutputBlendFromZero() {
 
 const engine = new SessionEngine({
   onOutput(percent, levels) {
-    if (outputHeld || calibrationCapture) return opossum?.stop?.();
+    if (outputHeld || calibrationCapture) {
+      if (opossum?.connected) return opossum.stop();
+      return undefined;
+    }
     const mixed = blendedOutput(levels);
     const stopped = mixed.a === 0 && mixed.b === 0;
     if (stopped) return opossum && (opossum.connected || opossumHint.toLowerCase().includes('error')) ? opossum.stop() : undefined;
@@ -618,12 +621,7 @@ function noteCalibrationSample(kpa, at) {
     return;
   }
   if (capture.kind === 'zero' && at < capture.discardUntil) return;
-  if (capture.samples.length && at <= capture.samples[capture.samples.length - 1].at) {
-    abortCapture('Samples must have unique, increasing timestamps.');
-    void opossum?.stop?.();
-    render();
-    return;
-  }
+  if (capture.samples.length && at <= capture.samples[capture.samples.length - 1].at) return;
   if (captureTimedOut(capture, at)) {
     abortCapture('The hold timed out before enough stable samples arrived.');
     void opossum?.stop?.();
@@ -631,8 +629,10 @@ function noteCalibrationSample(kpa, at) {
     return;
   }
   capture.samples.push({ kpa, at });
-  if (capture.samples.length >= CIVET_CALIBRATION.sampleCount || at - capture.collectAfter > CIVET_CALIBRATION.maxWindowMs) {
-    const verdict = capture.kind === 'zero' ? assessZero(capture.samples, at) : assessSamples(capture.samples, at);
+  const elapsed = at - capture.collectAfter;
+  const ready = capture.samples.length >= CIVET_CALIBRATION.sampleCount && elapsed >= CIVET_CALIBRATION.minHoldMs;
+  if (!ready && elapsed <= CIVET_CALIBRATION.maxWindowMs) return;
+  const verdict = capture.kind === 'zero' ? assessZero(capture.samples, at) : assessSamples(capture.samples, at);
     clearCaptureTimer();
     calibrationCapture = null;
     if (!ACTIVE.has(engine.phase)) outputHeld = false;
@@ -648,12 +648,12 @@ function noteCalibrationSample(kpa, at) {
     const label = capture.kind === 'zero' ? 'post-zero' : capture.kind;
     calibrationMessage = `${label} measured ${verdict.mean.toFixed(2)} kPa from ${verdict.count} samples. Variation ${verdict.std.toFixed(2)} kPa is recorded, not used as a minimum gap.`;
     render();
-  }
 }
 
 async function ensureOutputOff(reason = 'Output held at zero during calibration.') {
   if (ACTIVE.has(engine.phase)) onPause(reason);
-  await opossum?.stop?.();
+  if (!opossum?.connected) return;
+  await confirmDeviceStopped(opossum);
 }
 
 function readingNow() {
@@ -667,10 +667,13 @@ function canPlay() {
 }
 
 async function startZero() {
-  calibrationMessage = '';
   outputHeld = true;
   if (!civet?.connected) { calibrationMessage = 'Connect the sensor before zeroing.'; outputHeld = false; render(); return; }
   if (!sensorIdentity()) { calibrationMessage = 'This browser did not provide a sensor id, so a profile cannot be matched later.'; outputHeld = false; render(); return; }
+  calibrationMessage = opossum?.connected
+    ? 'Stopping output, then sending the hardware zero.'
+    : 'Output is not connected, so it stays off. Sending the hardware zero.';
+  render();
   try { await ensureOutputOff(); }
   catch (err) { calibrationMessage = err.message || 'Output stop was not confirmed. Zero was not sent.'; render(); return; }
   try { forgetProfile(localStorage, sensorIdentity(), testMode); } catch (err) { calibrationMessage = err.message; render(); return; }
@@ -704,8 +707,12 @@ async function startLevel(kind) {
   outputHeld = true;
   if (!['relaxed', 'half', 'full'].includes(kind)) { outputHeld = heldBefore; return; }
   if (!civet?.connected || !sensorIdentity()) { calibrationMessage = 'The sensor is not connected.'; outputHeld = heldBefore; render(); return; }
+  calibrationMessage = opossum?.connected
+    ? 'Stopping output, then collecting this hold.'
+    : 'Output is not connected, so it stays off. Collecting this hold.';
+  render();
   try { await ensureOutputOff(); }
-  catch (err) { calibrationMessage = err.message || 'Output stop was not confirmed.'; render(); return; }
+  catch (err) { calibrationMessage = err.message || 'Output stop was not confirmed. This capture was not started.'; outputHeld = true; render(); return; }
   try { forgetProfile(localStorage, sensorIdentity(), testMode); }
   catch (err) { calibrationMessage = err.message || 'The saved profile could not be cleared.'; render(); return; }
   activeProfile = null;

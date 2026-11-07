@@ -169,6 +169,29 @@ export class SerializedCommands {
   }
 }
 
+export function deviceCanReceiveStop(device) {
+  return Boolean(device?.connected);
+}
+
+export async function confirmDeviceStopped(device, timeoutMs = 4000) {
+  if (!deviceCanReceiveStop(device)) return { confirmed: false, reason: 'not-connected' };
+  let timer;
+  try {
+    const result = await Promise.race([
+      Promise.resolve(device.stop()),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timeout')), timeoutMs);
+      }),
+    ]);
+    return { confirmed: true, result };
+  } catch (error) {
+    const detail = error?.message === 'timeout' ? 'it did not answer in time' : (error?.message || 'the stop command failed');
+    throw new Error(`Output is connected, but stop was not confirmed (${detail}). The sensor command was not sent. Use the toy’s own controls, then try again.`);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function writeCharacteristic(characteristic, bytes) {
   if (!characteristic) throw new Error('No write characteristic is connected.');
   if (characteristic.properties?.write && typeof characteristic.writeValueWithResponse === 'function') {
