@@ -7,9 +7,17 @@
  */
 import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261107-v212';
 import { CivetDevice, OpossumDevice, confirmDeviceStopped, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261107-v212';
-import { BUILD } from './config.js?v=20261107-v212';
+import { BUILD } from './config.js?v=20261107-v213';
 import { PlayTimer, formatPlayDuration } from './play-timer.js?v=20261107-v212';
 import { lifecycleDecision } from './page-lifecycle.js?v=20261107-v212';
+import {
+  advanceDeckOnEdge,
+  createPatternTrace,
+  createPictureDeck,
+  directorySelectionSupported,
+  isPcRoute,
+  pictureLoadFailureMessage,
+} from './pc-media.js?v=20261107-v213';
 import {
   CIVET_CALIBRATION,
   SIM_HOLDS,
@@ -82,6 +90,13 @@ let lastEdgeCount = 0;
 let civetHint = 'Not connected';
 let opossumHint = 'Not connected';
 let testMode = new URLSearchParams(location.search).has('test');
+const pcMode = isPcRoute(location.pathname);
+const pictureDeck = pcMode ? createPictureDeck({
+  createUrl: file => URL.createObjectURL(file),
+  revokeUrl: url => URL.revokeObjectURL(url),
+}) : null;
+const patternTrace = pcMode ? createPatternTrace() : null;
+let pictureMessage = pcMode ? 'Choose a folder or some pictures. They stay on this device and are forgotten when you refresh.' : '';
 let civet = null;
 let opossum = null;
 let toyMaxPower = readStoredToyMax();
@@ -325,8 +340,10 @@ const engine = new SessionEngine({
   onEvent(event) {
     const state = event.snapshot;
     if (event.type === 'edge' && state.edgeCount !== lastEdgeCount) {
+      const previousCount = lastEdgeCount;
       lastEdgeCount = state.edgeCount;
       applyPattern(randomPattern(engine.snapshot().opossumPattern));
+      if (pictureDeck) advanceDeckOnEdge(pictureDeck, previousCount, state.edgeCount);
     }
     if (view === 'play') updatePlay();
   },
@@ -845,12 +862,119 @@ function calibrationFieldsHTML(civetOn) {
     </div>`).join('');
 }
 
+function pcPictureHTML() {
+  if (!pcMode) return '';
+  const current = pictureDeck.current();
+  const folder = directorySelectionSupported();
+  return `
+    <section class="panel pc-stage" aria-label="Local pictures">
+      <div class="pc-frame">${current ? `<img id="pc-picture" alt="${escapeHtml(current.name)}" src="${current.url}">` : '<p class="note" id="pc-empty">No picture yet.</p>'}</div>
+      <p class="note" id="pc-status">${view === 'play' ? 'Shuffled. The same picture is not repeated immediately. Next does not change the pattern.' : escapeHtml(pictureMessage)}</p>
+      <p class="pc-caption" id="pc-caption">${current ? escapeHtml(`${current.index} of ${current.total} · ${current.name}`) : ''}</p>
+      ${view === 'play' ? '' : `<div class="stack">
+        ${folder ? '<label class="button">Choose folder<input id="pc-folder" data-pc-files type="file" accept="image/*" webkitdirectory multiple hidden></label>' : ''}
+        <label class="button">Choose pictures<input id="pc-files" data-pc-files type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/bmp,image/avif" multiple hidden></label>
+        <button class="button" type="button" data-act="pc-next" ${current ? '' : 'disabled'}>Next picture</button>
+      </div>
+      <p class="note">Pictures change once each edge, or when you press Next. Next does not count an edge or change the pattern. A refresh clears the selection.</p>`}
+    </section>`;
+}
+
+function pcChooserHTML() {
+  if (!pcMode || view !== 'play') return '';
+  const folder = directorySelectionSupported();
+  return `
+    <section class="panel pc-chooser">
+      <div class="stack">
+        ${folder ? '<label class="button">Choose folder<input id="pc-folder" data-pc-files type="file" accept="image/*" webkitdirectory multiple hidden></label>' : ''}
+        <label class="button">Choose pictures<input id="pc-files" data-pc-files type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/bmp,image/avif" multiple hidden></label>
+      </div>
+    </section>`;
+}
+
+function pcPatternHTML(state) {
+  if (!pcMode || !state) return '';
+  return `
+    <section class="panel pc-pattern" aria-label="Commanded pattern">
+      <p class="pattern-name" id="pc-pattern-name">Commanded pattern · ${escapeHtml(patternLabel(state.opossumPattern))}</p>
+      <canvas id="pc-trace" class="pc-trace" width="320" height="96" aria-label="Recent commanded levels for channels A and B"></canvas>
+      <div class="output-bars">
+        <div class="bar-row"><span>A</span><div class="bar" aria-hidden="true"><i id="pc-bar-a" style="width:${clamp(state.outputPercentA, 0, 100)}%"></i></div><b id="pc-level-a">${formatPercent(state.outputPercentA)}</b></div>
+        <div class="bar-row"><span>B</span><div class="bar" aria-hidden="true"><i id="pc-bar-b" style="width:${clamp(state.outputPercentB, 0, 100)}%"></i></div><b id="pc-level-b">${formatPercent(state.outputPercentB)}</b></div>
+      </div>
+      <p class="note" id="pc-relation">${escapeHtml(patternTrace.relation())}. Requested output, not a hardware reading. 100% is the toy cap, not full hardware power.</p>
+    </section>`;
+}
+
+function loadPictureFiles(list) {
+  try {
+    const result = pictureDeck.replace(list);
+    pictureMessage = result.message;
+  } catch (err) {
+    pictureMessage = err.message || 'The pictures could not be opened.';
+  }
+  render();
+}
+
+function syncPcPicture() {
+  if (!pictureDeck) return;
+  const current = pictureDeck.current();
+  const image = document.getElementById('pc-picture');
+  const caption = document.getElementById('pc-caption');
+  const pattern = document.getElementById('pc-pattern-name');
+  if (current && image && image.getAttribute('src') !== current.url) {
+    image.src = current.url;
+    image.alt = current.name;
+  }
+  if (current && caption) caption.textContent = `${current.index} of ${current.total} · ${current.name}`;
+  if (pattern) pattern.textContent = `Commanded pattern · ${patternLabel(engine.snapshot().opossumPattern)}`;
+}
+
+function drawPatternTrace() {
+  const canvas = document.getElementById('pc-trace');
+  if (!canvas || !patternTrace) return;
+  const samples = patternTrace.samples();
+  const width = Math.max(1, Math.floor(canvas.clientWidth || 320));
+  const height = Math.max(48, Math.floor(canvas.clientHeight || 96));
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.floor(width * ratio);
+  canvas.height = Math.floor(height * ratio);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  ctx.strokeStyle = '#2d2836';
+  ctx.beginPath();
+  ctx.moveTo(0, height - 1);
+  ctx.lineTo(width, height - 1);
+  ctx.stroke();
+  const draw = (key, color) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    samples.forEach((sample, index) => {
+      const x = samples.length <= 1 ? 0 : (index / (samples.length - 1)) * width;
+      const y = height - 4 - (Math.max(0, Math.min(100, sample[key])) / 100) * (height - 8);
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  };
+  draw('a', '#d7b07a');
+  draw('b', '#86c9a3');
+  const relation = document.getElementById('pc-relation');
+  if (relation && samples.length) {
+    relation.textContent = `${patternTrace.relation()}. Requested output, not a hardware reading. 100% is the toy cap, not full hardware power.`;
+  }
+}
+
 function setupHTML() {
   const civetOn = Boolean(civet?.connected);
   const toyOn = Boolean(opossum?.connected);
   return `
-    <div class="shell" data-view="setup" data-test-mode="${testMode ? '1' : '0'}">
-      <div class="brand"><h1>CTMP</h1><small>Solo player</small></div>
+    <div class="shell" data-view="setup" data-pc="${pcMode ? '1' : '0'}" data-test-mode="${testMode ? '1' : '0'}">
+      <div class="brand"><h1>CTMP</h1><small>${pcMode ? 'PC player' : 'Solo player'}</small></div>
+      ${pcPictureHTML()}
       <button class="button test-toggle ${testMode ? 'on' : ''}" type="button" data-act="toggle-test" aria-pressed="${testMode ? 'true' : 'false'}">Test mode (no toys)</button>
       ${testMode ? '<p class="note">Simulated sensor and output are running. Use this to check patterns, cutoff and recovery without connecting hardware.</p>' : ''}
       <section class="panel">
@@ -915,7 +1039,7 @@ function playHTML() {
   const levelA = state.outputPercentA;
   const levelB = state.outputPercentB;
   return `
-    <div class="shell" data-view="play" data-test-mode="${testMode ? '1' : '0'}">
+    <div class="shell" data-view="play" data-pc="${pcMode ? '1' : '0'}" data-test-mode="${testMode ? '1' : '0'}">
       ${testMode ? '<div class="test-badge" id="test-badge">TEST MODE</div>' : ''}
       <div class="play-top">
         <div class="session-stats">
@@ -932,6 +1056,9 @@ function playHTML() {
         <div class="pattern-name" id="pattern-name">${escapeHtml(patternLabel(state.opossumPattern))}</div>
         <div class="toy-max-label" id="toy-max-label">Toy max ${toyMaxPower}%</div>
       </div>
+      ${pcPictureHTML()}
+      ${pcPatternHTML(state)}
+      ${pcChooserHTML()}
       <section class="panel">
         <div class="metrics">
           <div class="metric"><span>Pressure</span><b id="live-pressure">${formatKpa(state.pressure)}</b></div>
@@ -960,7 +1087,8 @@ function playHTML() {
         </div>
       </section>
       ${error ? `<p class="error" id="play-error">${escapeHtml(error)}</p>` : '<p class="error" id="play-error" hidden></p>'}
-      <div class="stack play-actions">
+      <div class="stack play-actions${pcMode ? ' pc-dock' : ''}">
+        ${pcMode ? `<button class="button" type="button" data-act="pc-next" ${pictureDeck.current() ? '' : 'disabled'}>Next picture</button>` : ''}
         ${paused
           ? '<button class="button button-primary button-pause" type="button" data-act="resume">Resume</button>'
           : '<button class="button button-pause" type="button" data-act="pause">Pause</button>'}
@@ -975,6 +1103,11 @@ function escapeHtml(value) {
 
 function render() {
   app.innerHTML = view === 'play' ? playHTML() : setupHTML();
+  const image = document.getElementById('pc-picture');
+  if (image) image.addEventListener('error', () => {
+    const status = document.getElementById('pc-status');
+    if (status) status.textContent = pictureLoadFailureMessage();
+  });
 }
 
 function updateSetupReadings() {
@@ -1032,6 +1165,19 @@ function updatePlay() {
     else playError.hidden = true;
   }
   updateOutputBars(state);
+  if (pcMode && patternTrace) {
+    syncPcPicture();
+    patternTrace.push(state.outputPercentA, state.outputPercentB);
+    drawPatternTrace();
+    const barA = document.getElementById('pc-bar-a');
+    const barB = document.getElementById('pc-bar-b');
+    const levelA = document.getElementById('pc-level-a');
+    const levelB = document.getElementById('pc-level-b');
+    if (barA) barA.style.width = `${clamp(state.outputPercentA, 0, 100)}%`;
+    if (barB) barB.style.width = `${clamp(state.outputPercentB, 0, 100)}%`;
+    if (levelA) levelA.textContent = formatPercent(state.outputPercentA);
+    if (levelB) levelB.textContent = formatPercent(state.outputPercentB);
+  }
   const wantsResume = state.phase === 'paused' || state.phase === 'fault';
   const hasResume = Boolean(document.querySelector('[data-act="resume"]'));
   if (wantsResume !== hasResume) render();
@@ -1198,12 +1344,22 @@ app.addEventListener('click', event => {
   else if (act === 'cal-zero') void startZero();
   else if (act === 'cal-level') void startLevel(button.dataset.level);
   else if (act === 'cal-accept') acceptCalibration();
+  else if (act === 'pc-next') {
+    if (!pictureDeck) return;
+    pictureDeck.advance();
+    render();
+  }
   else if (act === 'sim-hold') { try { civet?.setHold?.(button.dataset.hold); } catch (err) { calibrationMessage = err.message; } render(); }
   else if (act === 'sim-unstable') { civet?.setUnstable?.(!civet._unstable); render(); }
   else if (act === 'sim-drop') { abortCapture('Simulated sensor dropped.'); void civet?.disconnect?.().then(() => { activeProfile = null; render(); }); }
 });
 
 app.addEventListener('change', event => {
+  if (event.target.dataset?.pcFiles !== undefined) {
+    loadPictureFiles(event.target.files);
+    event.target.value = '';
+    return;
+  }
   if (event.target.id === 'setup-min' || event.target.id === 'setup-max') readRecoveryFrom('setup-min', 'setup-max');
   if (event.target.id === 'play-min' || event.target.id === 'play-max') readRecoveryFrom('play-min', 'play-max');
   if (event.target.id === 'toy-max' || event.target.id === 'toy-max-number') readToyMaxFromSetup();

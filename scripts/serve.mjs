@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
+import { mapRequestPath } from './site-paths.mjs';
 const root = resolve(import.meta.dirname, '..');
 const portArgument = process.argv.indexOf('--port');
 const port = Number(portArgument >= 0 ? process.argv[portArgument + 1] : process.env.PORT || 3000);
@@ -9,7 +10,9 @@ createServer(async (req,res) => {
   try {
     const pathname = decodeURIComponent(new URL(req.url,'http://localhost').pathname);
     if (pathname.includes('..') || pathname.includes('\\') || pathname.startsWith('/supabase') || pathname.startsWith('/scripts') || pathname.startsWith('/tests') || pathname.includes('/.')) {res.writeHead(404);res.end();return;}
-    let file = resolve(root, '.' + (pathname === '/' ? '/index.html' : pathname));
+    const mapped = mapRequestPath(pathname);
+    if (mapped.redirect) { res.writeHead(302, { Location: mapped.redirect }); res.end(); return; }
+    let file = resolve(root, '.' + mapped.file);
     if (!file.startsWith(root + sep)) throw new Error('Invalid path');
     try { if (!(await stat(file)).isFile()) throw new Error(); } catch { file = resolve(root,'404.html'); }
     res.writeHead(200, {'Content-Type':types[extname(file)]||'application/octet-stream','Cache-Control':'no-store'});
