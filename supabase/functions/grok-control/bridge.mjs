@@ -19,7 +19,7 @@ const TOKEN = /^[a-f0-9]{64}$/;
 const STATE_KEYS = [
   'v', 'type', 'sessionId', 'epoch', 'armed', 'phase', 'sensorFresh', 'pressureKpa',
   'threshold', 'resetThreshold', 'edgeCount', 'pattern', 'outputPercentA', 'outputPercentB',
-  'recoveryMin', 'recoveryMax', 'civetConnected', 'opossumConnected', 'link', 'publishedAt', 'leaseMs',
+  'recoveryMin', 'recoveryMax', 'civetConnected', 'opossumConnected', 'link', 'publishedAt', 'leaseMs', 'lastSeq',
 ];
 
 export async function sha256Hex(value) {
