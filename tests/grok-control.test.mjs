@@ -8,8 +8,10 @@ import {
   createChannelGate,
   createGrokSession,
   jwtRole,
+  listenForCommands,
   realtimeAllows,
   runAcceptedCommand,
+  settleChannelCommand,
   signInFailureMessage,
   stateEvent,
   topicForUser,
@@ -273,6 +275,88 @@ test('an owner change invalidates the previous channel callback', () => {
   assert.equal(JSON.stringify(event).toLowerCase().includes('clench'), false);
 });
 
+function mockChannel() {
+  const handlers = [];
+  return {
+    on(type, filter, handler) { handlers.push({ type, filter, handler }); },
+    emit(event, payload) {
+      for (const item of handlers) {
+        if (item.type === 'broadcast' && item.filter?.event === event) item.handler({ payload });
+      }
+    },
+  };
+}
+
+test('channel callbacks ack through a different binding object and a replaced channel stays silent', async () => {
+  const gate = createChannelGate();
+  const session = createGrokSession({ patterns, now: () => 1_000_000 });
+  session.arm({ nextUserId: 'owner', nextDeviceId: 'sensor-a' });
+  let host = null;
+  const userId = 'owner';
+  const ran = [];
+  const acks = [];
+  const pending = [];
+  let release = null;
+  function wire(channel) {
+    const bound = gate.bind(userId);
+    listenForCommands(channel, gate, bound, (payload, binding) => {
+      const job = settleChannelCommand({
+        binding,
+        current: () => ({ binding: host, userId }),
+        run() {
+          ran.push(payload.id);
+          if (payload.id === 'slow') return new Promise(resolve => { release = resolve; });
+          const decision = session.evaluate(payload, ready, userId);
+          const hold = session.hold();
+          return runAcceptedCommand({
+            decision,
+            hold,
+            same: token => session.same(token),
+            operations: { stop: async () => ({ applied: true, hardware: 'not-confirmed', reason: '' }) },
+          });
+        },
+        async publish(outcome) {
+          acks.push(ackEvent(outcome, { sessionId: session.sessionId, epoch: session.epoch }));
+        },
+      });
+      pending.push(job);
+      return job;
+    });
+    host = { generation: bound.generation, userId: bound.userId };
+    assert.notEqual(host, bound);
+    return bound;
+  }
+  const first = mockChannel();
+  wire(first);
+  first.emit('command', command(session, 1, 'stop', {}, { id: 'stop-1' }));
+  first.emit('command', command(session, 2, 'changePattern', { pattern: 'nope' }, { id: 'bad-pattern' }));
+  await Promise.all(pending);
+  const accepted = acks.find(item => item.commandId === 'stop-1');
+  const rejected = acks.find(item => item.commandId === 'bad-pattern');
+  assert.equal(accepted?.accepted, true);
+  assert.equal(accepted?.applied, true);
+  assert.equal(accepted?.type, 'ack');
+  assert.equal(rejected?.accepted, false);
+  assert.equal(rejected?.applied, false);
+  assert.equal(rejected?.reason, 'pattern');
+
+  first.emit('command', command(session, 3, 'stop', {}, { id: 'slow' }));
+  assert.equal(ran.includes('slow'), true);
+  const second = mockChannel();
+  wire(second);
+  first.emit('command', command(session, 4, 'stop', {}, { id: 'late' }));
+  assert.equal(ran.includes('late'), false);
+  release({ accept: true, applied: true, action: 'stop', hardware: 'not-confirmed', reason: '', command: { id: 'slow', seq: 3 } });
+  await Promise.all(pending);
+  assert.equal(acks.some(item => item.commandId === 'slow'), false);
+  assert.equal(acks.some(item => item.commandId === 'late'), false);
+
+  second.emit('command', command(session, 3, 'stop', {}, { id: 'next-stop' }));
+  await Promise.all(pending);
+  assert.equal(ran.includes('next-stop'), true);
+  assert.equal(acks.some(item => item.commandId === 'next-stop' && item.accepted === true && item.applied === true), true);
+});
+
 test('SOLO and SUC do not open the Grok channel', () => {
   const player = read('../app/simple-player.js');
   const suc = read('../suc/index.html');
@@ -296,10 +380,13 @@ test('SOLO and SUC do not open the Grok channel', () => {
   assert.match(pauseFn, /await opossum\.stop\(\)/);
   assert.match(player, /selfTransition/);
   assert.match(player, /publishGrokEvent\('fault'\)/);
+  assert.match(player, /settleChannelCommand/);
+  assert.equal(player.includes('binding !== grokBinding'), false);
   assert.match(player, /data-grok-auth/);
   assert.match(player, /signInFailureMessage/);
   const link = read('../app/grok-link.js');
   assert.match(link, /setTimeout\(\(\) => handler\(event, session\), 0\)/);
   assert.match(link, /gate\.bind\(expectedUserId\)/);
+  assert.match(link, /listenForCommands/);
   assert.match(link, /failureKind/);
 });

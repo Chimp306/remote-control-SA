@@ -4,7 +4,7 @@
  */
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/+esm';
 import { API_URL, PUBLISHABLE_KEY } from './config.js?v=20261108-v215';
-import { createChannelGate, jwtRole, topicForUser } from './grok-control.js?v=20261108-v216';
+import { createChannelGate, jwtRole, listenForCommands, topicForUser } from './grok-control.js?v=20261108-v217';
 
 export function projectUrl(apiUrl) {
   return new URL(apiUrl).origin;
@@ -74,10 +74,7 @@ export function createGrokLink() {
       if (!id || id !== expectedUserId || !gate.matches(bound)) return { stale: true };
       const topic = topicForUser(id);
       const next = client.channel(topic, { config: { private: true, broadcast: { self: false } } });
-      next.on('broadcast', { event: 'command' }, ({ payload }) => {
-        if (!gate.matches(bound)) return;
-        onCommand(payload, bound);
-      });
+      listenForCommands(next, gate, bound, onCommand);
       channel = next;
       await new Promise((resolve, reject) => {
         next.subscribe(status => {

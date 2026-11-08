@@ -6,7 +6,7 @@
 import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261108-v215';
 import { CivetDevice, OpossumDevice, confirmDeviceStopped, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261107-v212';
 import { BUILD } from './config.js?v=20261108-v215';
-import { ackEvent, controlEvent, createGrokSession, runAcceptedCommand, signInFailureMessage, stateEvent } from './grok-control.js?v=20261108-v216';
+import { ackEvent, controlEvent, createGrokSession, runAcceptedCommand, settleChannelCommand, signInFailureMessage, stateEvent } from './grok-control.js?v=20261108-v217';
 import { PlayTimer, formatPlayDuration } from './play-timer.js?v=20261107-v212';
 import { lifecycleDecision } from './page-lifecycle.js?v=20261107-v212';
 import {
@@ -1179,66 +1179,72 @@ function grokDisarm(reason) {
 
 async function applyGrokCommand(raw, binding = grokBinding) {
   if (!grok) return;
-  if (binding && (binding.userId !== grokUserId || binding.generation !== grokBinding?.generation)) return;
-  const decision = grok.evaluate(raw, grokContext(), grokUserId);
-  const hold = grok.hold();
-  const outcome = await runAcceptedCommand({
-    decision,
-    hold,
-    same: token => grok.same(token),
-    selfOk: token => {
-      if (decision.action === 'stop') return grok.selfTransition(token, 'stop');
-      if (decision.action === 'pause') return grok.selfTransition(token, 'pause');
-      return false;
+  await settleChannelCommand({
+    binding,
+    current: () => ({ binding: grokBinding, userId: grokUserId }),
+    async run() {
+      const decision = grok.evaluate(raw, grokContext(), grokUserId);
+      const hold = grok.hold();
+      return runAcceptedCommand({
+        decision,
+        hold,
+        same: token => grok.same(token),
+        selfOk: token => {
+          if (decision.action === 'stop') return grok.selfTransition(token, 'stop');
+          if (decision.action === 'pause') return grok.selfTransition(token, 'pause');
+          return false;
+        },
+        operations: {
+          async stop() {
+            return onStop();
+          },
+          async pause() {
+            grok?.localPause();
+            publishGrokEvent('session');
+            onPause('Paused from Grok Control.');
+            let hardware = 'not-sent';
+            try {
+              if (opossum?.connected) { await opossum.stop(); hardware = 'not-confirmed'; }
+            } catch { hardware = 'not-sent'; }
+            const applied = engine.phase === 'paused';
+            return { applied, hardware: applied ? hardware : 'not-sent', reason: applied ? '' : 'not-paused' };
+          },
+          async start() {
+            const started = await onPlay(() => grok.same(hold));
+            return started;
+          },
+          async forceCutoff() {
+            const result = engine.requestRecovery('Remote cutoff.');
+            return { applied: result.applied === true, hardware: result.applied ? 'not-confirmed' : 'not-sent', reason: result.reason || '' };
+          },
+          async changePattern(next) {
+            const before = engine.snapshot().opossumPattern;
+            engine.configure({ opossumPattern: next.params.pattern, patternBlendSeconds: 1.6 });
+            notePattern(next.params.pattern);
+            if (engine.snapshot().opossumPattern !== before) publishGrokEvent('pattern');
+            return { applied: engine.snapshot().opossumPattern === next.params.pattern, hardware: 'not-confirmed', reason: '' };
+          },
+          async adjustCutoff(next) {
+            const before = engine.snapshot().threshold;
+            changeCutoff(next.params.delta);
+            return { applied: engine.snapshot().threshold !== before, hardware: 'not-confirmed', reason: '' };
+          },
+          async setDowntime(next) {
+            setRecovery(next.params.min, next.params.max);
+            return { applied: recoveryMin === next.params.min && recoveryMax === next.params.max, hardware: 'not-confirmed', reason: '' };
+          },
+        },
+      });
     },
-    operations: {
-      async stop() {
-        return onStop();
-      },
-      async pause() {
-        grok?.localPause();
-        publishGrokEvent('session');
-        onPause('Paused from Grok Control.');
-        let hardware = 'not-sent';
-        try {
-          if (opossum?.connected) { await opossum.stop(); hardware = 'not-confirmed'; }
-        } catch { hardware = 'not-sent'; }
-        const applied = engine.phase === 'paused';
-        return { applied, hardware: applied ? hardware : 'not-sent', reason: applied ? '' : 'not-paused' };
-      },
-      async start() {
-        const started = await onPlay(() => grok.same(hold));
-        return started;
-      },
-      async forceCutoff() {
-        const result = engine.requestRecovery('Remote cutoff.');
-        return { applied: result.applied === true, hardware: result.applied ? 'not-confirmed' : 'not-sent', reason: result.reason || '' };
-      },
-      async changePattern(next) {
-        const before = engine.snapshot().opossumPattern;
-        engine.configure({ opossumPattern: next.params.pattern, patternBlendSeconds: 1.6 });
-        notePattern(next.params.pattern);
-        if (engine.snapshot().opossumPattern !== before) publishGrokEvent('pattern');
-        return { applied: engine.snapshot().opossumPattern === next.params.pattern, hardware: 'not-confirmed', reason: '' };
-      },
-      async adjustCutoff(next) {
-        const before = engine.snapshot().threshold;
-        changeCutoff(next.params.delta);
-        return { applied: engine.snapshot().threshold !== before, hardware: 'not-confirmed', reason: '' };
-      },
-      async setDowntime(next) {
-        setRecovery(next.params.min, next.params.max);
-        return { applied: recoveryMin === next.params.min && recoveryMax === next.params.max, hardware: 'not-confirmed', reason: '' };
-      },
+    async publish(outcome) {
+      await publishGrok('ack', ackEvent(outcome, { sessionId: grok.sessionId, epoch: grok.epoch, hardware: outcome.hardware }));
+      grokStatus = outcome.applied
+        ? 'Remote command applied. The radio write is not proof the toy moved.'
+        : (outcome.reason || grokStatus);
+      if (outcome.action === 'start' && outcome.applied) publishGrokEvent('session');
+      if (view === 'play') updatePlay(); else render();
     },
   });
-  if (binding && binding !== grokBinding) return;
-  await publishGrok('ack', ackEvent(outcome, { sessionId: grok.sessionId, epoch: grok.epoch, hardware: outcome.hardware }));
-  grokStatus = outcome.applied
-    ? 'Remote command applied. The radio write is not proof the toy moved.'
-    : (outcome.reason || grokStatus);
-  if (outcome.action === 'start' && outcome.applied) publishGrokEvent('session');
-  if (view === 'play') updatePlay(); else render();
 }
 
 function grokPanelHTML() {
@@ -1550,7 +1556,7 @@ function grokOwnerLost(status) {
 }
 
 if (grokMode && !testMode) {
-  import('./grok-link.js?v=20261108-v216').then(mod => {
+  import('./grok-link.js?v=20261108-v217').then(mod => {
     grokLink = mod.createGrokLink();
     grokLinkState = 'signed-out';
     render();

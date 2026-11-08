@@ -37,6 +37,43 @@ test('stdin commands are bounded and the service role never opens a client', asy
   );
 });
 
+test('stdin before the first state and while disarmed stays alive, then a later command sends', async () => {
+  const child = spawn(process.execPath, ['scripts/grok-control-client.mjs'], {
+    env: { ...process.env, GROK_DRY_RUN: 'listen' },
+    cwd: fileURLToPath(new URL('..', import.meta.url)),
+  });
+  let out = '';
+  let err = '';
+  child.stdout.on('data', chunk => { out += chunk; });
+  child.stderr.on('data', chunk => { err += chunk; });
+  const waitFor = async (read, pattern) => {
+    const started = Date.now();
+    while (Date.now() - started < 3000) {
+      if (pattern.test(read())) return;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    throw new Error(`timed out waiting for ${pattern}. stdout=${out} stderr=${err}`);
+  };
+  child.stdin.write('{"command":"stop"}\n');
+  await waitFor(() => err, /No live session state yet/);
+  assert.equal(child.exitCode, null);
+  child.stdin.write(`${JSON.stringify({ type: 'state', v: 1, sessionId: 'session-live', epoch: 2, armed: false, phase: 'idle' })}\n`);
+  await waitFor(() => out, /"type":"state"/);
+  child.stdin.write('{"command":"start"}\n');
+  await waitFor(() => err, /not armed/);
+  assert.equal(child.exitCode, null);
+  child.stdin.write(`${JSON.stringify({ type: 'state', v: 1, sessionId: 'session-live', epoch: 2, armed: true, phase: 'running' })}\n`);
+  child.stdin.write('{"command":"stop"}\n');
+  await waitFor(() => out, /"type":"send"/);
+  assert.match(out, /"command":"stop"/);
+  assert.match(out, /"sessionId":"session-live"/);
+  assert.equal(err.includes('{'), false);
+  assert.equal(err.includes('service_role'), false);
+  child.stdin.end();
+  const code = await new Promise(resolve => child.on('exit', resolve));
+  assert.equal(code, 0);
+});
+
 test('the dry-run client sends a command and prints the ack without credentials', async () => {
   const child = spawn(process.execPath, ['scripts/grok-control-client.mjs'], {
     env: { ...process.env, GROK_DRY_RUN: '1' },

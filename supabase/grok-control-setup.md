@@ -38,7 +38,7 @@ Live owner session, values only in the environment:
 
 `SUPABASE_URL=... SUPABASE_PUBLISHABLE_KEY=... GROK_OWNER_ACCESS_TOKEN=... node scripts/grok-control-client.mjs`
 
-The optional `GROK_OWNER_REFRESH_TOKEN` lets the Supabase client refresh the session. The script refuses a JWT whose `role` is `service_role`. It prints state, event, and ack summaries as JSON lines. Send one command per stdin line, for example `{"command":"pause"}` or `{"command":"changePattern","params":{"pattern":"sine-wave"}}`. The adapter fills `seq`, `sessionId`, `epoch`, `issuedAt`, and `expiresAt` from the latest state. A chat window does not receive that stream until a host runs this adapter, or an equivalent tool, with the owner token.
+The optional `GROK_OWNER_REFRESH_TOKEN` lets the Supabase client refresh the session. The script refuses a JWT whose `role` is `service_role`. It prints state, event, and ack summaries as JSON lines. Send one command per stdin line, for example `{"command":"pause"}` or `{"command":"changePattern","params":{"pattern":"sine-wave"}}`. A command that arrives before the first state, or while the page is disarmed, prints one error line and the process keeps reading. The error does not include the input line. The adapter fills `seq`, `sessionId`, `epoch`, `issuedAt`, and `expiresAt` from the latest state. A chat window does not receive that stream until a host runs this adapter, or an equivalent tool, with the owner token. The page compares the channel generation and owner id, so an acknowledgement is published for the live channel even though the callback token and the page binding are different objects. A replaced channel does not run or acknowledge a command that arrives on the old one.
 
 Command envelope:
 

@@ -67,6 +67,24 @@ export function createGrokAdapter({ transport, now = () => Date.now(), ttlMs = 5
   };
 }
 
+export function bindCommandInput(adapter, input, { writeError = () => {}, onState } = {}) {
+  input.on('line', line => {
+    const trimmed = String(line ?? '').trim();
+    if (!trimmed) return;
+    let parsed;
+    try { parsed = JSON.parse(trimmed); }
+    catch { writeError('Command was not understood.'); return; }
+    if (parsed?.type === 'state' && onState) { onState(parsed); return; }
+    let request;
+    try { request = commandFromLine(trimmed); }
+    catch (err) { writeError(err.message || 'Command was not understood.'); return; }
+    let pending;
+    try { pending = adapter.command(request.command, request.params); }
+    catch (err) { writeError(err.message || 'Command was not sent.'); return; }
+    Promise.resolve(pending).catch(err => writeError(err?.message || 'Command was not sent.'));
+  });
+}
+
 export function commandFromLine(line) {
   let parsed;
   try { parsed = JSON.parse(line); } catch { throw new Error('Command was not understood.'); }

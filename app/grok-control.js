@@ -259,6 +259,28 @@ export function createChannelGate() {
   };
 }
 
+export function channelStillCurrent(binding, active) {
+  if (!binding) return true;
+  const host = active?.binding;
+  if (!host || active.userId == null) return false;
+  return binding.generation === host.generation && binding.userId === host.userId && binding.userId === active.userId;
+}
+
+export function listenForCommands(channel, gate, bound, onCommand) {
+  channel.on('broadcast', { event: 'command' }, ({ payload }) => {
+    if (!gate.matches(bound)) return;
+    onCommand(payload, bound);
+  });
+}
+
+export async function settleChannelCommand({ binding, current, run, publish }) {
+  if (!channelStillCurrent(binding, current())) return { executed: false, published: false };
+  const outcome = await run();
+  if (!channelStillCurrent(binding, current())) return { executed: true, published: false, outcome };
+  await publish(outcome);
+  return { executed: true, published: true, outcome };
+}
+
 export function signInFailureMessage(kind) {
   if (kind === 'credentials') return 'That email or password was not accepted.';
   if (kind === 'network') return 'Sign-in could not reach the account service.';

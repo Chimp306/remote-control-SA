@@ -7,10 +7,23 @@
  */
 import readline from 'node:readline';
 import { jwtRole } from '../app/grok-control.js';
-import { commandFromLine, createGrokAdapter, createSupabaseTransport, runDryDemo } from './grok-adapter.mjs';
+import { bindCommandInput, createGrokAdapter, createMockTransport, createSupabaseTransport, runDryDemo } from './grok-adapter.mjs';
 
 if (process.env.GROK_DRY_RUN === '1') {
   await runDryDemo(line => console.log(JSON.stringify(line)));
+  process.exit(0);
+}
+
+if (process.env.GROK_DRY_RUN === 'listen') {
+  const transport = createMockTransport();
+  const adapter = createGrokAdapter({ transport, log: line => console.log(JSON.stringify(line)) });
+  await adapter.attach();
+  const input = readline.createInterface({ input: process.stdin });
+  bindCommandInput(adapter, input, {
+    writeError: message => console.error(message),
+    onState: payload => transport.emitState(payload),
+  });
+  await new Promise(resolve => input.on('close', resolve));
   process.exit(0);
 }
 
@@ -32,11 +45,4 @@ const adapter = createGrokAdapter({ transport, log: line => console.log(JSON.str
 await adapter.attach();
 console.log(JSON.stringify({ type: 'subscribed' }));
 const input = readline.createInterface({ input: process.stdin });
-input.on('line', line => {
-  const trimmed = line.trim();
-  if (!trimmed) return;
-  let request;
-  try { request = commandFromLine(trimmed); }
-  catch (err) { console.error(err.message); return; }
-  adapter.command(request.command, request.params).catch(err => console.error(err.message));
-});
+bindCommandInput(adapter, input, { writeError: message => console.error(message) });
