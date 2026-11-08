@@ -15,11 +15,19 @@ The publishable key is public. It cannot read the tables. Do not put a secret ke
 
 The old project and `app/config.js` stay as they are. Do not apply this SQL there. Do not apply the older migration files, including `20261108210000_grok_control_realtime.sql`, to `ctmp-grok`. Realtime is not used. Supabase Auth email and redirect settings are not used.
 
-## Apply this SQL only
+## Apply the SQL
+
+The base file is already applied on `kmswwrfglbdbwoapusfw` as version `20261108224632`:
 
 `supabase/migrations/20261108234500_grok_bridge.sql`
 
-It creates private `grok_*` tables with row level security and no policies for `anon` or `authenticated`. Grants are revoked from those roles. The service role is the only database role the Edge Function uses.
+Do not apply it again. PostgREST rejects a `DELETE` that has no `WHERE` clause, and that base file has three functions which do that. Apply this follow-up only:
+
+`supabase/migrations/20261108235500_grok_bridge_safe_delete.sql`
+
+It replaces `grok_login_enrollment`, `grok_logout`, and `grok_clear_owner`. The locks and grants stay the same. `grok_provision_enrollment` and `grok_login_refresh` do not need a change: provision does not delete, and refresh already has a `WHERE` clause.
+
+The base file creates private `grok_*` tables with row level security and no policies for `anon` or `authenticated`. Grants are revoked from those roles. The service role is the only database role the Edge Function uses.
 
 ## Deploy the function
 
