@@ -268,22 +268,8 @@ export class SessionEngine {
     this._lastTickAt = at;
     if (!this._fresh(at)) return this.fault('Pressure data is stale. Check the Civet connection.');
     if (this.phase === 'running') {
-      if (this._armed && this.pressure >= this.config.threshold) {
-        this.edgeCount += 1;
-        this.lastCycleSeconds = this._cycleStartedAt === null ? null : Math.max(0, (at - this._cycleStartedAt) / 1000);
-        this._updateAdaptiveRecovery(this.lastCycleSeconds);
-        this.recoveryBaseSeconds = this._randomRecoveryBase();
-        this.recoverySeconds = Math.min(1800, this.recoveryBaseSeconds * this.adaptiveMultiplier);
-        this._armed = false;
-        this.phase = 'cooldown';
-        this.reason = '';
-        this.cooldownEndsAt = at + this.recoverySeconds * 1000;
-        this._output(0, true);
-        this._emit('edge', at);
-        this._emit('state', at);
-      } else {
-        this._output(this._requestedOutput(at));
-      }
+      if (this._armed && this.pressure >= this.config.threshold) this._beginRecovery(at, '');
+      else this._output(this._requestedOutput(at));
     } else if (this.phase === 'cooldown' && at >= this.cooldownEndsAt) {
       this.phase = 'settling';
       this._settle(at);
@@ -296,6 +282,14 @@ export class SessionEngine {
 
   adjustCutoff(delta) {
     return this.setCutoff(this.config.threshold + finite(delta, 'Cutoff adjustment'));
+  }
+
+  requestRecovery(reason = 'Cutoff requested.') {
+    if (this.phase !== 'running') return { applied: false, reason: 'not-running', snapshot: this.snapshot() };
+    const pressure = this.pressure;
+    const pressureAt = this.pressureAt;
+    this._beginRecovery(this.now(), String(reason || 'Cutoff requested.').slice(0, 120));
+    return { applied: this.pressure === pressure && this.pressureAt === pressureAt, reason: '', snapshot: this.snapshot() };
   }
 
   setCutoff(value) {
@@ -431,6 +425,21 @@ export class SessionEngine {
       this.shortPhaseStreak = 0;
       this.stablePhaseStreak = 0;
     }
+  }
+
+  _beginRecovery(at, reason) {
+    this.edgeCount += 1;
+    this.lastCycleSeconds = this._cycleStartedAt === null ? null : Math.max(0, (at - this._cycleStartedAt) / 1000);
+    this._updateAdaptiveRecovery(this.lastCycleSeconds);
+    this.recoveryBaseSeconds = this._randomRecoveryBase();
+    this.recoverySeconds = Math.min(1800, this.recoveryBaseSeconds * this.adaptiveMultiplier);
+    this._armed = false;
+    this.phase = 'cooldown';
+    this.reason = reason;
+    this.cooldownEndsAt = at + this.recoverySeconds * 1000;
+    this._output(0, true);
+    this._emit('edge', at);
+    this._emit('state', at);
   }
 
   _fresh(at) {

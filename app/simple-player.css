@@ -286,6 +286,8 @@ button { touch-action: manipulation; }
 .sim-holds .button { min-height: 44px; font-size: 0.85rem; }
 .calibration-panel .button { min-height: 48px; }
 .play-actions { display: grid; gap: 10px; }
+.grok-banner { border-color: var(--accent); }
+.grok-banner .test-caption { color: var(--accent); }
 .button-pause {
   width: 100%;
   min-height: 72px;

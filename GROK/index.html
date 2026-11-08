@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#0b0a0f">
+  <meta name="description" content="Solo player with Grok Control.">
+  <title>CTMP · Grok Control</title>
+  <script type="module">
+    const version = '20261108-v215';
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = `/app/simple-player.css?v=${version}`;
+    document.head.append(css);
+    await import(`/app/simple-player.js?v=${version}`);
+  </script>
+</head>
+<body>
+  <div id="app"><main class="shell"><h1>CTMP</h1><p>Opening Grok Control…</p><noscript>This control panel needs JavaScript enabled.</noscript></main></div>
+</body>
+</html>
