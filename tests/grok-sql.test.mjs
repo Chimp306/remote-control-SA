@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const sqlFile = fileURLToPath(new URL('../supabase/migrations/20261108234500_grok_bridge.sql', import.meta.url));
 const safeDeleteFile = fileURLToPath(new URL('../supabase/migrations/20261108235500_grok_bridge_safe_delete.sql', import.meta.url));
+const pairFile = fileURLToPath(new URL('../supabase/migrations/20261109001000_grok_pair_code.sql', import.meta.url));
 const base = ['-u', 'postgres', 'psql', '-d', 'grok_sql_test', '-v', 'ON_ERROR_STOP=1', '-t', '-A'];
 
 function lastRow(text) {
@@ -53,6 +54,7 @@ try {
 if (!baseRejected) throw new Error('The applied base function did not reject a DELETE without WHERE.');
 
 execFileSync('sudo', ['-u', 'postgres', 'psql', '-d', 'grok_sql_test', '-v', 'ON_ERROR_STOP=1', '-f', safeDeleteFile], { stdio: 'inherit' });
+execFileSync('sudo', ['-u', 'postgres', 'psql', '-d', 'grok_sql_test', '-v', 'ON_ERROR_STOP=1', '-f', pairFile], { stdio: 'inherit' });
 
 const refresh = 'ab'.repeat(32);
 const access = 'cd'.repeat(32);
@@ -131,10 +133,56 @@ test('enrollment login, logout, and clear survive the safeupdate check', () => {
   assert.equal(psql(`select public.grok_access_ok('${nextAccess}')`), 't');
   assert.equal(psql(`select public.grok_logout('${nextAccess}')`), 't');
   assert.equal(psql(`select count(*) from public.grok_access`), '0');
+  assert.equal(psql(`select refresh_hash = '${nextRefresh}' from public.grok_session where id = 1`), 't');
   assert.equal(psql(`select public.grok_logout('${nextAccess}')`), 'f');
   psql(`select public.grok_clear_owner()`);
   assert.equal(psql(`select count(*) from public.grok_command`), '0');
   assert.equal(psql(`select count(*) from public.grok_event`), '0');
   assert.equal(psql(`select count(*) from public.grok_ack`), '0');
   assert.equal(psql(`select count(*) from public.grok_enrollment`), '0');
+});
+
+test('one pair code redeems once and the owner token still works', async () => {
+  resetOwner();
+  const ipKey = `pair-ip:${'ab'.repeat(16)}`;
+  assert.equal(psql(`select public.grok_mint_pair('${access}', '${'99'.repeat(32)}', now() + interval '3 minutes')`), 't');
+  const [first, second] = await Promise.all([
+    psqlAsync(`select public.grok_redeem_pair('${'99'.repeat(32)}', '${ipKey}', '${'44'.repeat(32)}', now() + interval '15 minutes', '${'55'.repeat(32)}', now() + interval '30 days')`),
+    psqlAsync(`select public.grok_redeem_pair('${'99'.repeat(32)}', 'pair-ip:${'cd'.repeat(16)}', '${'66'.repeat(32)}', now() + interval '15 minutes', '${'77'.repeat(32)}', now() + interval '30 days')`),
+  ]);
+  assert.deepEqual([first, second].sort(), ['0', '1']);
+  assert.equal(psql(`select refresh_hash = '${refresh}' from public.grok_session where id = 1`), 't');
+  assert.equal(psql(`select public.grok_login_refresh('${refresh}', '${'88'.repeat(32)}', now() + interval '15 minutes')`), 't');
+  assert.equal(psql(`select public.grok_mint_pair('${access}', '${'98'.repeat(32)}', now() + interval '3 minutes')`), 't');
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    assert.equal(psql(`select public.grok_redeem_pair('${'97'.repeat(32)}', 'pair-ip:${'ef'.repeat(16)}', '${'12'.repeat(32)}', now() + interval '15 minutes', '${'13'.repeat(32)}', now() + interval '30 days')`), '0');
+  }
+  assert.equal(psql(`select public.grok_redeem_pair('${'98'.repeat(32)}', 'pair-ip:${'a1'.repeat(16)}', '${'14'.repeat(32)}', now() + interval '15 minutes', '${'15'.repeat(32)}', now() + interval '30 days')`), '0');
+});
+
+test('only a host token can mint, and logout revokes one browser session', () => {
+  resetOwner();
+  assert.equal(psql(`select public.grok_mint_pair('${access}', '${'81'.repeat(32)}', now() + interval '3 minutes')`), 't');
+  assert.equal(psql(`select public.grok_redeem_pair('${'81'.repeat(32)}', 'pair-ip:${'b1'.repeat(16)}', '${'a1'.repeat(32)}', now() + interval '15 minutes', '${'c1'.repeat(32)}', now() + interval '30 days')`), '1');
+  assert.equal(psql(`select public.grok_mint_pair('${'a1'.repeat(32)}', '${'82'.repeat(32)}', now() + interval '3 minutes')`), 'f');
+  assert.equal(psql(`select public.grok_mint_pair('${access}', '${'83'.repeat(32)}', now() + interval '3 minutes')`), 't');
+  assert.equal(psql(`select public.grok_redeem_pair('${'83'.repeat(32)}', 'pair-ip:${'b2'.repeat(16)}', '${'a2'.repeat(32)}', now() + interval '15 minutes', '${'c2'.repeat(32)}', now() + interval '30 days')`), '1');
+  assert.equal(psql(`select public.grok_login_refresh('${'c1'.repeat(32)}', '${'d1'.repeat(32)}', now() + interval '15 minutes')`), 't');
+  assert.equal(psql(`select public.grok_login_refresh('${'c1'.repeat(32)}', '${'d2'.repeat(32)}', now() + interval '15 minutes')`), 't');
+  assert.equal(psql(`select public.grok_login_refresh('${'c1'.repeat(32)}', '${'d3'.repeat(32)}', now() + interval '15 minutes')`), 't');
+  const session = psql(`select session_id from public.grok_browser_refresh where refresh_hash = '${'c1'.repeat(32)}'`);
+  assert.equal(session.length > 10, true);
+  assert.equal(psql(`select count(*) from public.grok_access where session_id = '${session}'`), '4');
+  assert.equal(psql(`select public.grok_logout('${'d2'.repeat(32)}')`), 't');
+  assert.equal(psql(`select count(*) from public.grok_access where session_id = '${session}'`), '0');
+  assert.equal(psql(`select count(*) from public.grok_browser_refresh where session_id = '${session}'`), '0');
+  assert.equal(psql(`select public.grok_access_ok('${'a1'.repeat(32)}')`), 'f');
+  assert.equal(psql(`select public.grok_access_ok('${'d1'.repeat(32)}')`), 'f');
+  assert.equal(psql(`select public.grok_access_ok('${'d3'.repeat(32)}')`), 'f');
+  assert.equal(psql(`select public.grok_login_refresh('${'c1'.repeat(32)}', '${'d4'.repeat(32)}', now() + interval '15 minutes')`), 'f');
+  assert.equal(psql(`select public.grok_access_ok('${'a2'.repeat(32)}')`), 't');
+  assert.equal(psql(`select public.grok_access_ok('${access}')`), 't');
+  assert.equal(psql(`select refresh_hash = '${refresh}' from public.grok_session where id = 1`), 't');
+  assert.equal(psql(`select public.grok_mint_pair('${access}', '${'84'.repeat(32)}', now() + interval '3 minutes')`), 't');
+  assert.equal(psql(`select public.grok_mint_pair('${'a2'.repeat(32)}', '${'85'.repeat(32)}', now() + interval '3 minutes')`), 'f');
 });

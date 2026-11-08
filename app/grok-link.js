@@ -2,9 +2,9 @@
  * Owner-token transport for Grok Control. The service role is never loaded.
  * There is no Supabase Auth session and no Realtime channel.
  */
-import { GROK_FUNCTION_URL, GROK_PUBLISHABLE_KEY } from './grok-public.js?v=20261108-v220';
-import { browserRefreshStore, createGrokBridgeClient } from './grok-bridge-client.js?v=20261108-v220';
-import { createChannelGate } from './grok-control.js?v=20261108-v220';
+import { GROK_FUNCTION_URL, GROK_PUBLISHABLE_KEY } from './grok-public.js?v=20261108-v221';
+import { browserRefreshStore, createGrokBridgeClient } from './grok-bridge-client.js?v=20261108-v221';
+import { createChannelGate } from './grok-control.js?v=20261108-v221';
 
 export function grokEndpoint() {
   if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('bridge')) {
@@ -72,7 +72,7 @@ export function createGrokLink() {
       return result.ownerId;
     },
     async pair(code) {
-      const result = await client.useRefresh(code);
+      const result = await client.redeemPair(code);
       emit('SIGNED_IN', { user: { id: result.ownerId } });
       return result.ownerId;
     },

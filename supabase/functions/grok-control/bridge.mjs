@@ -9,6 +9,8 @@ export const COMMAND_NAMES = Object.freeze([
   'start', 'stop', 'pause', 'changePattern', 'forceCutoff', 'adjustCutoff', 'setDowntime',
 ]);
 
+export const PAIR_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+export const PAIR_MS = 3 * 60 * 1000;
 export const ACCESS_MS = 15 * 60 * 1000;
 export const REFRESH_MS = 30 * 24 * 60 * 60 * 1000;
 export const ENROLL_MS = 24 * 60 * 60 * 1000;
@@ -33,6 +35,22 @@ export function randomToken() {
   return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+export function randomPairCode() {
+  let code = '';
+  const limit = 256 - (256 % PAIR_ALPHABET.length);
+  while (code.length < 4) {
+    const [byte] = crypto.getRandomValues(new Uint8Array(1));
+    if (byte < limit) code += PAIR_ALPHABET[byte % PAIR_ALPHABET.length];
+  }
+  return code;
+}
+
+export function normalizePairCode(value) {
+  const code = String(value || '').trim().toUpperCase();
+  if (code.length !== 4 || [...code].some(character => !PAIR_ALPHABET.includes(character))) return '';
+  return code;
+}
+
 function sameHash(left, right) {
   if (typeof left !== 'string' || typeof right !== 'string' || left.length !== right.length) return false;
   let diff = 0;
@@ -44,7 +62,9 @@ export function createMemoryDb(now = () => Date.now()) {
   const rates = new Map();
   let enrollment = null;
   let owner = null;
+  let pair = null;
   const accesses = [];
+  const browserRefreshes = [];
   let state = null;
   const commands = new Map();
   const events = [];
@@ -69,22 +89,59 @@ export function createMemoryDb(now = () => Date.now()) {
       enrollment = { ...enrollment, usedAt: now() };
       owner = { refreshHash: next.refreshHash, refreshExpiresAt: next.refreshExpiresAt };
       accesses.length = 0;
-      accesses.push({ accessHash: next.accessHash, accessExpiresAt: next.accessExpiresAt });
+      accesses.push({ accessHash: next.accessHash, accessExpiresAt: next.accessExpiresAt, sessionId: null });
       return true;
     },
     async loginRefresh(oldHash, next) {
-      if (!owner?.refreshHash || owner.refreshExpiresAt <= now() || !sameHash(owner.refreshHash, oldHash)) return false;
-      accesses.push({ accessHash: next.accessHash, accessExpiresAt: next.accessExpiresAt });
+      const ownerOk = Boolean(owner?.refreshHash && owner.refreshExpiresAt > now() && sameHash(owner.refreshHash, oldHash));
+      if (ownerOk) {
+        accesses.push({ accessHash: next.accessHash, accessExpiresAt: next.accessExpiresAt, sessionId: null });
+        return true;
+      }
+      const browser = browserRefreshes.find(item => item.expiresAt > now() && sameHash(item.refreshHash, oldHash));
+      if (!browser) return false;
+      accesses.push({ accessHash: next.accessHash, accessExpiresAt: next.accessExpiresAt, sessionId: browser.sessionId });
       return true;
     },
     async accessOk(accessHash) {
       return accesses.some(item => item.accessExpiresAt > now() && sameHash(item.accessHash, accessHash));
     },
     async logout(accessHash) {
-      if (!accesses.some(item => item.accessExpiresAt > now() && sameHash(item.accessHash, accessHash))) return false;
-      accesses.length = 0;
-      owner = { refreshHash: null, refreshExpiresAt: 0 };
+      const item = accesses.find(entry => entry.accessExpiresAt > now() && sameHash(entry.accessHash, accessHash));
+      if (!item) return false;
+      if (!item.sessionId) {
+        const index = accesses.indexOf(item);
+        accesses.splice(index, 1);
+        return true;
+      }
+      for (let index = accesses.length - 1; index >= 0; index -= 1) {
+        if (accesses[index].sessionId === item.sessionId) accesses.splice(index, 1);
+      }
+      for (let index = browserRefreshes.length - 1; index >= 0; index -= 1) {
+        if (browserRefreshes[index].sessionId === item.sessionId) browserRefreshes.splice(index, 1);
+      }
       return true;
+    },
+    async mintPair(accessHash, codeHash, expiresAt) {
+      const host = accesses.some(item => !item.sessionId && item.accessExpiresAt > now() && sameHash(item.accessHash, accessHash));
+      if (!host) return false;
+      pair = { codeHash, expiresAt, usedAt: null, attempts: 0 };
+      return true;
+    },
+    async redeemPair(codeHash, ipKey, next) {
+      if (!await this.rate('pair-global', 20, 600) || !await this.rate(ipKey, 5, 600)) return 2;
+      const live = pair && !pair.usedAt && pair.expiresAt > now() && pair.attempts < 5;
+      if (!live || !sameHash(pair.codeHash, codeHash)) {
+        if (pair && !pair.usedAt && pair.expiresAt > now()) {
+          pair = { ...pair, attempts: pair.attempts + 1, usedAt: pair.attempts + 1 >= 5 ? now() : null };
+        }
+        return 0;
+      }
+      pair = { ...pair, usedAt: now() };
+      const sessionId = randomToken().slice(0, 32);
+      accesses.push({ accessHash: next.accessHash, accessExpiresAt: next.accessExpiresAt, sessionId });
+      browserRefreshes.push({ refreshHash: next.refreshHash, expiresAt: next.refreshExpiresAt, sessionId });
+      return 1;
     },
     async writeState(payload) {
       state = payload;
@@ -211,8 +268,31 @@ export async function handleGrokRequest({ body, accessToken = '', ip = 'unknown'
     }
     return failure(401, 'Sign-in did not complete.', 'credentials');
   }
+  if (action === 'redeem-pair') {
+    const code = normalizePairCode(body.code);
+    const issued = await issue(db, now);
+    const result = await db.redeemPair(code ? await sha256Hex(code) : '', `pair-ip:${ipHash}`, issued.next);
+    if (result === 2) return failure(429, 'Please wait briefly before trying again.', 'rate');
+    if (result !== 1) return failure(401, 'That pairing code was not accepted.', 'credentials');
+    return {
+      status: 200,
+      body: {
+        ownerId: OWNER_ID,
+        access: issued.access,
+        refresh: issued.refresh,
+        accessExpiresAt: issued.next.accessExpiresAt,
+        refreshExpiresAt: issued.next.refreshExpiresAt,
+      },
+    };
+  }
   if (!TOKEN.test(accessToken) || !await db.accessOk(await sha256Hex(accessToken))) {
     return failure(401, 'Sign-in did not complete.', 'credentials');
+  }
+  if (action === 'mint-pair') {
+    const code = randomPairCode();
+    const saved = await db.mintPair(await sha256Hex(accessToken), await sha256Hex(code), now + PAIR_MS);
+    if (!saved) return failure(401, 'Sign-in did not complete.', 'credentials');
+    return { status: 200, body: { code, expiresAt: now + PAIR_MS } };
   }
   if (action === 'logout') {
     await db.logout(await sha256Hex(accessToken));
@@ -304,6 +384,23 @@ export function createRestDb({ url, key, fetchImpl = fetch, now = () => Date.now
     },
     async logout(accessHash) {
       return rpc('grok_logout', { p_access_hash: accessHash });
+    },
+    async mintPair(accessHash, codeHash, expiresAt) {
+      return rpc('grok_mint_pair', {
+        p_access_hash: accessHash,
+        p_code_hash: codeHash,
+        p_expires: new Date(expiresAt).toISOString(),
+      });
+    },
+    async redeemPair(codeHash, ipKey, next) {
+      return rpc('grok_redeem_pair', {
+        p_code_hash: codeHash,
+        p_ip_key: ipKey,
+        p_access_hash: next.accessHash,
+        p_access_expires: new Date(next.accessExpiresAt).toISOString(),
+        p_refresh_hash: next.refreshHash,
+        p_refresh_expires: new Date(next.refreshExpiresAt).toISOString(),
+      });
     },
     async writeState(payload) {
       await rest('grok_state?id=eq.1', {

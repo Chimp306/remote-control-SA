@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import { STATE_LEASE_MS } from '../app/grok-control.js';
 import { GROK_FUNCTION_URL, GROK_PUBLISHABLE_KEY } from '../app/grok-public.js';
+import { createGrokBridgeClient } from '../app/grok-bridge-client.js';
 import { createFunctionTransport, createGrokAdapter } from './grok-adapter.mjs';
 
 const waitMs = Number(process.env.GROK_ACK_WAIT_MS || 8000);
@@ -48,8 +49,23 @@ function paramsFor(name, rest) {
 }
 
 const [action, commandName, ...rest] = process.argv.slice(2);
+if (action === 'pair') {
+  const file = process.env.GROK_PAIR_CODE_FILE || '';
+  if (!file) fail('Set GROK_PAIR_CODE_FILE.', 1);
+  const token = pairingToken();
+  const store = { value: token, get() { return this.value; }, set(value) { this.value = value; }, clear() { this.value = ''; } };
+  const client = createGrokBridgeClient({ url, publishableKey: key, store });
+  let minted;
+  try { minted = await client.mintPair(); }
+  catch { fail('Pairing code was not created.', 1); }
+  if (!minted?.code || String(minted.code).length !== 4) fail('Pairing code was not created.', 1);
+  fs.writeFileSync(file, `${minted.code}\n`, { mode: 0o600 });
+  try { fs.chmodSync(file, 0o600); } catch { /* the write mode already restricts it */ }
+  console.log(JSON.stringify({ type: 'pair-code', file, expiresAt: minted.expiresAt }));
+  process.exit(0);
+}
 if (!['status', 'send'].includes(action) || (action === 'send' && !commandName)) {
-  fail('Use status, or send with a command name.', 1);
+  fail('Use status, send with a command name, or pair.', 1);
 }
 
 const token = pairingToken();
