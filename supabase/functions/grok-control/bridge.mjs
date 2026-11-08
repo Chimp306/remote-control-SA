@@ -51,6 +51,7 @@ export function createMemoryDb(now = () => Date.now()) {
   const acks = [];
   return {
     async rate(key, limit, windowSec) {
+      if (typeof key !== 'string' || key.length < 8 || key.length > 200) return false;
       const bucket = Math.floor(now() / 1000 / Math.max(1, windowSec));
       const mapKey = `${key}:${bucket}`;
       const attempts = (rates.get(mapKey) || 0) + 1;
@@ -218,7 +219,7 @@ export async function handleGrokRequest({ body, accessToken = '', ip = 'unknown'
     return { status: 200, body: { ok: true } };
   }
   if (action === 'sync') {
-    if (!await db.rate('sync', 90, 60)) return failure(429, 'Please wait briefly before trying again.', 'rate');
+    if (!await db.rate('grok-sync', 90, 60)) return failure(429, 'Please wait briefly before trying again.', 'rate');
     const state = cleanState(body.state);
     if (state) await db.writeState(state);
     for (const item of Array.isArray(body.events) ? body.events.slice(0, 20) : []) {
@@ -230,7 +231,7 @@ export async function handleGrokRequest({ body, accessToken = '', ip = 'unknown'
     return { status: 200, body: { commands: await db.listCommands(now) } };
   }
   if (action === 'send') {
-    if (!await db.rate('send', 30, 60)) return failure(429, 'Please wait briefly before trying again.', 'rate');
+    if (!await db.rate('grok-send', 30, 60)) return failure(429, 'Please wait briefly before trying again.', 'rate');
     const command = cleanCommand(body.command, now);
     if (!command) return failure(400, 'Invalid request', 'bad');
     const saved = await db.insertCommand(command);
@@ -238,7 +239,7 @@ export async function handleGrokRequest({ body, accessToken = '', ip = 'unknown'
     return { status: 200, body: { ok: true } };
   }
   if (action === 'read') {
-    if (!await db.rate('read', 90, 60)) return failure(429, 'Please wait briefly before trying again.', 'rate');
+    if (!await db.rate('grok-read', 90, 60)) return failure(429, 'Please wait briefly before trying again.', 'rate');
     return {
       status: 200,
       body: {
@@ -251,15 +252,19 @@ export async function handleGrokRequest({ body, accessToken = '', ip = 'unknown'
   return failure(400, 'Invalid request', 'bad');
 }
 
+export function restHeaders(key, extra = {}) {
+  const headers = { apikey: key, 'Content-Type': 'application/json', ...extra };
+  // sb_secret keys are not JWTs and are rejected on Authorization. A legacy
+  // service_role JWT still selects its database role through that header.
+  if (typeof key === 'string' && key.startsWith('eyJ')) headers.Authorization = `Bearer ${key}`;
+  return headers;
+}
+
 export function createRestDb({ url, key, fetchImpl = fetch, now = () => Date.now() }) {
   async function rest(path, { method = 'GET', body, prefer } = {}) {
     const response = await fetchImpl(`${url}/rest/v1/${path}`, {
       method,
-      headers: {
-        apikey: key,
-        'Content-Type': 'application/json',
-        ...(prefer ? { Prefer: prefer } : {}),
-      },
+      headers: restHeaders(key, prefer ? { Prefer: prefer } : {}),
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const text = await response.text();
@@ -314,7 +319,7 @@ export function createRestDb({ url, key, fetchImpl = fetch, now = () => Date.now
     async insertCommand(payload) {
       const response = await fetchImpl(`${url}/rest/v1/grok_command`, {
         method: 'POST',
-        headers: { apikey: key, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        headers: restHeaders(key, { Prefer: 'return=minimal' }),
         body: JSON.stringify({ id: payload.id, payload }),
       });
       if (response.status === 409) return false;

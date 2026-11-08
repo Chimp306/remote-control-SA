@@ -156,7 +156,7 @@ test('simple player labels the existing count and shows the shared timer', () =>
   assert.match(player, /from '\.\/config\.js\?v=20261108-v215'/);
   assert.equal(player.includes('config.js?v=20261107-v214'), false);
   const solo = fs.readFileSync(new URL('../SOLO/index.html', import.meta.url), 'utf8');
-  assert.match(solo, /const version = '20261108-v218'/);
+  assert.match(solo, /const version = '20261108-v219'/);
   assert.match(solo, /simple-player\.js\?v=\$\{version\}/);
   assert.equal(html.includes('simple-player.js'), false);
   const suc = fs.readFileSync(new URL('../suc/index.html', import.meta.url), 'utf8');

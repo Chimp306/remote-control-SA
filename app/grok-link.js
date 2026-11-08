@@ -2,9 +2,9 @@
  * Owner-token transport for Grok Control. The service role is never loaded.
  * There is no Supabase Auth session and no Realtime channel.
  */
-import { GROK_FUNCTION_URL, GROK_PUBLISHABLE_KEY } from './grok-public.js?v=20261108-v218';
-import { browserRefreshStore, createGrokBridgeClient } from './grok-bridge-client.js?v=20261108-v218';
-import { createChannelGate } from './grok-control.js?v=20261108-v218';
+import { GROK_FUNCTION_URL, GROK_PUBLISHABLE_KEY } from './grok-public.js?v=20261108-v219';
+import { browserRefreshStore, createGrokBridgeClient } from './grok-bridge-client.js?v=20261108-v219';
+import { createChannelGate } from './grok-control.js?v=20261108-v219';
 
 export function grokEndpoint() {
   if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('bridge')) {
@@ -32,6 +32,13 @@ export function createGrokLink() {
     setTimeout(() => handler?.(event, session), 0);
   }
 
+  function drop() {
+    gate.clear();
+    bound = null;
+    if (timer) clearInterval(timer);
+    timer = null;
+  }
+
   async function tick() {
     if (!bound || !gate.matches(bound)) return;
     const token = bound;
@@ -44,7 +51,11 @@ export function createGrokLink() {
       pendingState = null;
       if (!gate.matches(token)) return;
       for (const command of result.commands || []) onCommand?.(command, token);
-    } catch { /* the page keeps the local loop */ }
+    } catch (err) {
+      if (err?.kind !== 'credentials' || !gate.matches(token)) return;
+      drop();
+      emit('SIGNED_OUT', null);
+    }
   }
 
   return {
@@ -66,14 +77,9 @@ export function createGrokLink() {
     takeRefresh() {
       try { return localStorage.getItem('ctmp-grok-refresh-v1') || ''; } catch { return ''; }
     },
-    drop() {
-      gate.clear();
-      bound = null;
-      if (timer) clearInterval(timer);
-      timer = null;
-    },
+    drop,
     async signOut() {
-      this.drop();
+      drop();
       try { await client.logout(); } catch { /* the page already disarmed */ }
       emit('SIGNED_OUT', null);
     },

@@ -113,6 +113,7 @@ begin
   ) then
     raise exception 'owner session already exists';
   end if;
+  perform pg_catalog.pg_advisory_xact_lock(611082345);
   token := encode(extensions.gen_random_bytes(32), 'hex');
   insert into public.grok_enrollment (id, code_hash, expires_at, used_at)
   values (1, encode(extensions.digest(token, 'sha256'), 'hex'), now() + interval '24 hours', null)
@@ -132,6 +133,7 @@ security definer
 set search_path = public
 as $$
 begin
+  perform pg_catalog.pg_advisory_xact_lock(611082345);
   delete from public.grok_session where id = 1;
   delete from public.grok_access;
   delete from public.grok_enrollment where id = 1;
@@ -157,6 +159,7 @@ as $$
 declare
   consumed integer;
 begin
+  perform pg_catalog.pg_advisory_xact_lock(611082345);
   update public.grok_enrollment
   set used_at = now()
   where id = 1
@@ -190,6 +193,7 @@ security invoker
 set search_path = public
 as $$
 begin
+  perform pg_catalog.pg_advisory_xact_lock(611082345);
   if not exists (
     select 1 from public.grok_session
     where id = 1 and refresh_hash = p_refresh_hash and refresh_expires_at > now()
@@ -222,6 +226,7 @@ security invoker
 set search_path = public
 as $$
 begin
+  perform pg_catalog.pg_advisory_xact_lock(611082345);
   if not exists (
     select 1 from public.grok_access
     where access_hash = p_access_hash and expires_at > now()

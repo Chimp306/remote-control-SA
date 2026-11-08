@@ -6,7 +6,7 @@
 import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261108-v215';
 import { CivetDevice, OpossumDevice, confirmDeviceStopped, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261107-v212';
 import { BUILD } from './config.js?v=20261108-v215';
-import { ackEvent, controlEvent, createGrokSession, runAcceptedCommand, settleChannelCommand, signInFailureMessage, stateEvent } from './grok-control.js?v=20261108-v218';
+import { ackEvent, controlEvent, createGrokSession, runAcceptedCommand, settleChannelCommand, signInFailureMessage, stateEvent } from './grok-control.js?v=20261108-v219';
 import { PlayTimer, formatPlayDuration } from './play-timer.js?v=20261107-v212';
 import { lifecycleDecision } from './page-lifecycle.js?v=20261107-v212';
 import {
@@ -1562,7 +1562,7 @@ function grokOwnerLost(status) {
 }
 
 if ((grokMode && !testMode) || grokBridgeTest) {
-  import('./grok-link.js?v=20261108-v218').then(mod => {
+  import('./grok-link.js?v=20261108-v219').then(mod => {
     grokLink = mod.createGrokLink();
     grokLinkState = 'signed-out';
     render();

@@ -42,8 +42,13 @@ export function createGrokBridgeClient({ url, publishableKey = '', fetchImpl = f
     }
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const error = new Error(response.status === 429 ? 'Please wait briefly before trying again.' : 'Sign-in did not complete.');
-      error.kind = payload?.kind || (response.status === 429 ? 'rate' : 'credentials');
+      const kind = response.status === 401 ? 'credentials' : response.status === 429 ? 'rate' : 'unavailable';
+      const error = new Error(kind === 'rate'
+        ? 'Please wait briefly before trying again.'
+        : kind === 'credentials'
+          ? 'Sign-in did not complete.'
+          : 'The bridge did not answer.');
+      error.kind = kind;
       throw error;
     }
     return payload;

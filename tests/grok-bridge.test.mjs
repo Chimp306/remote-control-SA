@@ -20,6 +20,78 @@ import {
 
 const read = name => fs.readFileSync(new URL(name, import.meta.url), 'utf8');
 
+test('short rate keys are rejected and a normal sync is not', async () => {
+  const db = createMemoryDb();
+  assert.equal(await db.rate('sync', 90, 60), false);
+  assert.equal(await db.rate('grok-sync', 90, 60), true);
+  const code = await provisionEnrollment(db);
+  const login = await handleGrokRequest({ body: { action: 'login', enrollment: code }, db, ip: 'rate' });
+  const synced = await handleGrokRequest({
+    body: { action: 'sync', state: { v: 1, type: 'state', sessionId: 's', epoch: 1, armed: true, phase: 'idle' } },
+    accessToken: login.body.access,
+    db,
+  });
+  assert.equal(synced.status, 200);
+  assert.notEqual(synced.body.kind, 'rate');
+});
+
+test('a confirmed 401 signs the link out and a network failure does not', async () => {
+  const store = new Map();
+  const originalFetch = globalThis.fetch;
+  globalThis.localStorage = {
+    getItem: key => store.get(key) ?? null,
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: key => store.delete(key),
+  };
+  let mode = 'ok';
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body);
+    if (body.action === 'login') {
+      return new Response(JSON.stringify({
+        ownerId: 'owner', access: 'ab'.repeat(32), refresh: 'cd'.repeat(32),
+        accessExpiresAt: Date.now() + 60_000, refreshExpiresAt: Date.now() + 3_600_000,
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (mode === 'auth') {
+      return new Response(JSON.stringify({ error: 'Sign-in did not complete.', kind: 'credentials' }), { status: 401, headers: { 'content-type': 'application/json' } });
+    }
+    if (mode === 'down') throw new Error('offline');
+    return new Response(JSON.stringify({ commands: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const source = read('../app/grok-link.js').replace(/\?v=[^'"]+/g, '');
+  const entry = new URL('../app/grok-link.runtime.mjs', import.meta.url);
+  fs.writeFileSync(entry, source);
+  try {
+    const { createGrokLink } = await import(entry.href);
+    const events = [];
+    const rejected = createGrokLink();
+    rejected.onAuth(event => events.push(event));
+    await rejected.signIn('a'.repeat(64));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    mode = 'auth';
+    const opened = await rejected.open(() => {}, 'owner');
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(events.includes('SIGNED_OUT'), true);
+    const stale = await rejected.publish('state', { v: 1 }, { generation: opened.generation, userId: opened.userId });
+    assert.equal(stale.sent, false);
+    mode = 'down';
+    const kept = [];
+    const offline = createGrokLink();
+    offline.onAuth(event => kept.push(event));
+    await offline.signIn('b'.repeat(64));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const live = await offline.open(() => {}, 'owner');
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(kept.includes('SIGNED_OUT'), false);
+    const still = await offline.publish('state', { v: 1 }, { generation: live.generation, userId: live.userId });
+    assert.equal(still.sent, true);
+    offline.drop();
+  } finally {
+    globalThis.fetch = originalFetch;
+    fs.unlinkSync(entry);
+  }
+});
+
 test('enrollment is one-time, a stranger cannot read, and a command replay is rejected', async () => {
   const db = createMemoryDb();
   const code = await provisionEnrollment(db);
@@ -166,6 +238,18 @@ test('database calls send the secret on apikey only, and the SQL stays private',
   assert.equal(await db.rate('login:abcdef1234567890', 8, 600), true);
   assert.equal(calls[0].headers.apikey, 'server-side-key');
   assert.equal(calls[0].headers.Authorization, undefined);
+  const legacy = [];
+  const legacyDb = createRestDb({
+    url: 'https://kmswwrfglbdbwoapusfw.supabase.co',
+    key: 'eyJlegacy.service.role',
+    fetchImpl: async (url, options) => {
+      legacy.push(options.headers);
+      return { ok: true, status: 200, text: async () => 'true' };
+    },
+  });
+  await legacyDb.rate('grok-sync', 90, 60);
+  assert.equal(legacy[0].apikey, 'eyJlegacy.service.role');
+  assert.equal(legacy[0].Authorization, 'Bearer eyJlegacy.service.role');
   assert.equal(calls[0].url.includes('/rest/v1/rpc/grok_rate'), true);
   const sql = read('../supabase/migrations/20261108234500_grok_bridge.sql');
   const executable = sql.replace(/--.*$/gm, '');
