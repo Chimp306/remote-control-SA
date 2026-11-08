@@ -59,19 +59,23 @@ If a live owner session must be replaced, run `select public.grok_clear_owner();
 
 ## Using it
 
-On `/GROK/`, paste the enrollment code once. The page stores a refresh token in `ctmp-grok-refresh-v1` and shows a bot token once. Put that bot token in `GROK_REFRESH_TOKEN`. Do not send it in chat.
+`/GROK/` connects, calibrates, and arms with no pairing. Local Stop still wins. Remote commands stay off until the page is paired and armed again.
 
-The access token lasts 15 minutes and stays in memory. The refresh token lasts 30 days. The browser and the bot can both sign in with it; each receives its own access token. Sign-out revokes the refresh token and every access token. A new enrollment code is then required.
+The one user step is pasting the pairing code. A privileged SQL session still runs `select public.grok_provision_enrollment();` and writes that result to a file the chat never sees. On the bot machine:
 
-Bot, values only in the environment:
+`GROK_ENROLLMENT_FILE=/path/enrollment.txt GROK_TOKEN_FILE=/path/grok-bot.token node scripts/grok-pair.mjs`
 
-`GROK_FUNCTION_URL=https://kmswwrfglbdbwoapusfw.supabase.co/functions/v1/grok-control GROK_PUBLISHABLE_KEY=sb_publishable_mnNJB7hsFVUnpo_ikIxXxA_OYuPBKl8 GROK_REFRESH_TOKEN=... node scripts/grok-control-client.mjs`
+That spends the enrollment code and writes the pairing code to the token file with mode 600. It does not print the code. Copy that file onto the bot. Paste the same code once into Pair on `/GROK/`. There is no account form and no dashboard step. Unpair leaves local control in place.
 
-A secret key or service-role JWT is refused. One stdin line sends one command, for example `{"command":"pause"}`. A command before the first state, or while the page is disarmed, prints an error and the process keeps reading.
+The bot is not connected until a host runs it:
 
-Dry run, with no credentials:
+`GROK_TOKEN_FILE=/path/grok-bot.token node scripts/grok-bot.mjs status`
 
-`GROK_DRY_RUN=1 node scripts/grok-control-client.mjs`
+`GROK_TOKEN_FILE=/path/grok-bot.token node scripts/grok-bot.mjs send stop`
+
+`status` exits 2 when the page state is older than its lease. `send` waits up to 8 seconds for an acknowledgement. The token is not written to the output. A chat window does not receive state until this command runs.
+
+The hosted function must be redeployed so published state keeps `lastSeq`. No SQL change is required for that. The public project coordinates are unchanged.
 
 ## Limits
 

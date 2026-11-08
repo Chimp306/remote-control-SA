@@ -158,7 +158,7 @@ test('sign-in failures stay fixed sentences', () => {
     assert.equal(message.toLowerCase().includes('service_role'), false);
     assert.equal(message.includes('@'), false);
   }
-  assert.match(messages[0], /enrollment code/);
+  assert.match(messages[0], /pairing code/);
   assert.match(messages[1], /could not reach/);
 });
 
@@ -382,7 +382,9 @@ test('SOLO and SUC do not open the Grok channel', () => {
   assert.match(player, /publishGrokEvent\('fault'\)/);
   assert.match(player, /settleChannelCommand/);
   assert.equal(player.includes('binding !== grokBinding'), false);
-  assert.match(player, /data-grok-auth/);
+  assert.match(player, /data-grok-pair/);
+  assert.match(player, /grokUserId \|\| 'local'/);
+  assert.equal(player.includes('Owner sign-in is required'), false);
   assert.match(player, /signInFailureMessage/);
   const link = read('../app/grok-link.js');
   assert.match(link, /setTimeout\(\(\) => handler\?\.\(event, session\), 0\)/);

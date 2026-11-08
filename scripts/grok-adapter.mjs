@@ -16,10 +16,13 @@ export function createGrokAdapter({ transport, now = () => Date.now(), ttlMs = 5
 
   function noteState(payload) {
     if (!payload || payload.sessionId == null) return;
-    if (payload.sessionId !== sessionId || payload.epoch !== epoch) {
-      seq = 0;
+    const resumed = payload.sessionId === sessionId && payload.epoch === epoch;
+    if (!resumed) {
       sessionId = payload.sessionId;
       epoch = payload.epoch;
+      seq = Number.isSafeInteger(payload.lastSeq) ? payload.lastSeq : 0;
+    } else if (Number.isSafeInteger(payload.lastSeq) && payload.lastSeq > seq) {
+      seq = payload.lastSeq;
     }
     latest = payload;
     states.push(payload);

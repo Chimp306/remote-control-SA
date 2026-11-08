@@ -157,6 +157,7 @@ export function createGrokSession({ patterns, now = () => Date.now() } = {}) {
     get userId() { return userId; },
     get deviceId() { return deviceId; },
     get localLatch() { return localLatch; },
+    get lastSeq() { return lastSeq; },
     arm({ nextUserId, nextDeviceId }) {
       if (!nextUserId || !nextDeviceId) return { ok: false, reason: 'missing-identity' };
       sessionId = globalThis.crypto.randomUUID();
@@ -235,6 +236,7 @@ export function stateEvent(view) {
     link: view.link,
     publishedAt: view.publishedAt,
     leaseMs: STATE_LEASE_MS,
+    lastSeq: Number.isSafeInteger(view.lastSeq) ? view.lastSeq : 0,
   };
 }
 
@@ -282,7 +284,7 @@ export async function settleChannelCommand({ binding, current, run, publish }) {
 }
 
 export function signInFailureMessage(kind) {
-  if (kind === 'credentials') return 'That enrollment code was not accepted.';
+  if (kind === 'credentials') return 'That pairing code was not accepted.';
   if (kind === 'rate') return 'Please wait briefly before trying again.';
   if (kind === 'network') return 'Sign-in could not reach the account service.';
   if (kind === 'rejected') return 'That credential is not accepted on this page.';

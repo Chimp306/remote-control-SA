@@ -77,6 +77,10 @@ export function createGrokBridgeClient({ url, publishableKey = '', fetchImpl = f
       }
       return login({ action: 'login', refresh });
     },
+    async useRefresh(token) {
+      store?.set?.(String(token || '').trim().toLowerCase());
+      return this.loginRefresh();
+    },
     async ensureAccess() {
       if (access && accessExpiresAt - now() > 30_000) return access;
       await this.loginRefresh();
