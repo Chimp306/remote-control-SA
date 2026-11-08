@@ -3,6 +3,7 @@
  * Credentials stay in the environment. The service role is refused.
  */
 import { COMMAND_NAMES, jwtRole, SCHEMA, topicForUser } from '../app/grok-control.js';
+import { createGrokBridgeClient } from '../app/grok-bridge-client.js';
 
 export function createGrokAdapter({ transport, now = () => Date.now(), ttlMs = 5000, log = () => {} }) {
   let latest = null;
@@ -123,6 +124,38 @@ export async function runDryDemo(log = console.log) {
   const ack = adapter.acks()[0];
   log({ type: 'dry-run', sent: sent.sent, accepted: ack.accepted, applied: ack.applied, hardware: ack.hardware });
   return { sent, ack };
+}
+
+export function createFunctionTransport({ url, publishableKey = '', refreshToken, fetchImpl = fetch, pollMs = 1000 }) {
+  if (jwtRole(refreshToken) === 'service_role' || String(refreshToken || '').startsWith('sb_secret_')) {
+    throw new Error('The service role is refused.');
+  }
+  const store = {
+    value: refreshToken,
+    get() { return this.value || ''; },
+    set(value) { this.value = value; },
+    clear() { this.value = ''; },
+  };
+  const client = createGrokBridgeClient({ url, publishableKey, fetchImpl, store });
+  let timer = null;
+  return {
+    async subscribe({ onState, onAck, onEvent }) {
+      await client.loginRefresh();
+      const pull = async () => {
+        const result = await client.read();
+        if (result.state) onState(result.state);
+        for (const event of result.events || []) onEvent(event);
+        for (const ack of result.acks || []) onAck(ack);
+      };
+      await pull();
+      timer = setInterval(() => { void pull().catch(() => {}); }, pollMs);
+    },
+    async send(envelope) {
+      await client.send(envelope);
+      return { sent: true, envelope };
+    },
+    close() { if (timer) clearInterval(timer); },
+  };
 }
 
 export async function createSupabaseTransport({ url, key, accessToken, refreshToken = '' }) {

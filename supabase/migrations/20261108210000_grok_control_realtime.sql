@@ -1,3 +1,4 @@
+-- Do not apply this file to ctmp-grok. That project uses grok_bridge.sql.
 -- Owner-only Grok Control broadcasts.
 -- Does not read or write freq_entries or ctmp_v2_*.
 -- Realtime checks these policies when a private channel is joined, then rolls

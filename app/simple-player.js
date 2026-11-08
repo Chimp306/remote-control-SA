@@ -6,7 +6,7 @@
 import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261108-v215';
 import { CivetDevice, OpossumDevice, confirmDeviceStopped, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261107-v212';
 import { BUILD } from './config.js?v=20261108-v215';
-import { ackEvent, controlEvent, createGrokSession, runAcceptedCommand, settleChannelCommand, signInFailureMessage, stateEvent } from './grok-control.js?v=20261108-v217';
+import { ackEvent, controlEvent, createGrokSession, runAcceptedCommand, settleChannelCommand, signInFailureMessage, stateEvent } from './grok-control.js?v=20261108-v218';
 import { PlayTimer, formatPlayDuration } from './play-timer.js?v=20261107-v212';
 import { lifecycleDecision } from './page-lifecycle.js?v=20261107-v212';
 import {
@@ -82,6 +82,7 @@ let civetHint = 'Not connected';
 let opossumHint = 'Not connected';
 let testMode = new URLSearchParams(location.search).has('test');
 const grokMode = /^\/GROK\/?$/.test(location.pathname);
+const grokBridgeTest = grokMode && new URLSearchParams(location.search).has('bridge');
 const grokPatterns = OPOSSUM_PATTERNS.filter(name => name !== 'custom');
 const grok = grokMode ? createGrokSession({ patterns: grokPatterns }) : null;
 let grokUserId = null;
@@ -89,6 +90,7 @@ let grokBinding = null;
 let grokLink = null;
 let grokLinkState = 'off';
 let grokStatus = grokMode ? 'Remote control is disarmed.' : '';
+let grokBotToken = '';
 const grokPublished = [];
 let grokPublishTimer = null;
 let grokFaultKey = '';
@@ -1255,14 +1257,13 @@ function grokPanelHTML() {
       <p class="note">Remote start works only while this session is armed, this sensor is calibrated, and the reading is fresh. Local Stop wins. Resume stays on this page. A network stop cannot reach the toy if this page is disconnected.</p>
       <p class="note" id="grok-status">${escapeHtml(grokStatus)}</p>
       <p class="note">Link ${escapeHtml(grokLinkState)}. ${grokUserId ? 'Owner signed in.' : 'Owner sign-in is required before arming.'} Pressure is a sensor reading, not a medical status.</p>
-      ${testMode || grokUserId ? '' : `<form data-grok-auth autocomplete="on">
-        <label for="grok-email">Email</label>
-        <input id="grok-email" type="email" autocomplete="username" required>
-        <label for="grok-password">Password</label>
-        <input id="grok-password" type="password" autocomplete="current-password" required>
-        <button class="button button-primary" type="submit">Sign in</button>
+      ${(testMode && !grokBridgeTest) || grokUserId ? '' : `<form data-grok-auth autocomplete="off">
+        <label for="grok-enrollment">Enrollment code</label>
+        <input id="grok-enrollment" type="password" autocomplete="off" required>
+        <button class="button button-primary" type="submit">Continue</button>
       </form>
-      <p class="note">Password sign-in uses an existing account. This page cannot create one and does not send an email link.</p>`}
+      <p class="note">One-time code from the private setup step. This page cannot create an owner and does not send email.</p>`}
+      ${grokBotToken ? `<label for="grok-bot">Bot token</label><input id="grok-bot" readonly value="${escapeHtml(grokBotToken)}"><p class="note">Copy this into the bot environment once. Do not send it in chat.</p>` : ''}
       <div class="stack">
         ${grok.armed
           ? '<button class="button" type="button" data-act="grok-disarm">Disarm remote</button>'
@@ -1422,15 +1423,19 @@ function onSimulateEdge() {
 app.addEventListener('submit', event => {
   if (!event.target?.matches?.('[data-grok-auth]')) return;
   event.preventDefault();
-  const password = document.getElementById('grok-password');
-  const email = document.getElementById('grok-email')?.value.trim();
-  const secret = password?.value || '';
-  if (password) password.value = '';
-  if (!email || !secret) { grokStatus = signInFailureMessage('credentials'); render(); return; }
+  const field = document.getElementById('grok-enrollment');
+  const secret = field?.value.trim() || '';
+  if (field) field.value = '';
+  if (!secret) { grokStatus = signInFailureMessage('credentials'); render(); return; }
   if (!grokLink) { grokStatus = 'Sign-in is not available yet. Nothing was sent.'; render(); return; }
-  grokStatus = 'Checking the account…';
+  grokStatus = 'Checking the enrollment code…';
   render();
-  grokLink.signIn(email, secret).catch(err => {
+  grokLink.signIn(secret).then(() => {
+    grokBotToken = grokLink.takeRefresh();
+    grokStatus = 'Owner session ready on this browser.';
+    render();
+  }).catch(err => {
+    grokBotToken = '';
     grokStatus = signInFailureMessage(err?.kind);
     render();
   });
@@ -1531,7 +1536,7 @@ document.addEventListener('freeze', onPageLifecycle);
 document.addEventListener('resume', onPageLifecycle);
 window.addEventListener('pagehide', onPageLifecycle);
 
-if (grokMode && testMode) {
+if (grokMode && testMode && !grokBridgeTest) {
   grokUserId = 'simulated-owner';
   window.__ctmpGrok = {
     arm() { return grok.arm({ nextUserId: 'simulated-owner', nextDeviceId: sensorIdentity()?.id }); },
@@ -1546,6 +1551,7 @@ function grokOwnerLost(status) {
   grokUserId = null;
   grokBinding = null;
   grokLinkState = 'signed-out';
+  grokBotToken = '';
   if (changed) {
     grok?.authLost();
     if (ACTIVE.has(engine.phase)) onPause('Owner signed out. Output paused.');
@@ -1555,11 +1561,12 @@ function grokOwnerLost(status) {
   render();
 }
 
-if (grokMode && !testMode) {
-  import('./grok-link.js?v=20261108-v217').then(mod => {
+if ((grokMode && !testMode) || grokBridgeTest) {
+  import('./grok-link.js?v=20261108-v218').then(mod => {
     grokLink = mod.createGrokLink();
     grokLinkState = 'signed-out';
     render();
+    grokLink.restore().catch(() => { grokLinkState = 'signed-out'; render(); });
     grokLink.onAuth((event, session) => {
       if (event === 'TOKEN_REFRESHED' && session?.user?.id && session.user.id === grokUserId) return;
       if (!session?.user?.id || event === 'SIGNED_OUT') {

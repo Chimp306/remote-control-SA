@@ -158,7 +158,7 @@ test('sign-in failures stay fixed sentences', () => {
     assert.equal(message.toLowerCase().includes('service_role'), false);
     assert.equal(message.includes('@'), false);
   }
-  assert.match(messages[0], /email or password/);
+  assert.match(messages[0], /enrollment code/);
   assert.match(messages[1], /could not reach/);
 });
 
@@ -363,7 +363,7 @@ test('SOLO and SUC do not open the Grok channel', () => {
   const solo = read('../SOLO/index.html');
   const grok = read('../GROK/index.html');
   assert.match(player, /const grokMode = \/\^\\\/GROK\\\/\?\$\//);
-  assert.match(player, /if \(grokMode && !testMode\)/);
+  assert.match(player, /grokMode && !testMode/);
   assert.equal(suc.includes('grok-control'), false);
   assert.equal(solo.includes('grok-link'), false);
   assert.match(grok, /\/app\/simple-player\.js\?v=\$\{version\}/);
@@ -385,8 +385,10 @@ test('SOLO and SUC do not open the Grok channel', () => {
   assert.match(player, /data-grok-auth/);
   assert.match(player, /signInFailureMessage/);
   const link = read('../app/grok-link.js');
-  assert.match(link, /setTimeout\(\(\) => handler\(event, session\), 0\)/);
+  assert.match(link, /setTimeout\(\(\) => handler\?\.\(event, session\), 0\)/);
   assert.match(link, /gate\.bind\(expectedUserId\)/);
-  assert.match(link, /listenForCommands/);
-  assert.match(link, /failureKind/);
+  assert.match(link, /createChannelGate/);
+  assert.equal(link.includes('signInWithPassword'), false);
+  assert.equal(link.includes('hqciviafxtfescteyvnn'), false);
+  assert.equal(link.includes('config.js'), false);
 });

@@ -282,7 +282,8 @@ export async function settleChannelCommand({ binding, current, run, publish }) {
 }
 
 export function signInFailureMessage(kind) {
-  if (kind === 'credentials') return 'That email or password was not accepted.';
+  if (kind === 'credentials') return 'That enrollment code was not accepted.';
+  if (kind === 'rate') return 'Please wait briefly before trying again.';
   if (kind === 'network') return 'Sign-in could not reach the account service.';
   if (kind === 'rejected') return 'That credential is not accepted on this page.';
   return 'Sign-in did not complete. This page cannot create an account.';

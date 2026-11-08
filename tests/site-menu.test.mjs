@@ -54,7 +54,7 @@ test('root sends test mode to SOLO and does not load the player on the menu', ()
 
 test('SOLO uses absolute current assets and FREQ cannot save entries', () => {
   const solo = read('../SOLO/index.html');
-  assert.match(solo, /const version = '20261108-v217'/);
+  assert.match(solo, /const version = '20261108-v218'/);
   assert.match(solo, /\/app\/simple-player\.css\?v=\$\{version\}/);
   assert.match(solo, /import\(`\/app\/simple-player\.js\?v=\$\{version\}`\)/);
   assert.equal(solo.includes('src="app/'), false);

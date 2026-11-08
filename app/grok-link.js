@@ -1,110 +1,99 @@
 /**
- * Owner JWT transport for Grok Control. The service role is refused.
- * Broadcasts are not stored. private:true still needs the realtime.messages policies.
+ * Owner-token transport for Grok Control. The service role is never loaded.
+ * There is no Supabase Auth session and no Realtime channel.
  */
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/+esm';
-import { API_URL, PUBLISHABLE_KEY } from './config.js?v=20261108-v215';
-import { createChannelGate, jwtRole, listenForCommands, topicForUser } from './grok-control.js?v=20261108-v217';
+import { GROK_FUNCTION_URL, GROK_PUBLISHABLE_KEY } from './grok-public.js?v=20261108-v218';
+import { browserRefreshStore, createGrokBridgeClient } from './grok-bridge-client.js?v=20261108-v218';
+import { createChannelGate } from './grok-control.js?v=20261108-v218';
 
-export function projectUrl(apiUrl) {
-  return new URL(apiUrl).origin;
+export function grokEndpoint() {
+  if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('bridge')) {
+    return `${location.origin}/functions/v1/grok-control`;
+  }
+  return GROK_FUNCTION_URL;
 }
 
 export function createGrokLink() {
-  const client = createClient(projectUrl(API_URL), PUBLISHABLE_KEY, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: false,
-      flowType: 'pkce',
-      storageKey: 'ctmp-grok-auth',
-    },
+  const client = createGrokBridgeClient({
+    url: grokEndpoint(),
+    publishableKey: GROK_PUBLISHABLE_KEY,
+    store: browserRefreshStore(),
   });
   const gate = createChannelGate();
-  let channel = null;
+  let handler = null;
+  let onCommand = null;
+  let bound = null;
+  let timer = null;
+  let pendingState = null;
+  const pendingEvents = [];
+  const pendingAcks = [];
 
-  function requireUser(session) {
-    const role = jwtRole(session?.access_token || '');
-    if (role === 'service_role') throw new Error('The service role is not accepted.');
-    if (!session?.user?.id) throw new Error('Sign in is required.');
-    return session.user.id;
+  function emit(event, session) {
+    setTimeout(() => handler?.(event, session), 0);
+  }
+
+  async function tick() {
+    if (!bound || !gate.matches(bound)) return;
+    const token = bound;
+    try {
+      const result = await client.sync({
+        state: pendingState,
+        events: pendingEvents.splice(0, 20),
+        acks: pendingAcks.splice(0, 20),
+      });
+      pendingState = null;
+      if (!gate.matches(token)) return;
+      for (const command of result.commands || []) onCommand?.(command, token);
+    } catch { /* the page keeps the local loop */ }
   }
 
   return {
-    client,
-    onAuth(handler) {
-      client.auth.onAuthStateChange((event, session) => {
-        setTimeout(() => handler(event, session), 0);
-      });
+    onAuth(next) { handler = next; },
+    async restore() {
+      if (!client.hasRefresh()) return false;
+      const result = await client.loginRefresh();
+      emit('SIGNED_IN', { user: { id: result.ownerId } });
+      return true;
     },
-    async signIn(email, password) {
-      const { data, error } = await client.auth.signInWithPassword({ email, password });
-      if (error || !data.session) {
-        const failure = new Error('sign-in failed');
-        failure.kind = failureKind(error);
-        throw failure;
-      }
-      try {
-        return requireUser(data.session);
-      } catch (err) {
-        try { await client.auth.signOut(); } catch { /* nothing to keep */ }
-        const failure = new Error('sign-in failed');
-        failure.kind = /service role/i.test(String(err?.message || '')) ? 'rejected' : 'unknown';
-        throw failure;
-      }
+    async signIn(enrollment) {
+      const result = await client.loginEnrollment(enrollment);
+      emit('SIGNED_IN', { user: { id: result.ownerId } });
+      return result.ownerId;
+    },
+    botRefresh() {
+      return '';
+    },
+    takeRefresh() {
+      try { return localStorage.getItem('ctmp-grok-refresh-v1') || ''; } catch { return ''; }
     },
     drop() {
       gate.clear();
-      const current = channel;
-      channel = null;
-      if (current) void client.removeChannel(current).catch(() => {});
+      bound = null;
+      if (timer) clearInterval(timer);
+      timer = null;
     },
     async signOut() {
       this.drop();
-      try { await client.auth.signOut(); } catch { /* the page already disarmed */ }
+      try { await client.logout(); } catch { /* the page already disarmed */ }
+      emit('SIGNED_OUT', null);
     },
-    async open(onCommand, expectedUserId) {
-      const bound = gate.bind(expectedUserId);
-      const previous = channel;
-      channel = null;
-      if (previous) void client.removeChannel(previous).catch(() => {});
-      const { data } = await client.auth.getSession();
-      let id = '';
-      try { id = requireUser(data.session); } catch { id = ''; }
-      if (!id || id !== expectedUserId || !gate.matches(bound)) return { stale: true };
-      const topic = topicForUser(id);
-      const next = client.channel(topic, { config: { private: true, broadcast: { self: false } } });
-      listenForCommands(next, gate, bound, onCommand);
-      channel = next;
-      await new Promise((resolve, reject) => {
-        next.subscribe(status => {
-          if (!gate.matches(bound)) { resolve(); return; }
-          if (status === 'SUBSCRIBED') resolve();
-          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') reject(new Error(status));
-        });
-      });
-      if (!gate.matches(bound)) {
-        try { await client.removeChannel(next); } catch { /* already closed */ }
-        if (channel === next) channel = null;
-        return { stale: true };
-      }
-      return { topic, generation: bound.generation, userId: id };
+    async open(commandHandler, expectedUserId) {
+      bound = gate.bind(expectedUserId);
+      onCommand = commandHandler;
+      if (timer) clearInterval(timer);
+      timer = setInterval(() => { void tick(); }, 1000);
+      void tick();
+      return { topic: 'grok-bridge', generation: bound.generation, userId: expectedUserId };
     },
     async publish(event, payload, token) {
-      if (!channel || (token && !gate.matches(token))) return { sent: false };
-      const result = await channel.send({ type: 'broadcast', event, payload });
-      return { sent: result === 'ok' };
+      if (token && !gate.matches(token)) return { sent: false };
+      if (event === 'state') pendingState = payload;
+      else if (event === 'event') pendingEvents.push(payload);
+      else if (event === 'ack') pendingAcks.push(payload);
+      return { sent: true };
     },
     async close() {
       this.drop();
     },
   };
-}
-
-function failureKind(error) {
-  const code = String(error?.code || '');
-  const message = String(error?.message || '');
-  if (code === 'invalid_credentials' || code === 'email_not_confirmed' || /invalid login credentials/i.test(message)) return 'credentials';
-  if (/failed to fetch|network|load failed/i.test(message)) return 'network';
-  return 'unknown';
 }
