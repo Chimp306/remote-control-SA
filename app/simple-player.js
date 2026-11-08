@@ -6,7 +6,7 @@
 import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261108-v215';
 import { CivetDevice, OpossumDevice, confirmDeviceStopped, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261107-v212';
 import { BUILD } from './config.js?v=20261108-v215';
-import { ackEvent, controlEvent, createGrokSession, runAcceptedCommand, settleChannelCommand, signInFailureMessage, stateEvent } from './grok-control.js?v=20261108-v220';
+import { ackEvent, controlEvent, createGrokSession, runAcceptedCommand, settleChannelCommand, signInFailureMessage, stateEvent } from './grok-control.js?v=20261108-v221';
 import { PlayTimer, formatPlayDuration } from './play-timer.js?v=20261107-v212';
 import { lifecycleDecision } from './page-lifecycle.js?v=20261107-v212';
 import {
@@ -1259,10 +1259,10 @@ function grokPanelHTML() {
       <p class="note">Remote ${escapeHtml(grokLinkState)}. ${grokUserId ? 'Paired.' : 'Not paired.'} Pressure is a sensor reading, not a medical status.</p>
       ${(testMode && !grokBridgeTest) || grokUserId ? '' : `<form data-grok-pair autocomplete="off">
         <label for="grok-pair">Pairing code</label>
-        <input id="grok-pair" type="password" autocomplete="off">
+        <input id="grok-pair" type="text" maxlength="4" autocapitalize="characters" autocomplete="off" spellcheck="false">
         <button class="button" type="submit">Pair</button>
       </form>
-      <p class="note">Optional. One code from the private pairing file. This page has no account and does not send email.</p>`}
+      <p class="note">Optional. Type the 4 characters from the bot screen. This page has no account.</p>`}
       <div class="stack">
         ${grok.armed
           ? '<button class="button" type="button" data-act="grok-disarm">Disarm remote</button>'
@@ -1558,7 +1558,7 @@ function grokOwnerLost(status) {
 }
 
 if ((grokMode && !testMode) || grokBridgeTest) {
-  import('./grok-link.js?v=20261108-v220').then(mod => {
+  import('./grok-link.js?v=20261108-v221').then(mod => {
     grokLink = mod.createGrokLink();
     grokLinkState = 'signed-out';
     render();

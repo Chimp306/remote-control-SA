@@ -61,11 +61,13 @@ If a live owner session must be replaced, run `select public.grok_clear_owner();
 
 `/GROK/` connects, calibrates, and arms with no pairing. Local Stop still wins. Remote commands stay off until the page is paired and armed again.
 
-The one user step is pasting the pairing code. A privileged SQL session still runs `select public.grok_provision_enrollment();` and writes that result to a file the chat never sees. On the bot machine:
+The long owner token stays in `GROK_TOKEN_FILE` on the bot. It is not typed into the browser. On the bot machine:
 
-`GROK_ENROLLMENT_FILE=/path/enrollment.txt GROK_TOKEN_FILE=/path/grok-bot.token node scripts/grok-pair.mjs`
+`GROK_TOKEN_FILE=/path/grok-bot.token GROK_PAIR_CODE_FILE=/path/grok-pair.txt node scripts/grok-bot.mjs pair`
 
-That spends the enrollment code and writes the pairing code to the token file with mode 600. It does not print the code. Copy that file onto the bot. Paste the same code once into Pair on `/GROK/`. There is no account form and no dashboard step. Unpair leaves local control in place.
+That writes a 4-character code to the pair file and does not print it. Show that file on the desktop. The user types those 4 characters into Pair on `/GROK/`. The page receives its own access and refresh tokens. The bot token is not replaced. The code expires in 3 minutes, works once, and is burned after 5 wrong tries. There is no account form. Unpair leaves local control and the bot token in place.
+
+Apply `supabase/migrations/20261109001000_grok_pair_code.sql` and redeploy `supabase/functions/grok-control`.
 
 The bot is not connected until a host runs it:
 

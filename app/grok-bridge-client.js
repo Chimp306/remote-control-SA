@@ -81,6 +81,22 @@ export function createGrokBridgeClient({ url, publishableKey = '', fetchImpl = f
       store?.set?.(String(token || '').trim().toLowerCase());
       return this.loginRefresh();
     },
+    async redeemPair(code) {
+      const result = await post({ action: 'redeem-pair', code: String(code || '').trim() }, false);
+      if (typeof result.refresh !== 'string' || typeof result.access !== 'string' || result.refresh.length < 32) {
+        const error = new Error('Sign-in did not complete.');
+        error.kind = 'credentials';
+        throw error;
+      }
+      access = result.access;
+      accessExpiresAt = result.accessExpiresAt;
+      store?.set?.(result.refresh);
+      return result;
+    },
+    async mintPair() {
+      await this.ensureAccess();
+      return post({ action: 'mint-pair' }, true);
+    },
     async ensureAccess() {
       if (access && accessExpiresAt - now() > 30_000) return access;
       await this.loginRefresh();

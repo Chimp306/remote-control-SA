@@ -81,19 +81,33 @@ test('the browser uses the fake radio, rejects a replayed enrollment, and hides 
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ action: 'login', enrollment: started.enrollment }),
     }).then(response => response.json());
-    const tokenFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'grok-page-')), 'pairing.token');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-page-'));
+    const tokenFile = path.join(dir, 'pairing.token');
+    const codeFile = path.join(dir, 'pair.txt');
     fs.writeFileSync(tokenFile, `${paired.refresh}\n`, { mode: 0o600 });
     await waitFor('Boolean(document.getElementById("grok-pair")) && document.body.innerText.includes("Simulated")');
     assert.equal((await evalJs('document.body.innerText')).includes('sign-in is required'), false);
     assert.equal(await evalJs('document.querySelector("[data-act=\\"grok-arm\\"]").disabled'), false);
     await evalJs('document.querySelector("[data-act=\\"grok-arm\\"]").click()');
     await waitFor('document.getElementById("grok-status")?.textContent.includes("Armed")');
+    const mint = spawn(process.execPath, ['scripts/grok-bot.mjs', 'pair'], {
+      cwd: fileURLToPath(new URL('..', import.meta.url)),
+      env: { ...process.env, GROK_FUNCTION_URL: started.url, GROK_TOKEN_FILE: tokenFile, GROK_PAIR_CODE_FILE: codeFile },
+    });
+    let mintOut = '';
+    mint.stdout.on('data', chunk => { mintOut += chunk; });
+    assert.equal(await new Promise(resolve => mint.on('exit', resolve)), 0);
+    const pairCode = fs.readFileSync(codeFile, 'utf8').trim();
+    assert.equal(pairCode.length, 4);
+    assert.equal(mintOut.includes(pairCode), false);
+    assert.equal(mintOut.includes(paired.refresh), false);
     await evalJs(`{
-      document.getElementById('grok-pair').value = ${JSON.stringify(paired.refresh)};
+      document.getElementById('grok-pair').value = ${JSON.stringify(pairCode)};
       document.querySelector('[data-grok-pair]').requestSubmit();
       true;
     }`);
     await waitFor('document.body.innerText.includes("Paired.")');
+    assert.equal((await evalJs('document.body.innerText')).includes(pairCode), false);
     assert.equal((await evalJs('document.body.innerText')).includes(paired.refresh), false);
     await waitFor('document.querySelector("[data-act=\\"grok-arm\\"]")');
     await evalJs('document.querySelector("[data-act=\\"grok-arm\\"]").click()');
