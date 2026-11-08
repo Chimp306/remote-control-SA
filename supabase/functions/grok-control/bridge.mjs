@@ -89,28 +89,42 @@ export function createMemoryDb(now = () => Date.now()) {
       enrollment = { ...enrollment, usedAt: now() };
       owner = { refreshHash: next.refreshHash, refreshExpiresAt: next.refreshExpiresAt };
       accesses.length = 0;
-      accesses.push({ accessHash: next.accessHash, accessExpiresAt: next.accessExpiresAt });
+      accesses.push({ accessHash: next.accessHash, accessExpiresAt: next.accessExpiresAt, sessionId: null });
       return true;
     },
     async loginRefresh(oldHash, next) {
       const ownerOk = Boolean(owner?.refreshHash && owner.refreshExpiresAt > now() && sameHash(owner.refreshHash, oldHash));
-      const browserOk = browserRefreshes.some(item => item.expiresAt > now() && sameHash(item.refreshHash, oldHash));
-      if (!ownerOk && !browserOk) return false;
-      accesses.push({ accessHash: next.accessHash, accessExpiresAt: next.accessExpiresAt });
+      if (ownerOk) {
+        accesses.push({ accessHash: next.accessHash, accessExpiresAt: next.accessExpiresAt, sessionId: null });
+        return true;
+      }
+      const browser = browserRefreshes.find(item => item.expiresAt > now() && sameHash(item.refreshHash, oldHash));
+      if (!browser) return false;
+      accesses.push({ accessHash: next.accessHash, accessExpiresAt: next.accessExpiresAt, sessionId: browser.sessionId });
       return true;
     },
     async accessOk(accessHash) {
       return accesses.some(item => item.accessExpiresAt > now() && sameHash(item.accessHash, accessHash));
     },
     async logout(accessHash) {
-      const index = accesses.findIndex(item => item.accessExpiresAt > now() && sameHash(item.accessHash, accessHash));
-      if (index < 0) return false;
-      accesses.splice(index, 1);
-      browserRefreshes.length = 0;
+      const item = accesses.find(entry => entry.accessExpiresAt > now() && sameHash(entry.accessHash, accessHash));
+      if (!item) return false;
+      if (!item.sessionId) {
+        const index = accesses.indexOf(item);
+        accesses.splice(index, 1);
+        return true;
+      }
+      for (let index = accesses.length - 1; index >= 0; index -= 1) {
+        if (accesses[index].sessionId === item.sessionId) accesses.splice(index, 1);
+      }
+      for (let index = browserRefreshes.length - 1; index >= 0; index -= 1) {
+        if (browserRefreshes[index].sessionId === item.sessionId) browserRefreshes.splice(index, 1);
+      }
       return true;
     },
     async mintPair(accessHash, codeHash, expiresAt) {
-      if (!await this.accessOk(accessHash)) return false;
+      const host = accesses.some(item => !item.sessionId && item.accessExpiresAt > now() && sameHash(item.accessHash, accessHash));
+      if (!host) return false;
       pair = { codeHash, expiresAt, usedAt: null, attempts: 0 };
       return true;
     },
@@ -124,8 +138,9 @@ export function createMemoryDb(now = () => Date.now()) {
         return 0;
       }
       pair = { ...pair, usedAt: now() };
-      accesses.push({ accessHash: next.accessHash, accessExpiresAt: next.accessExpiresAt });
-      browserRefreshes.push({ refreshHash: next.refreshHash, expiresAt: next.refreshExpiresAt });
+      const sessionId = randomToken().slice(0, 32);
+      accesses.push({ accessHash: next.accessHash, accessExpiresAt: next.accessExpiresAt, sessionId });
+      browserRefreshes.push({ refreshHash: next.refreshHash, expiresAt: next.refreshExpiresAt, sessionId });
       return 1;
     },
     async writeState(payload) {

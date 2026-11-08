@@ -12,8 +12,12 @@ create table if not exists public.grok_pair_code (
   created_at timestamptz not null default now()
 );
 
+-- NULL session_id on grok_access is the already-enrolled host. Do not backfill it.
+alter table public.grok_access add column if not exists session_id text;
+
 create table if not exists public.grok_browser_refresh (
   refresh_hash text primary key,
+  session_id text not null,
   expires_at timestamptz not null
 );
 
@@ -33,19 +37,28 @@ language plpgsql
 security invoker
 set search_path = public
 as $$
+declare
+  v_session text;
 begin
   perform pg_catalog.pg_advisory_xact_lock(611082345);
-  if not exists (
+  if exists (
     select 1 from public.grok_session
     where id = 1 and refresh_hash = p_refresh_hash and refresh_expires_at > now()
-  ) and not exists (
-    select 1 from public.grok_browser_refresh
-    where refresh_hash = p_refresh_hash and expires_at > now()
   ) then
+    delete from public.grok_access where expires_at <= now();
+    insert into public.grok_access (access_hash, expires_at, session_id)
+    values (p_access_hash, p_access_expires, null);
+    return true;
+  end if;
+  select session_id into v_session
+  from public.grok_browser_refresh
+  where refresh_hash = p_refresh_hash and expires_at > now();
+  if not found then
     return false;
   end if;
   delete from public.grok_access where expires_at <= now();
-  insert into public.grok_access (access_hash, expires_at) values (p_access_hash, p_access_expires);
+  insert into public.grok_access (access_hash, expires_at, session_id)
+  values (p_access_hash, p_access_expires, v_session);
   return true;
 end;
 $$;
@@ -57,16 +70,22 @@ security invoker
 set search_path = public
 as $$
 declare
-  removed integer;
+  v_session text;
 begin
   perform pg_catalog.pg_advisory_xact_lock(611082345);
-  delete from public.grok_access
+  select session_id into v_session
+  from public.grok_access
   where access_hash = p_access_hash and expires_at > now();
-  get diagnostics removed = row_count;
-  if removed <> 1 then
+  if not found then
     return false;
   end if;
-  delete from public.grok_browser_refresh where refresh_hash is not null;
+  if v_session is null then
+    delete from public.grok_access
+    where access_hash = p_access_hash and session_id is null;
+    return true;
+  end if;
+  delete from public.grok_access where session_id = v_session;
+  delete from public.grok_browser_refresh where session_id = v_session;
   return true;
 end;
 $$;
@@ -105,7 +124,7 @@ begin
   perform pg_catalog.pg_advisory_xact_lock(611082345);
   if not exists (
     select 1 from public.grok_access
-    where access_hash = p_access_hash and expires_at > now()
+    where access_hash = p_access_hash and expires_at > now() and session_id is null
   ) then
     return false;
   end if;
@@ -137,6 +156,7 @@ set search_path = public
 as $$
 declare
   consumed integer;
+  v_session text;
 begin
   perform pg_catalog.pg_advisory_xact_lock(611082345);
   if not public.grok_rate('pair-global', 20, 600) or not public.grok_rate(p_ip_key, 5, 600) then
@@ -151,10 +171,13 @@ begin
     and attempts < 5;
   get diagnostics consumed = row_count;
   if consumed = 1 then
-    insert into public.grok_browser_refresh (refresh_hash, expires_at)
-    values (p_refresh_hash, p_refresh_expires)
-    on conflict (refresh_hash) do update set expires_at = excluded.expires_at;
-    insert into public.grok_access (access_hash, expires_at) values (p_access_hash, p_access_expires);
+    v_session := gen_random_uuid()::text;
+    insert into public.grok_browser_refresh (refresh_hash, session_id, expires_at)
+    values (p_refresh_hash, v_session, p_refresh_expires)
+    on conflict (refresh_hash) do update
+      set session_id = excluded.session_id, expires_at = excluded.expires_at;
+    insert into public.grok_access (access_hash, expires_at, session_id)
+    values (p_access_hash, p_access_expires, v_session);
     return 1;
   end if;
   update public.grok_pair_code
