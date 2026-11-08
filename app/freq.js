@@ -11,15 +11,18 @@ import {
   authTransition,
   classifyProbe,
   classifyWrite,
+  describeAuthCallback,
   initialAuth,
+  LINK_REQUEST_MESSAGE,
   localSignOut,
+  pathWithoutAuthCallback,
   planWrite,
   presentEntries,
   projectUrl,
   renderLog,
   requestStillValid,
   summarize,
-} from './freq-log.js?v=20261107-v216';
+} from './freq-log.js?v=20261107-v217';
 
 const root = document.getElementById('app');
 const client = createClient(projectUrl(API_URL), PUBLISHABLE_KEY, {
@@ -40,6 +43,7 @@ let entries = [];
 let editing = null;
 let draft = null;
 let pendingDeleteId = null;
+let callbackNotice = '';
 
 function online() {
   return navigator.onLine !== false;
@@ -75,10 +79,9 @@ function paint() {
 }
 
 function stripAuthParams() {
-  const url = new URL(location.href);
-  const hasCode = url.searchParams.has('code') || url.searchParams.has('access_token') || url.searchParams.has('error');
-  if (!url.hash && !hasCode) return;
-  history.replaceState(null, '', url.pathname);
+  const next = pathWithoutAuthCallback(location.href);
+  if (next === location.pathname + location.search) return;
+  history.replaceState(null, '', next);
 }
 
 function applyAuth(event, nextSession) {
@@ -91,9 +94,21 @@ function applyAuth(event, nextSession) {
   return next;
 }
 
+function noteAuthCallback(hasSession) {
+  const notice = describeAuthCallback(location.href, hasSession);
+  if (notice) callbackNotice = notice;
+  stripAuthParams();
+}
+
 function onAuth(event, nextSession) {
   const next = applyAuth(event, nextSession);
-  if (event === 'INITIAL_SESSION') stripAuthParams();
+  if (event === 'INITIAL_SESSION') {
+    noteAuthCallback(Boolean(nextSession?.user?.id));
+    if (callbackNotice && mode === 'ready' && !auth.userId) {
+      message = callbackNotice;
+      paint();
+    }
+  }
   if (next.action === 'refresh' || next.action === 'initial' || !next.userId || mode !== 'ready') return;
   const seen = capture();
   setTimeout(() => {
@@ -140,7 +155,7 @@ async function probe() {
     message = result.message;
     if (mode === 'ready') {
       if (auth.userId) await loadEntries(capture());
-      else message = 'Sign in with the account for this log. The menu code is not this sign-in.';
+      else message = callbackNotice || 'Sign in with the account for this log. The menu code is not this sign-in.';
     }
   } catch {
     mode = 'offline';
@@ -239,7 +254,7 @@ async function sendLink() {
   });
   message = error
     ? 'Sign-in link was not sent. This page cannot create the account.'
-    : 'If that account exists, a sign-in link was requested. Nothing was saved.';
+    : LINK_REQUEST_MESSAGE;
   paint();
 }
 

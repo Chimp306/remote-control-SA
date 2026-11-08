@@ -6,8 +6,11 @@ import {
   authTransition,
   classifyProbe,
   classifyWrite,
+  describeAuthCallback,
   initialAuth,
+  LINK_REQUEST_MESSAGE,
   localSignOut,
+  pathWithoutAuthCallback,
   planWrite,
   presentEntries,
   projectUrl,
@@ -188,4 +191,38 @@ test('the page subscribes to auth changes and clears the screen before sign-out 
   assert.ok(cleared > -1 && awaited > cleared);
   assert.match(signOut, /localSignOut\(auth\)/);
   assert.match(signOut, /catch/);
+  const notice = page.slice(page.indexOf('function noteAuthCallback'), page.indexOf('function onAuth'));
+  assert.ok(notice.indexOf('describeAuthCallback') < notice.indexOf('stripAuthParams'));
+});
+
+test('an auth callback explains a dead link without repeating tokens', () => {
+  const code = 'callback-code-value';
+  const token = 'callback-access-token';
+  const expired = describeAuthCallback(
+    `https://ctmp.uk/FREQ/?error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid&code=${code}`,
+    false,
+  );
+  assert.match(expired, /expired or was already used/);
+  assert.equal(expired.includes(code), false);
+  assert.equal(expired.includes('Email link'), false);
+  const otherBrowser = describeAuthCallback(`https://ctmp.uk/FREQ/?code=${code}`, false);
+  assert.match(otherBrowser, /browser that requested it/);
+  assert.equal(otherBrowser.includes(code), false);
+  assert.equal(describeAuthCallback(`https://ctmp.uk/FREQ/?code=${code}`, true), '');
+  const rejected = describeAuthCallback(
+    `https://ctmp.uk/FREQ/#access_token=${token}&refresh_token=refresh-secret&error=server_error&error_code=unexpected_failure`,
+    false,
+  );
+  assert.match(rejected, /rejected/);
+  assert.equal(rejected.includes(token), false);
+  assert.equal(rejected.includes('refresh-secret'), false);
+  assert.match(LINK_REQUEST_MESSAGE, /same browser/);
+  assert.match(LINK_REQUEST_MESSAGE, /one hour/);
+  assert.equal(LINK_REQUEST_MESSAGE.includes('Saved'), false);
+  const cleaned = pathWithoutAuthCallback(
+    `https://ctmp.uk/FREQ/?error_code=otp_expired&code=${code}&keep=1#access_token=${token}`,
+  );
+  assert.equal(cleaned, '/FREQ/?keep=1');
+  assert.equal(cleaned.includes(code), false);
+  assert.equal(cleaned.includes(token), false);
 });
