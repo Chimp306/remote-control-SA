@@ -8,3 +8,9 @@ verify_jwt = false
 # A publishable project key is never treated as a user credential.
 verify_jwt = false
 
+[functions.grok-control]
+# The fresh project uses publishable and secret keys, which are not JWTs.
+# verify_jwt only understands legacy JWTs, so the function checks the owner
+# access token itself. The platform secret key stays in the function environment.
+verify_jwt = false
+

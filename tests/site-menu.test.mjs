@@ -29,6 +29,7 @@ test('the cover source does not store or print the typed code', () => {
   assert.match(menu, /href="\/suc\/"/);
   assert.match(menu, /href="\/SOLO\/"/);
   assert.match(menu, /href="\/FREQ\/"/);
+  assert.match(menu, /href="\/GROK\/"/);
   assert.match(menu, />SUC</);
   assert.match(menu, />SOLO</);
   assert.match(menu, />FREQ</);
@@ -46,23 +47,23 @@ test('root sends test mode to SOLO and does not load the player on the menu', ()
   assert.match(root, /params\.has\('classic'\)/);
   assert.match(root, /const version = '20261101-dual40'/);
   assert.match(root, /import\(`\/app\/main\.js\?v=\$\{version\}`\)/);
-  assert.match(root, /const version = '20261107-v215'/);
+  assert.match(root, /const version = '20261108-v216'/);
   assert.match(root, /import\(`\/app\/gate\.js\?v=\$\{version\}`\)/);
   assert.equal(root.includes('simple-player.js'), false);
 });
 
 test('SOLO uses absolute current assets and FREQ cannot save entries', () => {
   const solo = read('../SOLO/index.html');
-  assert.match(solo, /const version = '20261107-v214'/);
+  assert.match(solo, /const version = '20261108-v219'/);
   assert.match(solo, /\/app\/simple-player\.css\?v=\$\{version\}/);
   assert.match(solo, /import\(`\/app\/simple-player\.js\?v=\$\{version\}`\)/);
   assert.equal(solo.includes('src="app/'), false);
   const player = read('../app/simple-player.js');
-  assert.match(player, /from '\.\/config\.js\?v=20261107-v214'/);
+  assert.match(player, /from '\.\/config\.js\?v=20261108-v215'/);
   assert.equal(player.includes('pc-media'), false);
   assert.equal(player.includes('config.js?v=20261107-v213'), false);
   const config = read('../app/config.js');
-  assert.match(config, /BUILD = '2026\.11\.07-v2\.14'/);
+  assert.match(config, /BUILD = '2026\.11\.08-v2\.15'/);
   const freq = read('../FREQ/index.html');
   assert.match(freq, /data-freq="checking"/);
   assert.match(freq, /Nothing has been saved/);

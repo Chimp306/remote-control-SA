@@ -152,11 +152,11 @@ test('simple player labels the existing count and shows the shared timer', () =>
   assert.match(player, /playTimer\.sync\(engine\.phase/);
   assert.match(player, /id="edge-count"/);
   assert.match(player, /id="play-time"/);
-  assert.match(config, /BUILD = '2026\.11\.07-v2\.14'/);
-  assert.match(player, /from '\.\/config\.js\?v=20261107-v214'/);
-  assert.equal(player.includes('config.js?v=20261107-v213'), false);
+  assert.match(config, /BUILD = '2026\.11\.08-v2\.15'/);
+  assert.match(player, /from '\.\/config\.js\?v=20261108-v215'/);
+  assert.equal(player.includes('config.js?v=20261107-v214'), false);
   const solo = fs.readFileSync(new URL('../SOLO/index.html', import.meta.url), 'utf8');
-  assert.match(solo, /const version = '20261107-v214'/);
+  assert.match(solo, /const version = '20261108-v219'/);
   assert.match(solo, /simple-player\.js\?v=\$\{version\}/);
   assert.equal(html.includes('simple-player.js'), false);
   const suc = fs.readFileSync(new URL('../suc/index.html', import.meta.url), 'utf8');
