@@ -6,7 +6,7 @@
 import { SessionEngine, OPOSSUM_PATTERNS } from './engine.js?v=20261108-v215';
 import { CivetDevice, OpossumDevice, confirmDeviceStopped, opossumNativeLevel, opossumHardwareNative } from './devices.js?v=20261107-v212';
 import { BUILD } from './config.js?v=20261108-v215';
-import { ackEvent, createGrokSession, stateEvent, topicForUser } from './grok-control.js?v=20261108-v215';
+import { ackEvent, controlEvent, createGrokSession, runAcceptedCommand, signInFailureMessage, stateEvent } from './grok-control.js?v=20261108-v216';
 import { PlayTimer, formatPlayDuration } from './play-timer.js?v=20261107-v212';
 import { lifecycleDecision } from './page-lifecycle.js?v=20261107-v212';
 import {
@@ -85,11 +85,13 @@ const grokMode = /^\/GROK\/?$/.test(location.pathname);
 const grokPatterns = OPOSSUM_PATTERNS.filter(name => name !== 'custom');
 const grok = grokMode ? createGrokSession({ patterns: grokPatterns }) : null;
 let grokUserId = null;
+let grokBinding = null;
 let grokLink = null;
 let grokLinkState = 'off';
 let grokStatus = grokMode ? 'Remote control is disarmed.' : '';
 const grokPublished = [];
 let grokPublishTimer = null;
+let grokFaultKey = '';
 let civet = null;
 let opossum = null;
 let toyMaxPower = readStoredToyMax();
@@ -335,8 +337,15 @@ const engine = new SessionEngine({
     if (event.type === 'edge' && state.edgeCount !== lastEdgeCount) {
       lastEdgeCount = state.edgeCount;
       applyPattern(randomPattern(engine.snapshot().opossumPattern));
-      if (grokMode) void publishGrok('state', grokStatePayload());
+      if (grokMode) publishGrokEvent('edge');
     }
+    if (grokMode && state.phase === 'fault') {
+      const key = `${state.reason || ''}|${state.edgeCount}`;
+      if (key !== grokFaultKey) {
+        grokFaultKey = key;
+        publishGrokEvent('fault');
+      }
+    } else if (grokMode) grokFaultKey = '';
     if (view === 'play') updatePlay();
   },
 });
@@ -351,6 +360,7 @@ function civetCallbacks() {
     },
     onStatus(status) {
       civetHint = status.message || (status.connected ? 'Connected' : 'Disconnected');
+      noteGrokSensor();
       if (status.state === 'error' || status.state === 'disconnected') {
         abortCapture('The sensor disconnected. This capture was discarded.');
         activeProfile = null;
@@ -403,11 +413,13 @@ function notePattern(name) {
 
 function applyPattern(name) {
   if (!PLAY_PATTERNS.includes(name) && name !== 'custom') return;
+  const before = engine.snapshot().opossumPattern;
   try {
     engine.configure({ opossumPattern: name, patternBlendSeconds: 1.6 });
     notePattern(name);
     schedulePatternRotation();
   } catch { /* keep current pattern */ }
+  if (grokMode && engine.snapshot().opossumPattern !== before) publishGrokEvent('pattern');
   if (view === 'play') updatePlay();
 }
 
@@ -774,6 +786,7 @@ function acceptCalibration() {
 
 function changeCutoff(delta) {
   if (!profileReady()) { error = 'Calibrate this sensor before adjusting the cutoff.'; updatePlay(); return; }
+  const before = engine.snapshot().threshold;
   try {
     activeProfile = adjustApplied(activeProfile, engine.config.threshold + delta);
     activeProfile = rememberProfile(localStorage, activeProfile);
@@ -782,6 +795,7 @@ function changeCutoff(delta) {
   } catch (err) {
     error = err.message || 'That cutoff is outside this calibration.';
   }
+  if (grokMode && engine.snapshot().threshold !== before) publishGrokEvent('cutoff');
   updatePlay();
 }
 
@@ -1110,74 +1124,120 @@ function grokStatePayload() {
   });
 }
 
+function publishGrokEvent(kind) {
+  if (!grokMode) return;
+  const state = engine.snapshot();
+  void publishGrok('event', controlEvent({
+    event: kind,
+    id: crypto.randomUUID(),
+    at: Date.now(),
+    sessionId: grok?.sessionId || null,
+    epoch: grok?.epoch || 0,
+    phase: state.phase,
+    edgeCount: state.edgeCount,
+    pattern: state.opossumPattern,
+    sensorFresh: state.sensorFresh === true,
+    pressureKpa: state.pressure,
+    threshold: state.threshold,
+    resetThreshold: state.resetThreshold,
+    outputPercentA: state.outputPercentA,
+    outputPercentB: state.outputPercentB,
+  }));
+}
+
 async function publishGrok(event, payload) {
   if (!grokMode) return;
+  const binding = grokBinding;
   grokPublished.push({ event, payload });
-  if (grokPublished.length > 20) grokPublished.shift();
-  if (grokLink && grokUserId) {
-    try { await grokLink.publish(event, payload); }
-    catch { grokLinkState = 'offline'; }
+  if (grokPublished.length > 40) grokPublished.shift();
+  if (!grokLink || !grokUserId) return;
+  try {
+    const result = await grokLink.publish(event, payload, binding);
+    if (result?.sent === false && binding && grokBinding !== binding) return;
+  } catch {
+    grokLinkState = 'offline';
   }
+}
+
+function noteGrokSensor() {
+  if (!grokMode || !grok?.armed) return;
+  const nextId = sensorIdentity()?.id || null;
+  if (!nextId || nextId === grok.deviceId) return;
+  grok.noteDevice(nextId);
+  grokStatus = 'Remote control is disarmed because the sensor changed.';
+  publishGrokEvent('fault');
+  void publishGrok('state', grokStatePayload());
 }
 
 function grokDisarm(reason) {
   if (!grok?.armed && reason !== 'auth') return;
   grok?.disarm(reason);
   grokStatus = 'Remote control is disarmed. Arm again on this page before a remote start.';
+  publishGrokEvent('session');
   void publishGrok('state', grokStatePayload());
 }
 
-async function applyGrokCommand(raw) {
+async function applyGrokCommand(raw, binding = grokBinding) {
   if (!grok) return;
+  if (binding && (binding.userId !== grokUserId || binding.generation !== grokBinding?.generation)) return;
   const decision = grok.evaluate(raw, grokContext(), grokUserId);
   const hold = grok.hold();
-  if (!decision.accept || !decision.action) {
-    await publishGrok('ack', ackEvent(decision, { sessionId: grok.sessionId, epoch: grok.epoch }));
-    grokStatus = decision.reason || grokStatus;
-    render();
-    return;
-  }
-  if (!grok.same(hold)) {
-    await publishGrok('ack', ackEvent({ ...decision, accept: false, applied: false, reason: 'superseded', hardware: 'not-sent' }, { sessionId: grok.sessionId, epoch: grok.epoch }));
-    return;
-  }
-  let hardware = 'commanded';
-  try {
-    if (decision.action === 'stop') {
-      await onStop();
-      hardware = error ? 'not-confirmed' : 'commanded';
-    } else if (decision.action === 'pause') {
-      onPause('Paused from Grok Control.');
-      hardware = 'commanded';
-    } else if (decision.action === 'start') {
-      await onPlay();
-      if (!grok.same(hold) || engine.phase === 'fault') {
-        await onStop();
-        await publishGrok('ack', ackEvent({ ...decision, accept: false, applied: false, reason: 'superseded', hardware: 'not-sent' }, { sessionId: grok.sessionId, epoch: grok.epoch }));
-        return;
-      }
-      hardware = error ? 'not-confirmed' : 'commanded';
-    } else if (decision.action === 'forceCutoff') {
-      const result = engine.requestRecovery('Remote cutoff.');
-      hardware = result.applied ? 'commanded' : 'not-sent';
-      if (!result.applied) decision.applied = false;
-    } else if (decision.action === 'changePattern') {
-      engine.configure({ opossumPattern: decision.params.pattern, patternBlendSeconds: 1.6 });
-      notePattern(decision.params.pattern);
-    } else if (decision.action === 'adjustCutoff') {
-      changeCutoff(decision.params.delta);
-    } else if (decision.action === 'setDowntime') {
-      setRecovery(decision.params.min, decision.params.max);
-    }
-  } catch (err) {
-    decision.applied = false;
-    decision.reason = 'not-applied';
-    hardware = 'not-sent';
-    error = err.message || String(err);
-  }
-  if (!grok.same(hold) && decision.action !== 'stop') return;
-  await publishGrok('ack', ackEvent({ ...decision, hardware }, { sessionId: grok.sessionId, epoch: grok.epoch, hardware }));
-  grokStatus = decision.applied ? 'Remote command applied. Hardware delivery is not confirmed beyond the radio write.' : (decision.reason || grokStatus);
+  const outcome = await runAcceptedCommand({
+    decision,
+    hold,
+    same: token => grok.same(token),
+    selfOk: token => {
+      if (decision.action === 'stop') return grok.selfTransition(token, 'stop');
+      if (decision.action === 'pause') return grok.selfTransition(token, 'pause');
+      return false;
+    },
+    operations: {
+      async stop() {
+        return onStop();
+      },
+      async pause() {
+        grok?.localPause();
+        publishGrokEvent('session');
+        onPause('Paused from Grok Control.');
+        let hardware = 'not-sent';
+        try {
+          if (opossum?.connected) { await opossum.stop(); hardware = 'not-confirmed'; }
+        } catch { hardware = 'not-sent'; }
+        const applied = engine.phase === 'paused';
+        return { applied, hardware: applied ? hardware : 'not-sent', reason: applied ? '' : 'not-paused' };
+      },
+      async start() {
+        const started = await onPlay(() => grok.same(hold));
+        return started;
+      },
+      async forceCutoff() {
+        const result = engine.requestRecovery('Remote cutoff.');
+        return { applied: result.applied === true, hardware: result.applied ? 'not-confirmed' : 'not-sent', reason: result.reason || '' };
+      },
+      async changePattern(next) {
+        const before = engine.snapshot().opossumPattern;
+        engine.configure({ opossumPattern: next.params.pattern, patternBlendSeconds: 1.6 });
+        notePattern(next.params.pattern);
+        if (engine.snapshot().opossumPattern !== before) publishGrokEvent('pattern');
+        return { applied: engine.snapshot().opossumPattern === next.params.pattern, hardware: 'not-confirmed', reason: '' };
+      },
+      async adjustCutoff(next) {
+        const before = engine.snapshot().threshold;
+        changeCutoff(next.params.delta);
+        return { applied: engine.snapshot().threshold !== before, hardware: 'not-confirmed', reason: '' };
+      },
+      async setDowntime(next) {
+        setRecovery(next.params.min, next.params.max);
+        return { applied: recoveryMin === next.params.min && recoveryMax === next.params.max, hardware: 'not-confirmed', reason: '' };
+      },
+    },
+  });
+  if (binding && binding !== grokBinding) return;
+  await publishGrok('ack', ackEvent(outcome, { sessionId: grok.sessionId, epoch: grok.epoch, hardware: outcome.hardware }));
+  grokStatus = outcome.applied
+    ? 'Remote command applied. The radio write is not proof the toy moved.'
+    : (outcome.reason || grokStatus);
+  if (outcome.action === 'start' && outcome.applied) publishGrokEvent('session');
   if (view === 'play') updatePlay(); else render();
 }
 
@@ -1188,24 +1248,34 @@ function grokPanelHTML() {
       <p class="test-caption">Grok Control</p>
       <p class="note">Remote start works only while this session is armed, this sensor is calibrated, and the reading is fresh. Local Stop wins. Resume stays on this page. A network stop cannot reach the toy if this page is disconnected.</p>
       <p class="note" id="grok-status">${escapeHtml(grokStatus)}</p>
-      <p class="note">Link ${escapeHtml(grokLinkState)}. ${grokUserId ? 'Owner signed in.' : 'Owner sign-in is required before arming.'}</p>
+      <p class="note">Link ${escapeHtml(grokLinkState)}. ${grokUserId ? 'Owner signed in.' : 'Owner sign-in is required before arming.'} Pressure is a sensor reading, not a medical status.</p>
+      ${testMode || grokUserId ? '' : `<form data-grok-auth autocomplete="on">
+        <label for="grok-email">Email</label>
+        <input id="grok-email" type="email" autocomplete="username" required>
+        <label for="grok-password">Password</label>
+        <input id="grok-password" type="password" autocomplete="current-password" required>
+        <button class="button button-primary" type="submit">Sign in</button>
+      </form>
+      <p class="note">Password sign-in uses an existing account. This page cannot create one and does not send an email link.</p>`}
       <div class="stack">
         ${grok.armed
           ? '<button class="button" type="button" data-act="grok-disarm">Disarm remote</button>'
-          : `<button class="button button-primary" type="button" data-act="grok-arm" ${grokUserId || testMode ? '' : 'disabled'}>Arm Grok Control</button>`}
+          : `<button class="button button-primary" type="button" data-act="grok-arm" ${grokUserId ? '' : 'disabled'}>Arm Grok Control</button>`}
+        ${grokUserId && !testMode ? '<button class="button" type="button" data-act="grok-sign-out">Sign out</button>' : ''}
       </div>
     </section>`;
 }
 
-async function onPlay() {
+async function onPlay(stillCurrent = () => true) {
   error = '';
   message = '';
   readRecoveryFrom('setup-min', 'setup-max');
   readToyMaxFromSetup();
-  if (!civet?.connected || !opossum?.connected) { error = 'Connect Civet and Opossum first.'; render(); return; }
-  if (!fresh()) { error = 'Wait for a live Civet reading first.'; render(); return; }
-  if (outputHeld || calibrationCapture) { error = 'Calibration is still holding output at zero.'; render(); return; }
-  if (!outputPermitted(activeProfile, sensorIdentity(), testMode, readingNow(), Date.now())) { error = 'This sensor needs a matching calibration and a fresh reading below its reset level.'; render(); return; }
+  if (!stillCurrent()) return { applied: false, hardware: 'not-sent', reason: 'superseded' };
+  if (!civet?.connected || !opossum?.connected) { error = 'Connect Civet and Opossum first.'; render(); return { applied: false, hardware: 'not-sent', reason: 'not-connected' }; }
+  if (!fresh()) { error = 'Wait for a live Civet reading first.'; render(); return { applied: false, hardware: 'not-sent', reason: 'stale-sensor' }; }
+  if (outputHeld || calibrationCapture) { error = 'Calibration is still holding output at zero.'; render(); return { applied: false, hardware: 'not-sent', reason: 'calibration' }; }
+  if (!outputPermitted(activeProfile, sensorIdentity(), testMode, readingNow(), Date.now())) { error = 'This sensor needs a matching calibration and a fresh reading below its reset level.'; render(); return { applied: false, hardware: 'not-sent', reason: 'calibration' }; }
   try {
     engine.configure({
       toy: 'opossum',
@@ -1222,7 +1292,12 @@ async function onPlay() {
     });
     opossum?.setMaxHardwarePercent?.(toyMaxPower);
     const state = engine.start();
-    if (state.phase === 'fault') { error = state.reason || 'Could not start.'; render(); return; }
+    if (!stillCurrent()) return { applied: false, hardware: 'not-sent', reason: 'superseded' };
+    if (state.phase === 'fault' || (state.phase !== 'running' && state.phase !== 'settling')) {
+      error = state.reason || 'Could not start.';
+      render();
+      return { applied: false, hardware: 'not-sent', reason: error };
+    }
     playTimer.reset();
     finalElapsedVisible = false;
     lastEdgeCount = 0;
@@ -1233,10 +1308,13 @@ async function onPlay() {
     startTicker();
     schedulePatternRotation();
     await requestWake();
+    if (!stillCurrent()) return { applied: false, hardware: 'not-sent', reason: 'superseded' };
     render();
+    return { applied: true, hardware: 'not-confirmed', reason: '' };
   } catch (err) {
     error = err.message || String(err);
     render();
+    return { applied: false, hardware: 'not-sent', reason: 'not-applied' };
   }
 }
 
@@ -1244,12 +1322,19 @@ function onPause(reason = 'Paused.') {
   if (!ACTIVE.has(engine.phase)) return;
   error = '';
   outputBlendFrom = null;
-  if (grokMode && !reason.startsWith('Paused from Grok Control.')) grok?.localPause();
+  const fromRemote = reason.startsWith('Paused from Grok Control.');
+  const ownerLeft = reason.startsWith('Owner ');
+  if (grokMode && !fromRemote && !ownerLeft) {
+    grok?.localPause();
+    publishGrokEvent('session');
+  }
   try { engine.pause(reason); } catch { /* already idle */ }
-  void Promise.resolve(opossum?.stop?.()).catch(err => {
-    error = err?.message || 'Output stop was not confirmed.';
-    if (view === 'play') render();
-  });
+  if (!fromRemote) {
+    void Promise.resolve(opossum?.stop?.()).catch(err => {
+      error = err?.message || 'Output stop was not confirmed.';
+      if (view === 'play') render();
+    });
+  }
   if (view === 'play') render();
 }
 
@@ -1257,17 +1342,29 @@ async function onStop() {
   stopTicker();
   stopPatternRotation();
   outputBlendFrom = null;
-  if (grokMode) grok?.localStop();
+  if (grokMode) {
+    grok?.localStop();
+    publishGrokEvent('session');
+  }
   try { engine.stop(); } catch { /* already idle */ }
   finalElapsedVisible = true;
   let stopError = '';
-  try { await opossum?.stop?.(); }
-  catch (err) { stopError = err?.message || 'Output stop was not confirmed.'; }
+  let hardware = 'not-sent';
+  try {
+    if (opossum?.connected) {
+      await opossum.stop();
+      hardware = 'not-confirmed';
+    }
+  } catch (err) {
+    stopError = err?.message || 'Output stop was not confirmed.';
+    hardware = 'not-sent';
+  }
   await releaseWake();
   view = 'setup';
   message = stopError ? 'Session ended, but output stop was not confirmed.' : (testMode ? 'Stopped. Test mode is still on.' : 'Stopped.');
   error = stopError;
   render();
+  return { applied: engine.phase === 'stopped', hardware, reason: String(stopError || '').slice(0, 120) };
 }
 
 async function onResume() {
@@ -1316,6 +1413,23 @@ function onSimulateEdge() {
   }
 }
 
+app.addEventListener('submit', event => {
+  if (!event.target?.matches?.('[data-grok-auth]')) return;
+  event.preventDefault();
+  const password = document.getElementById('grok-password');
+  const email = document.getElementById('grok-email')?.value.trim();
+  const secret = password?.value || '';
+  if (password) password.value = '';
+  if (!email || !secret) { grokStatus = signInFailureMessage('credentials'); render(); return; }
+  if (!grokLink) { grokStatus = 'Sign-in is not available yet. Nothing was sent.'; render(); return; }
+  grokStatus = 'Checking the account…';
+  render();
+  grokLink.signIn(email, secret).catch(err => {
+    grokStatus = signInFailureMessage(err?.kind);
+    render();
+  });
+});
+
 app.addEventListener('click', event => {
   const button = event.target.closest('[data-act]');
   if (!button || button.disabled) return;
@@ -1337,10 +1451,16 @@ app.addEventListener('click', event => {
     if (!grok || !deviceId || !owner) { grokStatus = 'Connect the sensor and sign in before arming.'; render(); return; }
     const result = grok.arm({ nextUserId: owner, nextDeviceId: deviceId });
     grokStatus = result.ok ? 'Armed. Remote start is allowed only while this sensor stays fresh and calibrated.' : 'Arming failed.';
+    if (result.ok) publishGrokEvent('session');
     void publishGrok('state', grokStatePayload());
     render();
   }
   else if (act === 'grok-disarm') { grokDisarm('disarm'); render(); }
+  else if (act === 'grok-sign-out') {
+    grokOwnerLost('Signed out. Remote start stays off until you sign in and arm again.');
+    grokLink?.drop();
+    grokLink?.signOut().catch(() => { grokStatus = 'Signed out on this page. The account store could not be reached.'; render(); });
+  }
   else if (act === 'pause') onPause();
   else if (act === 'stop') onStop();
   else if (act === 'resume') onResume();
@@ -1415,25 +1535,51 @@ if (grokMode && testMode) {
     status() { return { armed: grok.armed, epoch: grok.epoch, latch: grok.localLatch, phase: engine.phase }; },
   };
 }
+function grokOwnerLost(status) {
+  const changed = Boolean(grokUserId) || grok?.armed === true || grok?.userId != null;
+  grokUserId = null;
+  grokBinding = null;
+  grokLinkState = 'signed-out';
+  if (changed) {
+    grok?.authLost();
+    if (ACTIVE.has(engine.phase)) onPause('Owner signed out. Output paused.');
+    publishGrokEvent('session');
+  }
+  grokStatus = status;
+  render();
+}
+
 if (grokMode && !testMode) {
-  import('./grok-link.js?v=20261108-v215').then(mod => {
+  import('./grok-link.js?v=20261108-v216').then(mod => {
     grokLink = mod.createGrokLink();
+    grokLinkState = 'signed-out';
+    render();
     grokLink.onAuth((event, session) => {
-      if (event === 'TOKEN_REFRESHED' && session?.user?.id === grokUserId) return;
+      if (event === 'TOKEN_REFRESHED' && session?.user?.id && session.user.id === grokUserId) return;
       if (!session?.user?.id || event === 'SIGNED_OUT') {
-        grokUserId = null;
-        grokLinkState = 'signed-out';
-        grok?.authLost();
-        onPause('Owner signed out. Output paused.');
-        grokStatus = 'Signed out. Remote start stays off until you sign in and arm again.';
-        render();
+        grokOwnerLost('Signed out. Remote start stays off until you sign in and arm again.');
+        grokLink?.drop();
         return;
       }
+      if (session.user.id !== grokUserId) {
+        const hadOwner = Boolean(grokUserId) || grok?.armed === true;
+        grokBinding = null;
+        if (hadOwner) {
+          grok?.authLost();
+          if (ACTIVE.has(engine.phase)) onPause('Owner changed. Output paused.');
+          publishGrokEvent('session');
+        }
+      }
       grokUserId = session.user.id;
-      grokLinkState = 'live';
-      grokLink.open(payload => { void applyGrokCommand(payload); }).catch(() => { grokLinkState = 'offline'; });
+      grokLinkState = 'opening';
+      grokLink.open((payload, binding) => { void applyGrokCommand(payload, binding); }, session.user.id).then(opened => {
+        if (!opened || opened.stale || opened.userId !== grokUserId) return;
+        grokBinding = { generation: opened.generation, userId: opened.userId };
+        grokLinkState = 'live';
+        render();
+      }).catch(() => { grokLinkState = 'offline'; render(); });
     });
-  }).catch(() => { grokLinkState = 'offline'; });
+  }).catch(() => { grokLinkState = 'offline'; grokStatus = 'Sign-in library did not load. Nothing was sent.'; render(); });
 }
 if (grokMode) {
   grokPublishTimer = setInterval(() => { if (grok?.armed) void publishGrok('state', grokStatePayload()); }, 2000);

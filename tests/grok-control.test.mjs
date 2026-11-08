@@ -4,9 +4,13 @@ import fs from 'node:fs';
 import { SessionEngine } from '../app/engine.js';
 import {
   ackEvent,
+  controlEvent,
+  createChannelGate,
   createGrokSession,
   jwtRole,
   realtimeAllows,
+  runAcceptedCommand,
+  signInFailureMessage,
   stateEvent,
   topicForUser,
 } from '../app/grok-control.js';
@@ -144,6 +148,131 @@ test('state and ack payloads omit secrets and mark hardware as commanded', () =>
   assert.equal(ack.applied, true);
 });
 
+test('sign-in failures stay fixed sentences', () => {
+  const secret = 'not-a-real-password';
+  const messages = ['credentials', 'network', 'rejected', 'unknown'].map(kind => signInFailureMessage(kind));
+  for (const message of messages) {
+    assert.equal(message.includes(secret), false);
+    assert.equal(message.toLowerCase().includes('service_role'), false);
+    assert.equal(message.includes('@'), false);
+  }
+  assert.match(messages[0], /email or password/);
+  assert.match(messages[1], /could not reach/);
+});
+
+test('a remote stop that disarms itself still counts as applied', async () => {
+  const gate = session();
+  gate.arm({ nextUserId: 'owner', nextDeviceId: 'sensor-a' });
+  const decision = gate.evaluate(command(gate, 1, 'stop'), { ...ready, phase: 'running' }, 'owner');
+  const hold = gate.hold();
+  const result = await runAcceptedCommand({
+    decision,
+    hold,
+    same: token => gate.same(token),
+    selfOk: token => gate.selfTransition(token, 'stop'),
+    operations: {
+      stop: async () => {
+        gate.localStop();
+        return { applied: true, hardware: 'not-confirmed', reason: '' };
+      },
+    },
+  });
+  assert.equal(result.applied, true);
+  assert.equal(result.hardware, 'not-confirmed');
+  assert.equal(result.reason, '');
+  assert.equal(gate.armed, false);
+  assert.equal(gate.selfTransition({ ...hold, sessionId: 'other-session' }, 'stop'), false);
+});
+
+test('a stale start completion does not stop a later session', async () => {
+  let stopped = 0;
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  let current = true;
+  const resultPromise = runAcceptedCommand({
+    decision: { accept: true, applied: true, action: 'start', hardware: 'commanded', reason: '', command: { id: 'c', seq: 1, sessionId: 's' } },
+    hold: { epoch: 1 },
+    same: () => current,
+    operations: {
+      start: () => pending,
+      stop: async () => { stopped += 1; return { applied: true, hardware: 'not-confirmed' }; },
+    },
+  });
+  current = false;
+  release({ applied: true, hardware: 'not-confirmed' });
+  const result = await resultPromise;
+  assert.equal(stopped, 0);
+  assert.equal(result.reason, 'superseded');
+  assert.equal(result.applied, false);
+  assert.equal(result.hardware, 'not-sent');
+  const failed = await runAcceptedCommand({
+    decision: { accept: true, action: 'start', command: { id: 'd', seq: 2 } },
+    hold: {},
+    same: () => true,
+    operations: { start: async () => ({ applied: false, hardware: 'not-sent', reason: 'calibration' }) },
+  });
+  assert.equal(failed.applied, false);
+  assert.equal(failed.hardware, 'not-sent');
+});
+
+test('an old start completion does not stop a rearmed session', async () => {
+  const gate = session();
+  gate.arm({ nextUserId: 'owner', nextDeviceId: 'sensor-a' });
+  const first = gate.evaluate(command(gate, 1, 'start'), ready, 'owner');
+  const hold = gate.hold();
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  let stopped = 0;
+  const oldResult = runAcceptedCommand({
+    decision: first,
+    hold,
+    same: token => gate.same(token),
+    operations: {
+      start: () => pending.then(value => (gate.same(hold) ? value : { applied: false, hardware: 'not-sent', reason: 'superseded' })),
+      stop: async () => { stopped += 1; return { applied: true, hardware: 'not-confirmed' }; },
+    },
+  });
+  gate.localStop();
+  gate.arm({ nextUserId: 'owner', nextDeviceId: 'sensor-a' });
+  const restarted = gate.hold();
+  const again = gate.evaluate(command(gate, 1, 'start', {}, { id: 'rearmed' }), ready, 'owner');
+  const restartedResult = await runAcceptedCommand({
+    decision: again,
+    hold: restarted,
+    same: token => gate.same(token),
+    operations: {
+      start: async () => ({ applied: true, hardware: 'not-confirmed' }),
+      stop: async () => { stopped += 1; return { applied: true, hardware: 'not-confirmed' }; },
+    },
+  });
+  release({ applied: true, hardware: 'not-confirmed' });
+  const finished = await oldResult;
+  assert.equal(finished.reason, 'superseded');
+  assert.equal(finished.applied, false);
+  assert.equal(stopped, 0);
+  assert.equal(restartedResult.applied, true);
+  assert.equal(gate.armed, true);
+  assert.equal(gate.sessionId, restarted.sessionId);
+});
+
+test('an owner change invalidates the previous channel callback', () => {
+  const gate = createChannelGate();
+  const first = gate.bind('owner-a');
+  const second = gate.bind('owner-b');
+  assert.equal(gate.matches(first), false);
+  assert.equal(gate.matches(second), true);
+  gate.clear();
+  assert.equal(gate.matches(second), false);
+  const event = controlEvent({
+    event: 'edge', id: 'e1', at: 10, sessionId: 's', epoch: 2, phase: 'cooldown',
+    edgeCount: 1, pattern: 'synchronized', sensorFresh: true, pressureKpa: 0.2,
+    threshold: 0.2, resetThreshold: 0.19, outputPercentA: 0, outputPercentB: 0,
+  });
+  assert.equal(event.event, 'edge');
+  assert.equal(event.type, 'event');
+  assert.equal(JSON.stringify(event).toLowerCase().includes('clench'), false);
+});
+
 test('SOLO and SUC do not open the Grok channel', () => {
   const player = read('../app/simple-player.js');
   const suc = read('../suc/index.html');
@@ -160,4 +289,17 @@ test('SOLO and SUC do not open the Grok channel', () => {
   const client = read('../scripts/grok-control-client.mjs');
   assert.match(client, /service role is refused/i);
   assert.equal(client.includes('SERVICE_ROLE'), false);
+  const startFn = player.slice(player.indexOf('async start()'), player.indexOf('async forceCutoff'));
+  assert.equal(startFn.includes('onStop'), false);
+  const pauseFn = player.slice(player.indexOf('async pause()'), player.indexOf('async start()'));
+  assert.match(pauseFn, /localPause\(\)/);
+  assert.match(pauseFn, /await opossum\.stop\(\)/);
+  assert.match(player, /selfTransition/);
+  assert.match(player, /publishGrokEvent\('fault'\)/);
+  assert.match(player, /data-grok-auth/);
+  assert.match(player, /signInFailureMessage/);
+  const link = read('../app/grok-link.js');
+  assert.match(link, /setTimeout\(\(\) => handler\(event, session\), 0\)/);
+  assert.match(link, /gate\.bind\(expectedUserId\)/);
+  assert.match(link, /failureKind/);
 });

@@ -195,6 +195,12 @@ export function createGrokSession({ patterns, now = () => Date.now() } = {}) {
     same(hold) {
       return Boolean(hold) && hold.epoch === epoch && hold.sessionId === sessionId && hold.armed === armed && hold.localLatch === localLatch;
     },
+    selfTransition(hold, latch) {
+      if (!hold || hold.sessionId !== sessionId || localLatch !== latch) return false;
+      if (epoch !== hold.epoch + 1) return false;
+      if (latch === 'pause') return armed === hold.armed;
+      return armed === false;
+    },
     evaluate(raw, view, transportUserId) {
       const decision = decide(raw, view, transportUserId);
       if (decision.accept && decision.command) {
@@ -229,6 +235,75 @@ export function stateEvent(view) {
     link: view.link,
     publishedAt: view.publishedAt,
     leaseMs: STATE_LEASE_MS,
+  };
+}
+
+export function createChannelGate() {
+  let generation = 0;
+  let userId = null;
+  return {
+    current() { return { generation, userId }; },
+    bind(nextUserId) {
+      generation += 1;
+      userId = nextUserId || null;
+      return { generation, userId };
+    },
+    clear() {
+      generation += 1;
+      userId = null;
+      return { generation, userId };
+    },
+    matches(token) {
+      return Boolean(token) && token.generation === generation && token.userId === userId && userId != null;
+    },
+  };
+}
+
+export function signInFailureMessage(kind) {
+  if (kind === 'credentials') return 'That email or password was not accepted.';
+  if (kind === 'network') return 'Sign-in could not reach the account service.';
+  if (kind === 'rejected') return 'That credential is not accepted on this page.';
+  return 'Sign-in did not complete. This page cannot create an account.';
+}
+
+export async function runAcceptedCommand({ decision, hold, same, selfOk, operations }) {
+  if (!decision.accept || !decision.action) {
+    return { ...decision, applied: false, hardware: decision.hardware || 'not-sent' };
+  }
+  if (!same(hold)) {
+    return { ...decision, accept: false, applied: false, reason: 'superseded', hardware: 'not-sent' };
+  }
+  const outcome = await operations[decision.action](decision);
+  const ownEffect = !same(hold) && selfOk?.(hold) === true;
+  if (!same(hold) && !ownEffect) {
+    return { ...decision, accept: false, applied: false, reason: 'superseded', hardware: 'not-sent' };
+  }
+  return {
+    ...decision,
+    applied: outcome?.applied === true,
+    hardware: outcome?.hardware || 'not-confirmed',
+    reason: outcome?.applied === true ? (outcome.reason || '') : (outcome?.reason || 'not-applied'),
+  };
+}
+
+export function controlEvent(view) {
+  return {
+    v: SCHEMA,
+    type: 'event',
+    event: view.event,
+    id: view.id,
+    at: view.at,
+    sessionId: view.sessionId || null,
+    epoch: view.epoch || 0,
+    phase: view.phase,
+    edgeCount: view.edgeCount,
+    pattern: view.pattern,
+    sensorFresh: view.sensorFresh === true,
+    pressureKpa: Number.isFinite(view.pressureKpa) ? Math.round(view.pressureKpa * 100) / 100 : null,
+    threshold: view.threshold,
+    resetThreshold: view.resetThreshold,
+    outputPercentA: view.outputPercentA,
+    outputPercentB: view.outputPercentB,
   };
 }
 

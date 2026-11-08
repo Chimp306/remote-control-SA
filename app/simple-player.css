@@ -288,6 +288,8 @@ button { touch-action: manipulation; }
 .play-actions { display: grid; gap: 10px; }
 .grok-banner { border-color: var(--accent); }
 .grok-banner .test-caption { color: var(--accent); }
+.grok-banner form { display: grid; gap: 8px; }
+.grok-banner input { width: 100%; min-height: 48px; border-radius: 12px; border: 1px solid var(--line); background: #09080d; padding: 10px 12px; }
 .button-pause {
   width: 100%;
   min-height: 72px;
