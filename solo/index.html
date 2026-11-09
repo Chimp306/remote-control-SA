@@ -9,7 +9,7 @@
   <meta name="description" content="SOLO manual control.">
   <link rel="icon" href="/favicon.ico">
   <title>SOLO</title>
-  <link rel="stylesheet" href="./app.css?v=20261109-2">
+  <link rel="stylesheet" href="./app.css?v=20261109-3">
 </head>
 <body>
   <div id="app" class="app" data-phase="idle" data-edges="0">
@@ -110,7 +110,10 @@
         <h2 id="pattern-title" class="section-label">OPOSSUM</h2>
         <article class="panel">
           <div id="pattern-wrap">
-            <div id="pattern-grid" class="chips"></div>
+            <label class="field">Pattern
+              <select id="play-pattern" aria-label="Pattern"></select>
+            </label>
+            <button id="include-open" class="include-open" type="button">Random includes</button>
             <p id="pattern-now" class="now"></p>
           </div>
           <div id="power-wrap">
@@ -226,7 +229,23 @@
     </section>
 
     <p id="footer" class="foot">CONCEPT D · HYBRID</p>
+    <div id="include-sheet" class="sheet" hidden>
+      <button id="include-backdrop" class="sheet-backdrop" type="button" aria-label="Close pattern list"></button>
+      <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="include-title">
+        <header class="sheet-head">
+          <h2 id="include-title">Random includes</h2>
+          <p id="include-count" class="hint"></p>
+        </header>
+        <div id="include-list" class="include-list"></div>
+        <p class="hint sheet-note">If none are ticked, Random uses every pattern.</p>
+        <footer class="sheet-actions">
+          <button id="include-all" type="button">Select all</button>
+          <button id="include-none" type="button">None</button>
+          <button id="include-done" class="orange" type="button">Done</button>
+        </footer>
+      </div>
+    </div>
   </div>
-  <script type="module" src="./app.js?v=20261109-2"></script>
+  <script type="module" src="./app.js?v=20261109-3"></script>
 </body>
 </html>
