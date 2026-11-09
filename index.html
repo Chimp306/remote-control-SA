@@ -5,22 +5,16 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <meta name="referrer" content="no-referrer">
-  <meta name="theme-color" content="#0b0a0f">
+  <meta name="theme-color" content="#0c0b10">
   <meta name="description" content="CTMP menu.">
+  <link rel="icon" href="/favicon.ico">
   <title>CTMP</title>
   <script type="module">
     const params = new URLSearchParams(location.search);
     if (params.has('test')) {
-      location.replace('/SOLO/?test=1');
-    } else if (params.has('classic')) {
-      const version = '20261101-dual40';
-      const css = document.createElement('link');
-      css.rel = 'stylesheet';
-      css.href = `/app/styles.css?v=${version}`;
-      document.head.append(css);
-      await import(`/app/main.js?v=${version}`);
+      location.replace('/solo/?test=1');
     } else {
-      const version = '20261108-v216';
+      const version = '20261109-solo';
       const css = document.createElement('link');
       css.rel = 'stylesheet';
       css.href = `/app/gate.css?v=${version}`;

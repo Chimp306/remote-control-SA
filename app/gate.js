@@ -48,13 +48,10 @@ export function menuMarkup() {
     <main class="shell" data-screen="menu">
       <div class="brand"><h1>CTMP</h1><small>Menu</small></div>
       <nav class="menu" aria-label="Sections">
-        <a class="menu-link" href="/suc/"><b>SUC</b><span>Clinic session</span></a>
-        <a class="menu-link" href="/SOLO/"><b>SOLO</b><span>Solo player</span></a>
-        <a class="menu-link" href="/FREQ/"><b>FREQ</b><span>Dates and notes</span></a>
-        <a class="menu-link" href="/GROK/"><b>GROK</b><span>External control</span></a>
+        <a class="menu-link" href="/solo/"><b>SOLO</b><span>Manual control</span></a>
+        <a class="menu-link" href="/suc/"><b>SUC</b><span>Yield hall</span></a>
       </nav>
       <p class="note">The cover on the previous screen is not an account. These addresses open without it.</p>
-      <p class="legacy"><a href="/?classic">Classic control</a></p>
       <button class="button" type="button" data-act="lock">Cover the menu</button>
     </main>`;
 }

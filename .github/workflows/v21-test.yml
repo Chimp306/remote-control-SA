@@ -1,9 +1,7 @@
-name: V2.1 branch tests
+name: tests
 on:
   push:
-    branches:
-      - feature/v2-1-recovery-20261104
-  workflow_dispatch:
+  pull_request:
 jobs:
   test:
     runs-on: ubuntu-latest

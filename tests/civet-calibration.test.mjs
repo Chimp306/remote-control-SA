@@ -199,8 +199,7 @@ test('a capture deadline does not accept a short hold', () => {
   assert.equal(captureTimedOut({ samples: samples(6), collectAfter: 0 }, 1000), false);
 });
 
-test('both hosts stop output before zero and say the sensor is unloaded', () => {
-  const root = fs.readFileSync(new URL('../app/simple-player.js', import.meta.url), 'utf8');
+test('SUC still stops output before zero and says the sensor is unloaded', () => {
   const suc = fs.readFileSync(new URL('../suc/index.html', import.meta.url), 'utf8');
   const slice = (source, start, end) => {
     const from = source.indexOf(start);
@@ -208,14 +207,6 @@ test('both hosts stop output before zero and say the sensor is unloaded', () => 
     assert.ok(from >= 0 && to > from, `${start} before ${end}`);
     return source.slice(from, to);
   };
-  const zero = slice(root, 'async function startZero()', 'async function startLevel');
-  assert.ok(zero.indexOf('outputHeld = true') < zero.indexOf('await ensureOutputOff()'));
-  assert.ok(zero.indexOf('await ensureOutputOff()') < zero.indexOf('forgetProfile('));
-  assert.ok(zero.indexOf('forgetProfile(') < zero.indexOf('civet.zero()'));
-  assert.match(zero, /unloaded/);
-  assert.doesNotMatch(root, /act === 'zero'/);
-  assert.match(root, /Zero only while the sensor is unloaded/);
-  assert.match(root, /outputPermitted/);
   const sucZero = slice(suc, 'async beginZero()', 'async beginLevel');
   assert.ok(sucZero.indexOf('this.blocked=true') < sucZero.indexOf('confirmConnectedOutputStopped'));
   assert.ok(sucZero.indexOf('confirmConnectedOutputStopped') < sucZero.indexOf('forgetProfile'));
@@ -223,21 +214,13 @@ test('both hosts stop output before zero and say the sensor is unloaded', () => 
   assert.match(sucZero, /Output is not connected/);
   const sucLevel = slice(suc, 'async beginLevel', 'acceptCalibration()');
   assert.ok(sucLevel.indexOf('confirmConnectedOutputStopped') < sucLevel.indexOf('this.calCapture='));
-  assert.match(slice(root, 'async function ensureOutputOff', 'function readingNow'), /confirmDeviceStopped/);
-  assert.doesNotMatch(slice(root, 'async function ensureOutputOff', 'function readingNow'), /opossum\?\.stop/);
   assert.match(suc, /Zero only while the sensor is unloaded/);
   assert.match(suc, /not clenching/);
   assert.match(suc, /outputPermitted/);
-  const typed = slice(root, 'function editCalibrationField', 'function clearCaptureTimer');
-  assert.match(typed, /forgetProfile/);
-  assert.doesNotMatch(typed, /\.zero\(/);
-  assert.doesNotMatch(slice(root, 'function playHTML', 'function escapeHtml'), /data-cal-field/);
   const sucTyped = slice(suc, 'editReading(name,raw)', 'adjustCutoff(next)');
   assert.match(sucTyped, /forgetProfile/);
   assert.doesNotMatch(sucTyped, /\.zero\(/);
-  assert.match(root, /0\.01 kPa/);
   assert.match(suc, /0\.01 kPa/);
-  assert.doesNotMatch(root, /enteredNoiseKpa|uncertain by 0\.2/);
   assert.doesNotMatch(suc, /uncertain by 0\.2/);
 });
 

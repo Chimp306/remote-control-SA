@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#0c0b10">
+  <meta name="description" content="SOLO manual control.">
+  <link rel="icon" href="/favicon.ico">
+  <title>SOLO</title>
+  <link rel="stylesheet" href="./app.css?v=20261109-1">
+</head>
+<body>
+  <div id="app" class="app" data-phase="idle" data-edges="0">
+    <header class="top">
+      <div class="brand">
+        <h1 class="logo"><span>S</span><b>OLO</b></h1>
+        <span id="test-badge" class="badge" hidden>TEST</span>
+      </div>
+      <button id="screen-toggle" class="pill" type="button">PLAY</button>
+    </header>
+    <p id="notice" class="notice" role="status" hidden></p>
+
+    <section id="play-screen">
+      <div class="status-row">
+        <article class="status-card">
+          <header>
+            <strong id="toy-name" class="name">Opossum</strong>
+            <button id="toy-link" class="ghost" type="button">Disc.</button>
+          </header>
+          <p class="conn"><i id="toy-dot" class="dot"></i><span id="toy-state">Not connected</span></p>
+        </article>
+        <article class="status-card">
+          <header>
+            <strong class="name">Civet</strong>
+            <button id="civet-link" class="ghost" type="button">Disc.</button>
+          </header>
+          <p class="conn"><i id="civet-dot" class="dot"></i><span id="civet-state">Not connected</span></p>
+        </article>
+      </div>
+
+      <div class="run-row">
+        <button id="start" class="start" type="button">START</button>
+        <button id="stop" class="stop" type="button">STOP</button>
+      </div>
+
+      <div class="stat-row">
+        <article class="stat">
+          <header><p class="kicker">DURATION</p><button id="duration-reset" class="reset" type="button" hidden>Reset</button></header>
+          <p id="duration" class="figure">00:00</p>
+        </article>
+        <article class="stat">
+          <p class="kicker">EDGES</p>
+          <p id="edges" class="figure edges">0</p>
+        </article>
+      </div>
+
+      <section id="civet-block">
+        <h2 class="section-label">CIVET</h2>
+        <article class="panel">
+          <div class="gauge-layout">
+            <div class="gauge">
+              <svg viewBox="0 0 120 120" aria-hidden="true">
+                <circle class="track" cx="60" cy="60" r="46"></circle>
+                <circle id="gauge-arc" class="value" cx="60" cy="60" r="46"></circle>
+              </svg>
+              <div class="gauge-read">
+                <strong id="gauge-value">–</strong>
+                <small>KPA</small>
+              </div>
+            </div>
+            <div>
+              <header>
+                <div>
+                  <p class="kicker">CUTOFF</p>
+                  <p id="cutoff-read" class="cut-read">–</p>
+                </div>
+                <div class="steps">
+                  <button id="cut-minus" class="step" type="button" aria-label="Lower cutoff">−</button>
+                  <button id="cut-plus" class="step" type="button" aria-label="Raise cutoff">+</button>
+                </div>
+              </header>
+              <input id="cutoff-slider" class="slider" type="range" min="0" max="40" step="0.1" aria-label="Cutoff">
+              <div class="scale"><span id="scale-lo">0.00</span><span id="scale-hi">40.00</span></div>
+            </div>
+          </div>
+          <div class="rest-fields">
+            <label>REST MIN<input id="rest-min" type="number" min="1" max="600" step="1" inputmode="numeric"></label>
+            <label>REST MAX<input id="rest-max" type="number" min="1" max="600" step="1" inputmode="numeric"></label>
+          </div>
+          <div id="resting" class="resting" hidden>
+            <span class="rest-pill">RESTING</span>
+            <strong id="rest-count">00:00</strong>
+          </div>
+          <div id="test-pressure-wrap" hidden>
+            <label class="field">TEST PRESSURE <b id="test-pressure-read">20.18</b>
+              <input id="test-pressure" class="slider" type="range" min="18" max="24" step="0.01" value="20.18" aria-label="Test pressure">
+            </label>
+            <div class="scale"><span>18.00</span><span>24.00</span></div>
+          </div>
+        </article>
+      </section>
+
+      <section id="toy-block">
+        <h2 id="pattern-title" class="section-label">OPOSSUM</h2>
+        <article class="panel">
+          <div id="pattern-wrap">
+            <div id="pattern-grid" class="chips"></div>
+            <p id="pattern-now" class="now"></p>
+          </div>
+          <div id="power-wrap">
+            <div class="power-line"><span id="power-label">Max power</span><strong id="power-read">72%</strong></div>
+            <input id="power-slider" class="slider" type="range" min="0" max="100" step="1" aria-label="Max power">
+          </div>
+          <div id="stroke-row" class="pair" hidden>
+            <button id="stroke-minus" type="button">Stroke −</button>
+            <button id="stroke-plus" type="button">Stroke +</button>
+          </div>
+          <div class="charts">
+            <article class="chart" id="chart-a-wrap">
+              <header><span id="chart-a-label">Channel A</span><b id="chart-a-value">0%</b></header>
+              <canvas id="chart-a" width="280" height="80"></canvas>
+            </article>
+            <article class="chart" id="chart-b-wrap">
+              <header><span id="chart-b-label">Channel B</span><b id="chart-b-value">0%</b></header>
+              <canvas id="chart-b" width="280" height="80"></canvas>
+            </article>
+          </div>
+          <p id="command" class="command" hidden></p>
+        </article>
+      </section>
+    </section>
+
+    <section id="setup-screen" hidden>
+      <p class="intro">Choose one stimulation toy, optionally enable Civet, then connect. Settings stay in this browser.</p>
+      <article class="panel test-card">
+        <div>
+          <h2>TEST MODE</h2>
+          <p class="hint">Simulates the toy and Civet. No hardware is used.</p>
+        </div>
+        <button id="test-switch" class="switch" type="button" role="switch" aria-checked="false" aria-label="Test mode"><i></i></button>
+      </article>
+
+      <article class="panel">
+        <h2>STIMULATION TOY — PICK ONE</h2>
+        <div class="pick" role="radiogroup" aria-label="Stimulation toy">
+          <button id="pick-lush" type="button">Lush Mini</button>
+          <button id="pick-opossum" type="button">Opossum</button>
+          <button id="pick-vacuglide" type="button">Vacuglide</button>
+        </div>
+      </article>
+
+      <article id="toy-setup" class="panel">
+        <header class="status-card" style="padding:0;border:0;background:none;box-shadow:none">
+          <div>
+            <strong id="setup-toy-name">Opossum</strong>
+            <p class="conn"><i id="setup-toy-dot" class="dot"></i><span id="setup-toy-state">Not connected</span></p>
+          </div>
+        </header>
+        <div class="pair">
+          <button id="toy-disconnect" type="button">Disconnect</button>
+          <button id="toy-reconnect" type="button">Reconnect</button>
+        </div>
+        <label id="pattern-field" class="field">Default pattern
+          <select id="setup-pattern"></select>
+        </label>
+        <label class="field"><span id="setup-power-label">Default max power</span>
+          <input id="setup-power" class="slider" type="range" min="0" max="100" step="1">
+        </label>
+        <label class="field"><span id="ceiling-label">Hardware ceiling</span>
+          <input id="setup-ceiling" class="slider" type="range" min="5" max="100" step="1">
+        </label>
+        <p id="ceiling-hint" class="hint"></p>
+      </article>
+
+      <article id="vg-card" class="panel" hidden>
+        <h2>VACUGLIDE — SESSION TOKEN</h2>
+        <p class="hint">Paste the Autoblow device token each session. Connect uses their cloud API.</p>
+        <input id="vg-token" class="token" type="password" autocomplete="off" spellcheck="false" placeholder="Device token">
+        <label class="remember"><span>Remember token on this browser</span>
+          <input id="vg-remember" type="checkbox">
+        </label>
+        <div class="pair">
+          <button id="vg-connect" class="orange" type="button">Connect with token</button>
+          <button id="vg-disconnect" type="button">Disconnect</button>
+        </div>
+        <p class="conn"><i id="vg-dot" class="dot"></i><span id="vg-state">Not connected</span></p>
+      </article>
+
+      <article class="panel">
+        <header class="switch-row">
+          <div>
+            <h2 style="margin:0">Civet</h2>
+            <p class="conn"><i id="setup-civet-dot" class="dot"></i><span id="setup-civet-state">Off</span></p>
+          </div>
+          <button id="civet-switch" class="switch" type="button" role="switch" aria-checked="true" aria-label="Civet"><i></i></button>
+        </header>
+        <div class="pair">
+          <button id="civet-disconnect" type="button">Disconnect</button>
+          <button id="civet-reconnect" type="button">Reconnect</button>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h2>CALIBRATION — INSTANT READING</h2>
+        <div class="cal-grid">
+          <article class="cal" data-cal="zero"><h3>Zero</h3><p class="hint">No load</p><strong>–</strong><input inputmode="decimal" aria-label="Zero kPa"><button class="orange" type="button">Zero</button></article>
+          <article class="cal" data-cal="baseline"><h3>Baseline</h3><p class="hint">Under load</p><strong>–</strong><input inputmode="decimal" aria-label="Baseline kPa"><button class="orange" type="button">Baseline</button></article>
+          <article class="cal" data-cal="half"><h3>Half</h3><p class="hint">Half clench</p><strong>–</strong><input inputmode="decimal" aria-label="Half kPa"><button class="orange" type="button">Half</button></article>
+          <article class="cal" data-cal="full"><h3>Full</h3><p class="hint">Full clench</p><strong>–</strong><input inputmode="decimal" aria-label="Full kPa"><button class="orange" type="button">Full</button></article>
+        </div>
+        <p class="kicker" style="margin-top:14px">Calculated cutoff</p>
+        <p class="cutoff-line"><strong id="calc-cutoff">–</strong><span>kPa</span></p>
+        <input id="cutoff-edit" class="cutoff-edit" inputmode="decimal" aria-label="Cutoff kPa" placeholder="Type a cutoff">
+        <p class="hint">Each button saves one instant reading — the latest sample at the moment you press it, not an average. Values can also be typed in manually. Cutoff starts halfway between half and full.</p>
+      </article>
+
+      <button id="continue-play" class="go" type="button">Continue to Play →</button>
+    </section>
+
+    <p id="footer" class="foot">CONCEPT D · HYBRID</p>
+  </div>
+  <script type="module" src="./app.js?v=20261109-1"></script>
+</body>
+</html>
