@@ -7,11 +7,13 @@
   --muted: #8f8996;
   --faint: #6d6774;
   --line: rgba(255, 255, 255, 0.07);
-  --accent: #ff7a3c;
-  --accent-2: #ffb088;
-  --accent-deep: #ff5722;
-  --green: #3ddc84;
-  --track: #3a332f;
+  --accent: #2fbf86;
+  --accent-2: #c8f8e2;
+  --accent-deep: #127a52;
+  --accent-ink: #04281a;
+  --wash: #13281f;
+  --green: #d7ffe9;
+  --track: #24332e;
   --shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
   font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
 }
@@ -22,8 +24,8 @@ html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--in
 body {
   min-height: 100dvh;
   background:
-    radial-gradient(90% 40% at 50% -10%, rgba(255, 122, 60, 0.16), transparent 55%),
-    radial-gradient(70% 30% at 50% 105%, rgba(255, 90, 40, 0.18), transparent 60%),
+    radial-gradient(90% 40% at 50% -10%, rgba(47, 191, 134, 0.16), transparent 55%),
+    radial-gradient(70% 30% at 50% 105%, rgba(18, 122, 82, 0.28), transparent 60%),
     var(--bg);
 }
 button, input, select { font: inherit; color: inherit; }
@@ -62,8 +64,8 @@ button { cursor: pointer; }
 .logo span { color: var(--ink); }
 .logo b { color: var(--accent); font-weight: 750; }
 .badge {
-  border: 1px solid #ffb15a;
-  color: #ffb15a;
+  border: 1px solid var(--accent);
+  color: var(--accent-2);
   border-radius: 999px;
   padding: 4px 8px;
   font-size: 0.68rem;
@@ -87,7 +89,7 @@ button { cursor: pointer; }
   min-height: 48px;
   border-radius: 16px;
   border: 1px solid var(--accent);
-  background: #2a211c;
+  background: var(--wash);
   color: var(--accent-2);
   display: flex;
   align-items: center;
@@ -99,9 +101,9 @@ button { cursor: pointer; }
 
 .notice {
   margin: 0 0 12px;
-  color: #ffc7a8;
-  background: #2a1c18;
-  border: 1px solid rgba(255, 122, 60, 0.35);
+  color: var(--accent-2);
+  background: var(--wash);
+  border: 1px solid rgba(47, 191, 134, 0.4);
   border-radius: 14px;
   padding: 10px 12px;
   font-size: 0.92rem;
@@ -142,7 +144,7 @@ button { cursor: pointer; }
   background: #5c5864;
   box-shadow: 0 0 0 3px rgba(92, 88, 100, 0.2);
 }
-.dot.on { background: var(--green); box-shadow: 0 0 0 3px rgba(61, 220, 132, 0.16); }
+.dot.on { background: var(--green); box-shadow: 0 0 0 3px rgba(215, 255, 233, 0.22); }
 .dot.wait { background: #f0c14a; box-shadow: 0 0 0 3px rgba(240, 193, 74, 0.16); }
 .dot.bad { background: #ff5d5d; box-shadow: 0 0 0 3px rgba(255, 93, 93, 0.16); }
 
@@ -155,9 +157,9 @@ button { cursor: pointer; }
   letter-spacing: 0.12em;
 }
 .start, .go, .orange {
-  background: linear-gradient(180deg, #ff9a4d, #ff5e24);
-  color: white;
-  box-shadow: 0 12px 32px rgba(255, 94, 36, 0.32);
+  background: linear-gradient(180deg, #c9f8e4, #3dcc8e 55%, #2aaa78);
+  color: var(--accent-ink);
+  box-shadow: 0 12px 32px rgba(42, 170, 120, 0.32);
 }
 .stop {
   background: #17161c;
@@ -200,7 +202,7 @@ button { cursor: pointer; }
 .gauge svg { width: 100%; height: 100%; }
 .gauge circle { fill: none; stroke-width: 9; stroke-linecap: round; transform-origin: 60px 60px; transform: rotate(135deg); }
 .gauge .track { stroke: var(--track); stroke-dasharray: 216.8 289; }
-.gauge .value { stroke: #e8884a; stroke-dasharray: 0 289; }
+.gauge .value { stroke: var(--accent); stroke-dasharray: 0 289; }
 .gauge-read {
   position: absolute;
   inset: 0;
@@ -239,7 +241,7 @@ button { cursor: pointer; }
 .token, select, .cal input, .cutoff-edit { font-size: 1rem; }
 .resting {
   margin-top: 12px;
-  border: 1px solid rgba(255, 122, 60, 0.45);
+  border: 1px solid rgba(47, 191, 134, 0.45);
   border-radius: 16px;
   min-height: 52px;
   display: flex;
@@ -255,8 +257,8 @@ button { cursor: pointer; }
   margin-top: 8px;
   min-height: 44px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 122, 60, 0.45);
-  background: #1c1614;
+  border: 1px solid rgba(47, 191, 134, 0.45);
+  background: #121c18;
   color: var(--accent-2);
   font-size: 0.92rem;
   font-weight: 650;
@@ -274,7 +276,7 @@ button { cursor: pointer; }
   padding: 16px 16px max(16px, env(safe-area-inset-bottom));
   border-radius: 22px 22px 0 0;
   background: linear-gradient(180deg, #241f22, #141318);
-  border: 1px solid rgba(255, 122, 60, 0.28);
+  border: 1px solid rgba(47, 191, 134, 0.35);
   box-shadow: 0 -18px 50px rgba(0, 0, 0, 0.45);
 }
 .sheet-head h2 { margin: 0; letter-spacing: 0.12em; font-size: 0.95rem; color: var(--accent); }
@@ -319,7 +321,7 @@ button { cursor: pointer; }
 .chart header { display: flex; justify-content: space-between; color: var(--muted); font-size: 0.85rem; }
 .chart header b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .meter { height: 6px; border-radius: 999px; background: #2c2a33; margin-top: 8px; overflow: hidden; }
-.meter i { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, #8dce8a, #ff7a3c); }
+.meter i { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, #8ef0c4, #14956a); }
 .chart canvas { display: block; margin-top: 6px; height: 54px; }
 .command {
   margin: 10px 0 0;
@@ -345,7 +347,7 @@ button { cursor: pointer; }
   background: #14131a;
   min-height: 48px;
 }
-.pick button.is-on { border-color: var(--accent); color: var(--accent-2); background: #2a211c; }
+.pick button.is-on { border-color: var(--accent); color: var(--accent-2); background: var(--wash); }
 .pair button { border: 1px solid var(--line); }
 .switch-row, .remember { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }
 .switch {

@@ -1,9 +1,9 @@
-import { createRadio } from './ble.js?v=20261109-3';
-import { openKeepAlive } from './keep-alive.js?v=20261109-3';
-import { patternMoves, patternsFor } from './patterns.js?v=20261109-3';
-import { cutoffFrom, describeOutput, formatKpa, gaugeScale } from './protocol.js?v=20261109-3';
-import { createSession, formatClock } from './session.js?v=20261109-3';
-import { createVacuGlide } from './vacuglide.js?v=20261109-3';
+import { createRadio } from './ble.js?v=20261109-4';
+import { openKeepAlive } from './keep-alive.js?v=20261109-4';
+import { patternMoves, patternsFor } from './patterns.js?v=20261109-4';
+import { cutoffFrom, describeOutput, formatKpa, gaugeScale } from './protocol.js?v=20261109-4';
+import { createSession, formatClock } from './session.js?v=20261109-4';
+import { createVacuGlide } from './vacuglide.js?v=20261109-4';
 
 const KEY = 'solo.v1';
 const TOKEN_KEY = 'solo.vg-token';
@@ -208,7 +208,7 @@ function paintLinks() {
 
 function paintSlider(input, value) {
   const shown = Math.max(0, Math.min(100, Number(value) || 0));
-  input.style.background = `linear-gradient(90deg, #8dce8a, #e6b15a, #ff7a3c ${shown}%, #3a3942 ${shown}%)`;
+  input.style.background = `linear-gradient(90deg, #147a52, #5ddead ${shown}%, #3a3942 ${shown}%)`;
 }
 
 function includeMap() {
@@ -360,7 +360,7 @@ function drawChart(canvas, values) {
     return canvas.height - t * (canvas.height - 8 * dpr) - 4 * dpr;
   };
   ctx.beginPath();
-  ctx.strokeStyle = '#f0a06a';
+  ctx.strokeStyle = '#7ddec0';
   ctx.lineWidth = 2.5 * dpr;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
@@ -373,7 +373,7 @@ function drawChart(canvas, values) {
   ctx.stroke();
   const last = values[values.length - 1];
   ctx.beginPath();
-  ctx.fillStyle = '#ffd7bf';
+  ctx.fillStyle = '#e8fff4';
   ctx.arc(canvas.width - 2 * dpr, mapY(last), 3.5 * dpr, 0, Math.PI * 2);
   ctx.fill();
 }
