@@ -1,9 +1,9 @@
-import { createRadio } from './ble.js?v=20261109-1';
-import { openKeepAlive } from './keep-alive.js?v=20261109-1';
-import { patternsFor } from './patterns.js?v=20261109-1';
-import { cutoffFrom, describeOutput, formatKpa, gaugeScale } from './protocol.js?v=20261109-1';
-import { createSession, formatClock } from './session.js?v=20261109-1';
-import { createVacuGlide } from './vacuglide.js?v=20261109-1';
+import { createRadio } from './ble.js?v=20261109-2';
+import { openKeepAlive } from './keep-alive.js?v=20261109-2';
+import { patternMoves, patternsFor } from './patterns.js?v=20261109-2';
+import { cutoffFrom, describeOutput, formatKpa, gaugeScale } from './protocol.js?v=20261109-2';
+import { createSession, formatClock } from './session.js?v=20261109-2';
+import { createVacuGlide } from './vacuglide.js?v=20261109-2';
 
 const KEY = 'solo.v1';
 const TOKEN_KEY = 'solo.vg-token';
@@ -31,6 +31,7 @@ let sentKey = '';
 let closeKeepAlive = null;
 let clock = null;
 let clockFallback = 0;
+let lastTickAt = 0;
 let runningView = null;
 
 if (new URLSearchParams(location.search).has('test')) settings.testMode = true;
@@ -196,8 +197,10 @@ function paintLinks() {
   $('stroke-row').hidden = settings.toy !== 'vacuglide';
   $('power-label').textContent = settings.toy === 'vacuglide' ? 'Max speed' : 'Max power';
   $('setup-power-label').textContent = settings.toy === 'vacuglide' ? 'Default max speed' : 'Default max power';
-  $('chart-b-wrap').hidden = settings.toy !== 'opossum';
-  $('chart-a-label').textContent = settings.toy === 'opossum' ? 'Channel A' : settings.toy === 'lush' ? 'Level' : 'Speed';
+  $('chart-b-wrap').hidden = settings.toy === 'lush';
+  $('chart-a-label').textContent = settings.toy === 'opossum' ? 'Channel A' : settings.toy === 'lush' ? 'Level' : 'Stroke';
+  $('chart-b-label').textContent = settings.toy === 'vacuglide' ? 'Speed' : 'Channel B';
+  $('change-toy-name').textContent = NAMES[settings.toy];
   $('civet-block').hidden = !settings.civet;
   $('test-pressure-wrap').hidden = !settings.testMode || !settings.civet;
   $('pattern-title').textContent = NAMES[settings.toy].toUpperCase();
@@ -307,35 +310,71 @@ function showScreen(next) {
   history.replaceState(null, '', url);
 }
 
+function strokeWave(elapsedMs, speed) {
+  if (!(speed > 0)) return 0;
+  const period = Math.max(360, 2200 - speed * 16);
+  const t = ((elapsedMs % period) + period) % period / period;
+  return (t < 0.5 ? t * 2 : (1 - t) * 2) * 100;
+}
+
+function visualChannels(view) {
+  if (settings.toy !== 'vacuglide') return { a: view.channels.a, b: view.channels.b };
+  const speed = view.phase === 'playing' ? view.channels.a : 0;
+  return { a: strokeWave(view.durationMs, speed), b: speed };
+}
+
 function drawChart(canvas, values) {
-  const dpr = window.devicePixelRatio || 1;
-  const width = canvas.clientWidth || 140;
-  const height = canvas.clientHeight || 54;
-  canvas.width = Math.max(1, Math.floor(width * dpr));
-  canvas.height = Math.max(1, Math.floor(height * dpr));
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const parent = canvas.parentElement?.getBoundingClientRect();
+  const width = Math.max(120, Math.floor((parent?.width || 160) - 20));
+  const height = 54;
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+  canvas.width = Math.floor(width * dpr);
+  canvas.height = Math.floor(height * dpr);
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (values.length < 2) return;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = Math.max(16, max - min);
+  const mid = (min + max) / 2;
+  const lo = mid - span / 2;
+  const hi = mid + span / 2;
+  const mapY = (value) => {
+    const t = (Math.max(lo, Math.min(hi, value)) - lo) / (hi - lo);
+    return canvas.height - t * (canvas.height - 8 * dpr) - 4 * dpr;
+  };
   ctx.beginPath();
   ctx.strokeStyle = '#f0a06a';
-  ctx.lineWidth = 2 * dpr;
+  ctx.lineWidth = 2.5 * dpr;
   ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
   values.forEach((value, index) => {
     const x = (index / (values.length - 1)) * canvas.width;
-    const y = canvas.height - (Math.max(0, Math.min(100, value)) / 100) * (canvas.height - 6 * dpr) - 3 * dpr;
+    const y = mapY(value);
     if (index === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
   ctx.stroke();
+  const last = values[values.length - 1];
+  ctx.beginPath();
+  ctx.fillStyle = '#ffd7bf';
+  ctx.arc(canvas.width - 2 * dpr, mapY(last), 3.5 * dpr, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function pushCharts(view) {
-  charts.a.push(view.channels.a);
-  charts.b.push(view.channels.b);
+  const visual = visualChannels(view);
+  charts.a.push(visual.a);
+  charts.b.push(visual.b);
   if (charts.a.length > 48) charts.a.shift();
   if (charts.b.length > 48) charts.b.shift();
-  $('chart-a-value').textContent = `${Math.round(view.channels.a)}%`;
-  $('chart-b-value').textContent = `${Math.round(view.channels.b)}%`;
+  $('chart-a-value').textContent = `${Math.round(visual.a)}%`;
+  $('chart-b-value').textContent = `${Math.round(visual.b)}%`;
+  const meter = (id, value) => { $(id).style.width = `${Math.max(0, Math.min(100, value))}%`; };
+  meter('meter-a', visual.a);
+  meter('meter-b', visual.b);
   drawChart($('chart-a'), charts.a);
   drawChart($('chart-b'), charts.b);
 }
@@ -465,6 +504,7 @@ function ensureClock() {
   try {
     clock = new Worker(new URL('./clock.worker.js', import.meta.url));
     clock.onmessage = (event) => onTick(event.data.now, event.data.gap);
+    clock.onerror = () => { clock = null; };
   } catch {
     clock = null;
   }
@@ -472,16 +512,15 @@ function ensureClock() {
 
 function startClock() {
   ensureClock();
+  lastTickAt = Date.now();
   if (clock) clock.postMessage('start');
-  else {
-    let last = 0;
-    clockFallback = window.setInterval(() => {
-      const now = Date.now();
-      const gap = last ? now - last : 0;
-      last = now;
-      onTick(now, gap);
-    }, 100);
-  }
+  if (clockFallback) clearInterval(clockFallback);
+  // If the worker never delivers a tick, keep sampling here so the charts still move.
+  clockFallback = window.setInterval(() => {
+    if (!runningView?.running) return;
+    if (Date.now() - lastTickAt < 180) return;
+    onTick(Date.now(), 100);
+  }, 100);
 }
 
 function stopClock() {
@@ -550,8 +589,11 @@ function applyView(view, force = false) {
 }
 
 function onTick(now, gap) {
+  lastTickAt = Date.now();
   if (settings.testMode && settings.civet) session.notePressure(testPressure, now);
-  const view = session.tick(now, gap);
+  // A hidden-tab hitch must not zero the test charts. Real Opossum still faults above 500 ms.
+  const timed = settings.testMode ? Math.min(gap, 200) : gap;
+  const view = session.tick(now, timed);
   applyView(view, false);
 }
 
@@ -562,8 +604,16 @@ async function startSession() {
   }
   notice('');
   syncSession();
+  if ((profile().power || 0) <= 0) {
+    notice('Max power is 0%, so output stays at zero. Raise the slider.');
+  }
+  charts.a = [];
+  charts.b = [];
   if (settings.testMode && settings.civet) session.notePressure(testPressure, Date.now());
   const view = session.start(Date.now());
+  if ((profile().power || 0) > 0 && settings.toy !== 'vacuglide' && view.activePatternId && !patternMoves(settings.toy, view.activePatternId)) {
+    notice('This pattern holds a constant level, so the line stays flat. Pick a moving one, or leave Random able to choose one.');
+  }
   sentKey = '';
   try { closeKeepAlive = openKeepAlive(); } catch { closeKeepAlive = null; }
   startClock();
@@ -623,6 +673,10 @@ function guard(fn) {
 
 function bind() {
   $('screen-toggle').addEventListener('click', () => showScreen(screen === 'play' ? 'setup' : 'play'));
+  $('change-toy').addEventListener('click', () => {
+    showScreen('setup');
+    document.querySelector('.pick')?.scrollIntoView({ block: 'center' });
+  });
   $('continue-play').addEventListener('click', () => showScreen('play'));
   $('start').addEventListener('click', guard(startSession));
   $('stop').addEventListener('click', guard(stopSession));

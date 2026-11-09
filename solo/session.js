@@ -4,7 +4,7 @@
  * `now` is always supplied by the caller so tests can step the clock.
  */
 
-import { patternById, patternsFor } from './patterns.js';
+import { patternById, patternMoves, patternsFor } from './patterns.js';
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
@@ -59,12 +59,20 @@ export function createSession(random = Math.random) {
     return chosen.length ? chosen : all;
   }
 
+  function pickFrom(list, exclude) {
+    const options = exclude ? list.filter((id) => id !== exclude) : list;
+    const choices = options.length ? options : list;
+    const index = Math.min(choices.length - 1, Math.floor(random() * choices.length));
+    return choices[index];
+  }
+
   function pick(exclude) {
-    const all = pool();
-    const options = exclude ? all.filter((id) => id !== exclude) : all;
-    const list = options.length ? options : all;
-    const index = Math.min(list.length - 1, Math.floor(random() * list.length));
-    return list[index];
+    return pickFrom(pool(), exclude);
+  }
+
+  function pickMoving(exclude) {
+    const moving = pool().filter((id) => patternMoves(cfg.toy, id));
+    return pickFrom(moving.length ? moving : pool(), exclude);
   }
 
   function freeze(now) {
@@ -170,7 +178,7 @@ export function createSession(random = Math.random) {
       live.patternAnchor = now;
       live.expectPulse = false;
       if (cfg.toy !== 'vacuglide') {
-        if (cfg.mode === 'random') live.activeId = pick(live.activeId);
+        if (cfg.mode === 'random') live.activeId = pickMoving(live.activeId);
         else live.activeId = cfg.mode;
       }
       const cutoff = Number(cfg.cutoff);

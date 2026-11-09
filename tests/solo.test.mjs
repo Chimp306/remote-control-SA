@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { OPOSSUM_PATTERNS, patternById } from '../solo/patterns.js';
+import { OPOSSUM_PATTERNS, patternById, patternMoves } from '../solo/patterns.js';
 import { cutoffFrom, describeOutput, formatKpa, lushFrame, opossumFrames, parseCivetPressure, vacuglideUrl } from '../solo/protocol.js';
 import { createSession, formatClock } from '../solo/session.js';
 import { createVacuGlide } from '../solo/vacuglide.js';
@@ -19,6 +19,25 @@ test('cutoff sits halfway between the half and full readings', () => {
   assert.equal(cutoffFrom(20.28, 20.55), 20.42);
   assert.equal(cutoffFrom(12, 20), 16);
   assert.equal(cutoffFrom(Number.NaN, 20), null);
+});
+
+test('Random starts on a pattern whose level actually changes', () => {
+  assert.equal(patternMoves('opossum', 'static'), false);
+  assert.equal(patternMoves('opossum', 'chase'), true);
+  assert.equal(patternMoves('lush', 'steady'), false);
+  assert.equal(patternMoves('lush', 'wave'), true);
+  const session = createSession(() => 0.99);
+  session.configure({
+    toy: 'opossum',
+    civet: false,
+    mode: 'random',
+    include: ['static', 'chase'],
+    power: 80,
+  });
+  const started = session.start(0);
+  assert.equal(started.activePatternId, 'chase');
+  const later = session.tick(900, 100);
+  assert.notEqual(Math.round(later.channels.a), Math.round(started.channels.a));
 });
 
 test('chase is the old A-then-B bump and the other patterns keep the channels apart', () => {
