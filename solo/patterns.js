@@ -319,3 +319,21 @@ export function patternsFor(toy) {
 export function patternById(toy, id) {
   return patternsFor(toy).find((pattern) => pattern.id === id) || patternsFor(toy)[0];
 }
+
+/** True when the level travels in the first moment of play, not only after a long hold. */
+export function patternMoves(toy, id) {
+  const pattern = patternById(toy, id);
+  let minA = Infinity;
+  let maxA = -Infinity;
+  let minB = Infinity;
+  let maxB = -Infinity;
+  for (let elapsed = 0; elapsed <= 1500; elapsed += 50) {
+    const sample = pattern.sample(elapsed);
+    minA = Math.min(minA, sample.a);
+    maxA = Math.max(maxA, sample.a);
+    minB = Math.min(minB, sample.b);
+    maxB = Math.max(maxB, sample.b);
+  }
+  const travel = toy === 'lush' ? maxA - minA : Math.max(maxA - minA, maxB - minB);
+  return travel >= 0.25;
+}

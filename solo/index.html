@@ -9,7 +9,7 @@
   <meta name="description" content="SOLO manual control.">
   <link rel="icon" href="/favicon.ico">
   <title>SOLO</title>
-  <link rel="stylesheet" href="./app.css?v=20261109-1">
+  <link rel="stylesheet" href="./app.css?v=20261109-2">
 </head>
 <body>
   <div id="app" class="app" data-phase="idle" data-edges="0">
@@ -23,6 +23,10 @@
     <p id="notice" class="notice" role="status" hidden></p>
 
     <section id="play-screen">
+      <button id="change-toy" class="change-toy" type="button">
+        <span id="change-toy-name">Opossum</span>
+        <span>Change toy</span>
+      </button>
       <div class="status-row">
         <article class="status-card">
           <header>
@@ -120,10 +124,12 @@
           <div class="charts">
             <article class="chart" id="chart-a-wrap">
               <header><span id="chart-a-label">Channel A</span><b id="chart-a-value">0%</b></header>
+              <div class="meter" aria-hidden="true"><i id="meter-a"></i></div>
               <canvas id="chart-a" width="280" height="80"></canvas>
             </article>
             <article class="chart" id="chart-b-wrap">
               <header><span id="chart-b-label">Channel B</span><b id="chart-b-value">0%</b></header>
+              <div class="meter" aria-hidden="true"><i id="meter-b"></i></div>
               <canvas id="chart-b" width="280" height="80"></canvas>
             </article>
           </div>
@@ -221,6 +227,6 @@
 
     <p id="footer" class="foot">CONCEPT D · HYBRID</p>
   </div>
-  <script type="module" src="./app.js?v=20261109-1"></script>
+  <script type="module" src="./app.js?v=20261109-2"></script>
 </body>
 </html>
