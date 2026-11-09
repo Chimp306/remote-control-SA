@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#12291e">
+  <meta name="description" content="SOLO 02 — a personal device control studio. One device. Your rhythm.">
+  <meta name="robots" content="noindex,nofollow">
+  <title>SOLO 02 · Your control studio</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="SOLO 02 home"><span class="brand-icon" aria-hidden="true"><i></i><i></i><i></i></span>SOLO<span class="edition">02</span></a>
+      <nav class="tabs" role="tablist" aria-label="Views"><button id="setup-tab" class="tab" role="tab" aria-controls="setup-view" aria-selected="true">Setup</button><button id="play-tab" class="tab" role="tab" aria-controls="play-view" aria-selected="false">Session</button></nav>
+      <label class="test-toggle"><input id="test-toggle" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Test mode</span></label>
+    </header>
+
+    <div id="test-banner" class="test-banner" hidden><span class="test-badge">TEST</span> A playground for your controls. No hardware output.<button id="demo-loop" class="text-button">Run a demo loop <span aria-hidden="true">↗</span></button></div>
+    <div id="notice" class="notice" role="status" hidden></div>
+
+    <main>
+      <section id="setup-view" role="tabpanel" aria-labelledby="setup-tab">
+        <div class="page-heading"><div><p class="eyebrow">YOUR PERSONAL CONTROL STUDIO</p><h1 id="setup-heading">Make it <em>yours.</em></h1><p class="intro">One device. Your rhythm. Everything within reach.</p></div><span class="chapter">01 / SETUP</span></div>
+        <div class="setup-grid">
+          <section class="panel equipment-panel">
+            <div class="section-title"><span class="section-number">01</span><h2>Choose your device</h2><span class="micro">ONE AT A TIME</span></div>
+            <div class="device-choices" role="group" aria-label="Stimulation device">
+              <button class="device-choice" data-toy="lush" aria-pressed="false"><svg viewBox="0 0 64 48" aria-hidden="true"><path d="M29 32c-18 0-15-24 1-24 15 0 17 24-1 24Z"/><path d="M40 25c7 8 15 8 14-2"/></svg><strong>Lush Mini</strong><span>Lovense · Bluetooth</span><i class="selection-dot"></i></button>
+              <button class="device-choice" data-toy="opossum" aria-pressed="true"><svg viewBox="0 0 64 48" aria-hidden="true"><rect x="16" y="9" width="32" height="30" rx="9"/><path d="M25 9V3m14 6V3M25 20v8m14-8v8"/></svg><strong>Opossum</strong><span>DG LAB · Dual channel</span><i class="selection-dot"></i></button>
+              <button class="device-choice" data-toy="vacuglide" aria-pressed="false"><svg viewBox="0 0 64 48" aria-hidden="true"><rect x="10" y="13" width="44" height="23" rx="9"/><path d="M23 13v23m18-23v23M27 25h10m-6-4-4 4 4 4"/></svg><strong>Vacuglide</strong><span>Autoblow · Cloud</span><i class="selection-dot"></i></button>
+            </div>
+            <div id="token-panel" class="token-panel" hidden><label for="device-token">Device token</label><div class="input-with-button"><input id="device-token" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your token for this session"><button id="show-token" class="small-button" aria-label="Show device token">Show</button></div><label class="checkbox-label"><input id="remember-token" type="checkbox">Remember token on this browser</label><p class="help">Sent only to the Autoblow API. Remembered tokens are stored on this device.</p></div>
+            <div class="connection-row"><div><span id="toy-status-light" class="status-dot"></span><strong id="toy-connection-name">Opossum</strong><span id="toy-status" class="connection-status">Disconnected</span></div><div class="connection-buttons"><button id="toy-connect" class="small-button solid">Connect</button><button id="toy-reconnect" class="small-button" title="Reconnect the selected device">Reconnect</button><button id="toy-disconnect" class="icon-button" aria-label="Disconnect selected device" title="Disconnect">⏻</button></div></div>
+            <div class="setting-row"><div><h3>Pressure control</h3><p>Let Civet signal when it’s time to rest.</p></div><label class="toggle-only"><input id="civet-enabled" type="checkbox" checked aria-label="Use Civet pressure sensor"><span class="switch" aria-hidden="true"></span></label></div>
+            <div id="civet-connection" class="connection-row"><div><span id="civet-status-light" class="status-dot"></span><strong>Civet</strong><span id="civet-status" class="connection-status">Disconnected</span></div><div class="connection-buttons"><button id="civet-connect" class="small-button solid">Connect</button><button id="civet-reconnect" class="small-button">Reconnect</button><button id="civet-disconnect" class="icon-button" aria-label="Disconnect Civet" title="Disconnect">⏻</button></div></div>
+            <div id="hardware-setting" class="hardware-setting"><label for="hardware-cap">Opossum hardware ceiling <strong id="hardware-cap-value">40% · 80 / 200</strong></label><input id="hardware-cap" type="range" min="0" max="100" step="1" value="40"><p class="help">Session power works within this ceiling. Start low when connecting hardware.</p></div>
+          </section>
+
+          <section id="calibration-panel" class="panel calibration-panel">
+            <div class="section-title"><span class="section-number">02</span><h2>Find your range</h2><span class="micro">CIVET</span></div>
+            <div class="calibration-live"><span class="live-caption"><span class="status-dot" id="calibration-dot"></span>LIVE PRESSURE</span><div><span id="setup-pressure">—</span><small>kPa</small></div><p>Capture the current reading, or enter it yourself.</p></div>
+            <div class="calibration-fields">
+              <div class="calibration-row"><div><strong>Zero</strong><span>No load</span></div><label class="number-unit"><input id="cal-zero" type="number" step="0.01" aria-label="Zero pressure"><span>kPa</span></label><button data-capture="zero" class="small-button">Capture</button></div>
+              <div class="calibration-row"><div><strong>Baseline</strong><span>Under load, relaxed</span></div><label class="number-unit"><input id="cal-baseline" type="number" step="0.01" aria-label="Baseline pressure"><span>kPa</span></label><button data-capture="baseline" class="small-button">Capture</button></div>
+              <div class="calibration-row"><div><strong>Half clench</strong><span>Your middle point</span></div><label class="number-unit"><input id="cal-half" type="number" step="0.01" aria-label="Half clench pressure"><span>kPa</span></label><button data-capture="half" class="small-button">Capture</button></div>
+              <div class="calibration-row"><div><strong>Full clench</strong><span>Your upper point</span></div><label class="number-unit"><input id="cal-full" type="number" step="0.01" aria-label="Full clench pressure"><span>kPa</span></label><button data-capture="full" class="small-button">Capture</button></div>
+            </div>
+            <div class="calibration-cutoff"><div><strong>Your cutoff</strong><p>Halfway between Half and Full, or your own value.</p></div><label class="number-unit"><input id="setup-cutoff" type="number" step="0.01" aria-label="Calibrated cutoff"><span>kPa</span></label></div>
+            <button id="recalculate" class="text-button">↻ Use calculated midpoint</button>
+          </section>
+        </div>
+        <div class="setup-footer"><p><span aria-hidden="true">◈</span> Settings stay in this browser. No account. No analytics.</p><button id="open-session" class="primary-button">Go to session <span aria-hidden="true">↗</span></button></div>
+        <details class="connection-help"><summary>Connection & background operation</summary><p>Bluetooth needs HTTPS and a compatible browser, such as Chrome or Edge on desktop or Chrome on Android. Connect one output device and, optionally, Civet. Reconnection restores the link at zero; press Start to begin again.</p><p>A Worker drives the 100 ms clock. Tab switching does not deliberately pause the session, but browser or operating-system suspension cannot be prevented. A missed control heartbeat or stale pressure sample faults the session. Keep the device’s physical stop within reach, especially for cloud control; network delays can delay a stop command.</p></details>
+      </section>
+
+      <section id="play-view" role="tabpanel" aria-labelledby="play-tab" hidden>
+        <div class="page-heading session-heading"><div><p class="eyebrow">YOUR SPACE. YOUR PACE.</p><h1 id="play-heading">Set the <em>rhythm.</em></h1></div><button id="change-toy" class="change-toy"><span id="active-toy">Opossum + Civet</span><span>Change toy ↗</span></button></div>
+        <div class="session-grid">
+          <section class="output-panel" aria-label="Device output">
+            <div class="output-header"><span class="micro">OUTPUT STUDIO</span><span id="session-connection" class="device-pill"><i class="status-dot"></i><span>Not connected</span></span></div>
+            <div class="pattern-heading"><div><p id="pattern-kicker">RANDOM ROTATION</p><h2 id="current-pattern">Ready when you are.</h2><p id="pattern-description">Connect your device, set a limit, and find your rhythm.</p></div><span class="studio-symbol" aria-hidden="true">∿</span></div>
+            <div id="ab-chart" class="chart-wrap"><div class="chart-label"><span><i class="legend-dot channel-a"></i><span id="channel-a-label">CHANNEL A</span></span><strong id="channel-a-value">0<small>%</small></strong></div><canvas id="chart-a" height="90" aria-label="Channel A output history"></canvas><div id="channel-b-wrap"><div class="chart-label"><span><i class="legend-dot channel-b"></i>CHANNEL B</span><strong id="channel-b-value">0<small>%</small></strong></div><canvas id="chart-b" height="90" aria-label="Channel B output history"></canvas></div><div class="chart-axis"><span>12 SECONDS AGO</span><span>LIVE <i class="live-dot"></i></span></div></div>
+            <div id="pattern-controls" class="pattern-controls"><label class="dark-select"><span>Pattern</span><select id="pattern-select" aria-label="Output pattern"></select><span aria-hidden="true">⌄</span></label><button id="random-includes" class="dark-button">Random includes (22 of 22) <span>↗</span></button></div>
+            <div class="power-control"><div><label id="power-label" for="max-power">Max power</label><span id="power-hint">Within your hardware ceiling</span></div><output id="max-power-value" for="max-power">55<small>%</small></output><input id="max-power" type="range" min="0" max="100" value="55" aria-label="Maximum power"><div class="range-labels"><span>0%</span><span id="power-ceiling-label">100%</span></div></div>
+            <div id="stroke-controls" class="stroke-controls" hidden><div><strong>Stroke length</strong><span id="stroke-value">Adjust on device</span></div><button id="stroke-minus" class="dark-button" aria-label="Decrease stroke length">−</button><button id="stroke-plus" class="dark-button" aria-label="Increase stroke length">+</button></div>
+          </section>
+
+          <div class="session-sidebar">
+            <section id="pressure-panel" class="panel pressure-panel"><div class="section-title"><h2>Pressure</h2><span id="pressure-status" class="micro">WAITING FOR CIVET</span></div><div class="pressure-reading"><strong id="live-pressure">—</strong><span>kPa</span></div><div class="gauge-track"><div id="pressure-fill" class="gauge-fill"></div><div id="cutoff-marker" class="cutoff-marker"><span>CUTOFF</span></div></div><div class="gauge-scale"><span id="gauge-low">19.00</span><span id="gauge-high">22.00 kPa</span></div><div class="cutoff-control"><div><label for="live-cutoff">Rest at</label><span>kPa cutoff</span></div><div class="stepper"><button id="cutoff-minus" aria-label="Decrease cutoff by 0.1 kPa">−</button><input id="live-cutoff" type="number" step="0.01" value="20.50" aria-label="Pressure cutoff"><button id="cutoff-plus" aria-label="Increase cutoff by 0.1 kPa">+</button></div></div><div class="rest-controls"><div><label for="rest-min">Rest window</label><span>Randomly chosen at each edge</span></div><div class="rest-inputs"><label><input id="rest-min" type="number" min="1" max="600" value="10" aria-label="Minimum rest seconds"><span>min</span></label><span class="rest-dash">—</span><label><input id="rest-max" type="number" min="1" max="600" value="30" aria-label="Maximum rest seconds"><span>max</span></label><span class="seconds-unit">sec</span></div></div></section>
+            <section id="no-sensor-panel" class="panel no-sensor-panel" hidden><span class="large-mark" aria-hidden="true">∞</span><h2>Free-running.</h2><p>Your pattern runs until you press Stop. Add Civet in Setup for automatic rests.</p></section>
+            <section class="stats-panel" aria-label="Session statistics"><div><span>SESSION TIME</span><strong id="session-time">00:00</strong></div><div><span>EDGES</span><strong id="edge-count">0</strong></div></section>
+            <section id="phase-card" class="phase-card"><span id="phase-icon" aria-hidden="true">◌</span><div><strong id="phase-title">All at your pace.</strong><p id="phase-detail">Press Start when you’re ready.</p></div><strong id="rest-countdown" hidden>00</strong><div id="rest-progress" class="rest-progress"></div></section>
+          </div>
+        </div>
+        <section id="test-controls" class="test-controls" hidden><div><span class="test-badge">TEST</span><h3>Your virtual Civet</h3><p>Move the slider past the cutoff to trigger a rest.</p></div><div class="fake-pressure-control"><label for="fake-pressure">Simulated pressure <output id="fake-pressure-value">19.80 kPa</output></label><input id="fake-pressure" type="range" min="18" max="23" step="0.01" value="19.80"></div><button id="test-cross" class="small-button">Cross cutoff ↗</button><button id="test-release" class="small-button">Release ↓</button></section>
+        <div class="session-footnote"><span><i class="status-dot connected"></i><span id="clock-status">Worker clock · 100 ms</span></span><span>Stop is always in your hands.</span></div>
+      </section>
+    </main>
+    <footer class="footer"><span>SOLO 02</span><span>A little space for yourself.</span><span>LOCAL SETTINGS · PRIVATE BY DESIGN</span></footer>
+  </div>
+  <div id="transport" class="transport" hidden><div class="transport-inner"><div class="transport-state"><span id="transport-dot" class="status-dot"></span><div><strong id="transport-state">Ready</strong><span id="transport-detail">Output is at zero</span></div></div><div class="transport-buttons"><button id="start" class="start-button"><span aria-hidden="true">▶</span> Start session</button><button id="stop" class="stop-button"><span aria-hidden="true">■</span> Stop</button></div></div></div>
+  <dialog id="pattern-dialog"><div class="dialog-heading"><div><p class="eyebrow">MAKE RANDOM YOURS</p><h2>Your rotation.</h2></div><button id="close-patterns" class="icon-button" aria-label="Close pattern selector">×</button></div><p>Choose the patterns you want in the mix. A different one follows each edge when at least two are selected.</p><div class="dialog-tools"><strong id="included-count">22 selected</strong><button id="select-all" class="text-button">Select all</button><button id="select-none" class="text-button">None</button></div><div id="pattern-options" class="pattern-options"></div><p id="empty-pool" class="help" hidden>Select at least one pattern to start Random.</p><button id="done-patterns" class="primary-button">Done <span>✓</span></button></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <noscript><p class="notice">SOLO 02 needs JavaScript to run its controls.</p></noscript>
+</body>
+</html>
