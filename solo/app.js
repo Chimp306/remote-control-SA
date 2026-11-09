@@ -1,9 +1,9 @@
-import { createRadio } from './ble.js?v=20261109-2';
-import { openKeepAlive } from './keep-alive.js?v=20261109-2';
-import { patternMoves, patternsFor } from './patterns.js?v=20261109-2';
-import { cutoffFrom, describeOutput, formatKpa, gaugeScale } from './protocol.js?v=20261109-2';
-import { createSession, formatClock } from './session.js?v=20261109-2';
-import { createVacuGlide } from './vacuglide.js?v=20261109-2';
+import { createRadio } from './ble.js?v=20261109-3';
+import { openKeepAlive } from './keep-alive.js?v=20261109-3';
+import { patternMoves, patternsFor } from './patterns.js?v=20261109-3';
+import { cutoffFrom, describeOutput, formatKpa, gaugeScale } from './protocol.js?v=20261109-3';
+import { createSession, formatClock } from './session.js?v=20261109-3';
+import { createVacuGlide } from './vacuglide.js?v=20261109-3';
 
 const KEY = 'solo.v1';
 const TOKEN_KEY = 'solo.vg-token';
@@ -211,48 +211,62 @@ function paintSlider(input, value) {
   input.style.background = `linear-gradient(90deg, #8dce8a, #e6b15a, #ff7a3c ${shown}%, #3a3942 ${shown}%)`;
 }
 
-function paintPatterns() {
-  const grid = $('pattern-grid');
-  const select = $('setup-pattern');
-  grid.replaceChildren();
-  select.replaceChildren();
-  if (settings.toy === 'vacuglide') return;
-  const mode = profile().mode || 'random';
-  const include = profile().include || {};
-  const random = document.createElement('div');
-  random.className = `chip${mode === 'random' ? ' is-on' : ''}`;
-  random.style.gridColumn = '1 / -1';
-  const randomButton = document.createElement('button');
-  randomButton.type = 'button';
-  randomButton.textContent = 'Random';
-  randomButton.addEventListener('click', () => setMode('random'));
-  random.append(randomButton);
-  grid.append(random);
-  const randomOption = document.createElement('option');
-  randomOption.value = 'random';
-  randomOption.textContent = 'Random';
-  select.append(randomOption);
+function includeMap() {
+  const include = { ...(profile().include || {}) };
   for (const pattern of patternsFor(settings.toy)) {
-    const chip = document.createElement('div');
-    chip.className = `chip${mode === pattern.id ? ' is-on' : ''}`;
+    if (include[pattern.id] == null) include[pattern.id] = true;
+  }
+  return include;
+}
+
+function includeCount() {
+  const patterns = patternsFor(settings.toy);
+  const include = profile().include || {};
+  const selected = patterns.filter((pattern) => include[pattern.id] !== false).length;
+  return { selected, total: patterns.length };
+}
+
+function paintPatterns() {
+  const playSelect = $('play-pattern');
+  const setupSelect = $('setup-pattern');
+  const list = $('include-list');
+  playSelect.replaceChildren();
+  setupSelect.replaceChildren();
+  list.replaceChildren();
+  if (settings.toy === 'vacuglide') {
+    $('include-open').textContent = 'Random includes';
+    return;
+  }
+  const mode = profile().mode || 'random';
+  const include = includeMap();
+  const addOption = (parent, value, label) => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    parent.append(option);
+  };
+  addOption(playSelect, 'random', 'Random');
+  addOption(setupSelect, 'random', 'Random');
+  for (const pattern of patternsFor(settings.toy)) {
+    addOption(playSelect, pattern.id, pattern.label);
+    addOption(setupSelect, pattern.id, pattern.label);
+    const row = document.createElement('label');
+    row.className = 'include-row';
     const box = document.createElement('input');
     box.type = 'checkbox';
     box.checked = include[pattern.id] !== false;
-    box.ariaLabel = `Include ${pattern.label} in Random`;
-    box.addEventListener('click', (event) => event.stopPropagation());
-    box.addEventListener('change', () => toggleInclude(pattern.id, box));
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = pattern.label;
-    button.addEventListener('click', () => setMode(pattern.id));
-    chip.append(box, button);
-    grid.append(chip);
-    const option = document.createElement('option');
-    option.value = pattern.id;
-    option.textContent = pattern.label;
-    select.append(option);
+    box.addEventListener('change', () => setIncluded(pattern.id, box.checked));
+    const name = document.createElement('span');
+    name.textContent = pattern.label;
+    row.append(box, name);
+    list.append(row);
   }
-  select.value = mode;
+  playSelect.value = mode;
+  setupSelect.value = mode;
+  const count = includeCount();
+  const summary = `Random includes (${count.selected} of ${count.total})`;
+  $('include-open').textContent = summary;
+  $('include-count').textContent = `${count.selected} of ${count.total} ticked`;
 }
 
 function paintCalibration() {
@@ -423,19 +437,34 @@ function setMode(mode) {
   if (runningView?.running) applyView(session.tick(Date.now(), 0), true);
 }
 
-function toggleInclude(id, box) {
-  const all = patternsFor(settings.toy).map((pattern) => pattern.id);
-  const include = { ...(profile().include || {}) };
-  for (const patternId of all) if (include[patternId] == null) include[patternId] = true;
-  include[id] = box.checked;
-  if (!all.some((patternId) => include[patternId] !== false)) {
-    include[id] = true;
-    box.checked = true;
-    notice('Random needs at least one pattern.');
-  } else if ($('notice').textContent === 'Random needs at least one pattern.') notice('');
+function writeInclude(include) {
   profile().include = include;
   save();
   syncSession();
+  paintPatterns();
+}
+
+function setIncluded(id, checked) {
+  const include = includeMap();
+  include[id] = checked;
+  writeInclude(include);
+}
+
+function setIncludeAll(checked) {
+  const include = {};
+  for (const pattern of patternsFor(settings.toy)) include[pattern.id] = checked;
+  writeInclude(include);
+}
+
+function openIncludeSheet() {
+  if (settings.toy === 'vacuglide') return;
+  $('include-sheet').hidden = false;
+  $('include-done').focus();
+}
+
+function closeIncludeSheet() {
+  $('include-sheet').hidden = true;
+  $('include-open').focus();
 }
 
 function setCutoff(value, manual) {
@@ -703,6 +732,7 @@ function bind() {
       settings.toy = id;
       charts.a = [];
       charts.b = [];
+      closeIncludeSheet();
       save();
       syncSession();
       paintPatterns();
@@ -729,6 +759,15 @@ function bind() {
     }
   });
   $('setup-pattern').addEventListener('change', () => setMode($('setup-pattern').value));
+  $('play-pattern').addEventListener('change', () => setMode($('play-pattern').value));
+  $('include-open').addEventListener('click', openIncludeSheet);
+  $('include-backdrop').addEventListener('click', closeIncludeSheet);
+  $('include-done').addEventListener('click', closeIncludeSheet);
+  $('include-all').addEventListener('click', () => setIncludeAll(true));
+  $('include-none').addEventListener('click', () => setIncludeAll(false));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !$('include-sheet').hidden) closeIncludeSheet();
+  });
   const onPower = (value) => {
     profile().power = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
     save();
